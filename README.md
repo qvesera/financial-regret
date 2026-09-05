@@ -1,9 +1,7 @@
-<!-- # Library Aggregator (frontend + serverless)
+# Library Aggregator (frontend + serverless)
 
 Aggregates a game library across Steam, GOG, and Epic Games, showing
-total value in ₹ via IsThereAnyDeal pricing. No server to host or manage —
-a static frontend plus a handful of serverless functions that hold API
-keys. No history/database — each scan is a live snapshot.
+total value in ₹ via IsThereAnyDeal pricing. 
 
 ## Deploying (Vercel)
 
@@ -12,7 +10,8 @@ keys. No history/database — each scan is a live snapshot.
 3. In the Vercel project's **Settings → Environment Variables**, add:
    - `STEAM_API_KEY` — from https://steamcommunity.com/dev/apikey
    - `ITAD_API_KEY` — from https://isthereanydeal.com/apps/my/
-   - `GOG_CLIENT_ID` / `GOG_CLIENT_SECRET` — optional, defaults to the
+   - `GOG_CLIENT_ID` / `GOG_CLIE
+   NT_SECRET` — optional, defaults to the
      public GOG Galaxy client credentials already in the code (see
      `api/gog_exchange.py` for the source)
    - `EPIC_CLIENT_ID` / `EPIC_CLIENT_SECRET` — optional, defaults to the
@@ -23,7 +22,7 @@ keys. No history/database — each scan is a live snapshot.
 
 You can also run it locally with the Vercel CLI: `npm i -g vercel`,
 then `vercel dev` from this folder.
-
+<!-- 
 ## How linking works
 
 - **Steam**: click "link account" → real Steam login page → redirected
@@ -37,7 +36,7 @@ then `vercel dev` from this folder.
   containing `"authorizationCode"` → copy that value and paste it into
   the form on our page.
 
-Both GOG and Epic's manual-paste step is unavoidable: neither service's
+<!-- Both GOG and Epic's manual-paste step is unavoidable: neither service's
 redirect target is something we control, so there's no way to
 auto-capture the code from a plain website the way Steam's OpenID flow
 allows.
@@ -75,4 +74,4 @@ community-documented OAuth-style flow; Ubisoft has neither.
   https://github.com/Yepoleb/gogapidocs and used by the open-source
   `legendary` project respectively), not something either company issued
   to this app specifically — both integrations are unofficial and could
-  break if either service changes their auth flow. -->
+  break if either service changes their auth flow. --> -->
