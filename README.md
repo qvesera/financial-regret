@@ -1,4 +1,4 @@
-# Library Aggregator (frontend + serverless)
+<!-- # Library Aggregator (frontend + serverless)
 
 Aggregates a game library across Steam, GOG, and Epic Games, showing
 total value in ₹ via IsThereAnyDeal pricing. No server to host or manage —
@@ -75,4 +75,4 @@ community-documented OAuth-style flow; Ubisoft has neither.
   https://github.com/Yepoleb/gogapidocs and used by the open-source
   `legendary` project respectively), not something either company issued
   to this app specifically — both integrations are unofficial and could
-  break if either service changes their auth flow.
+  break if either service changes their auth flow. -->
