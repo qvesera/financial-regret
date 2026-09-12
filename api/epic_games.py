@@ -23,7 +23,7 @@ EPIC_OAUTH_HOST = "account-public-service-prod03.ol.epicgames.com"
 EPIC_LIBRARY_HOST = "library-service.live.use1a.on.epicgames.com"
 EPIC_CLIENT_ID = os.environ.get("EPIC_CLIENT_ID", "34a02cf8f4414e29b15921876da36f9a")
 EPIC_CLIENT_SECRET = os.environ.get("EPIC_CLIENT_SECRET", "daafbccc737745039dffe53d94fc76cf")
-MAX_PAGES = 5  # library API paginates via cursor; cap pages to stay within the time budget
+MAX_PAGES = 50  # library API paginates via cursor; cap pages to stay within the time budget
 
 
 def refresh_access_token(refresh_token: str) -> dict | None:

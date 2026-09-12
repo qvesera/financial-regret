@@ -14,6 +14,7 @@ library is bigger than that, the response includes a 'truncated' flag.
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
@@ -28,7 +29,7 @@ GOG_CLIENT_SECRET = os.environ.get(
     "GOG_CLIENT_SECRET",
     "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9",
 )
-MAX_GAMES = 40  # keep name-resolution calls within the function's time budget
+MAX_WORKERS = 15  # keep name-resolution calls within the function's time budget
 
 
 def refresh_access_token(refresh_token: str) -> dict | None:
@@ -76,14 +77,12 @@ class handler(BaseHTTPRequestHandler):
 
         if resp.status_code != 200:
             send_json(self, 502, {"error": f"GOG API returned {resp.status_code}"})
-            return
-
+            return 
         owned_ids = resp.json().get("owned", [])
-        truncated = len(owned_ids) > MAX_GAMES
-        owned_ids = owned_ids[:MAX_GAMES]
 
         games = []
-        for game_id in owned_ids:
+
+        def fetch_title(game_id):
             try:
                 detail_resp = requests.get(
                     f"{GOG_EMBED_BASE}/account/gameDetails/{game_id}.json",
@@ -93,15 +92,18 @@ class handler(BaseHTTPRequestHandler):
                 title = detail_resp.json().get("title") if detail_resp.status_code == 200 else None
             except (requests.RequestException, json.JSONDecodeError):
                 title = None
+            return game_id, title
 
-            games.append({
-                "name": title or f"GOG Game {game_id}",
-                "appid": game_id,
-                "playtime_hours": 0,
-                "platform": "GOG",
-            })
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            for game_id, title in pool.map(fetch_title, owned_ids):
+                games.append({
+                    "name": title or f"GOG Game {game_id}",
+                    "appid": game_id,
+                    "playtime_hours": 0,
+                    "platform": "GOG",
+                })
 
-        result = {"games": games, "truncated": truncated}
+        result = {"games": games}
         if new_tokens:
             result["new_tokens"] = new_tokens
 

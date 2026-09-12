@@ -240,17 +240,19 @@ async function fetchEpicGames() {
 
   return data.games || [];
 }
-
-async function fetchPrices(titles) {
-  const BATCH_SIZE = 25;
+async function fetchPrices(games) {
+  const BATCH_SIZE = 200;  // matches ITAD's per-request cap
   const prices = {};
 
-  for (let i = 0; i < titles.length; i += BATCH_SIZE) {
-    const batch = titles.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < games.length; i += BATCH_SIZE) {
+    const batch = games.slice(i, i + BATCH_SIZE).map((g) => ({
+      title: g.name,
+      appid: g.platform === "Steam" ? g.appid : null,
+    }));
     const resp = await fetch("/api/prices", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ titles: batch }),
+      body: JSON.stringify({ games: batch }),
     });
     const data = await resp.json();
     Object.assign(prices, data.prices || {});
@@ -309,7 +311,7 @@ document.getElementById("scan-btn").addEventListener("click", async () => {
     }
 
     statusEl.textContent = `Found ${allGames.length} games. Looking up prices...`;
-    const prices = await fetchPrices(allGames.map((g) => g.name));
+    const prices = await fetchPrices(allGames);
 
     statusEl.hidden = true;
     renderResults(allGames, prices);
