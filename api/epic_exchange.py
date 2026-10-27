@@ -1,5 +1,5 @@
 """
-POST /api/epic_exchange   body: {"code": "<authorizationCode pasted from the redirect page>"}
+POST /api/epic_exchange   body: {"code": "<authorizationCode>"}
 
 Exchanges an Epic Games authorization code for an access token + refresh
 token. Uses the publicly-known Epic Games Launcher client credentials
@@ -7,8 +7,10 @@ token. Uses the publicly-known Epic Games Launcher client credentials
 used by the open-source `legendary` project --
 https://github.com/derrod/legendary/blob/master/legendary/api/egs.py).
 Unofficial: Epic could change this without notice.
-"""
 
+Returns the account_id so the frontend can store it and use it for the
+playtime endpoint.
+"""
 import json
 import os
 from http.server import BaseHTTPRequestHandler
@@ -61,4 +63,5 @@ class handler(BaseHTTPRequestHandler):
         send_json(self, 200, {
             "access_token": data.get("access_token"),
             "refresh_token": data.get("refresh_token"),
+            "account_id": data.get("account_id"),
         })

@@ -1,5 +1,5 @@
 """
-POST /api/gog_exchange   body: {"code": "<code pasted from the GOG redirect URL>"}
+POST /api/gog_exchange   body: {"code": "<code>", "redirectUri": "<callback URL>"}
 
 Exchanges a GOG login code for an access token + refresh token. Uses the
 publicly-documented GOG Galaxy client credentials (community-reverse-
@@ -7,8 +7,10 @@ engineered, used by tools like gogdl/Legendary -- see
 https://github.com/Yepoleb/gogapidocs). These aren't secret in the usual
 sense (they're baked into every GOG Galaxy install), but they're kept
 server-side here for consistency and so they're easy to swap out later.
-"""
 
+The ``redirectUri`` must match the ``redirect_uri`` used in the /auth step
+(exact string match is what GOG requires).
+"""
 import os
 from http.server import BaseHTTPRequestHandler
 
@@ -22,7 +24,6 @@ GOG_CLIENT_SECRET = os.environ.get(
     "GOG_CLIENT_SECRET",
     "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9",
 )
-GOG_REDIRECT_URI = "https://embed.gog.com/on_login_success?origin=client"
 
 
 class handler(BaseHTTPRequestHandler):
@@ -41,8 +42,12 @@ class handler(BaseHTTPRequestHandler):
             return
 
         code = payload.get("code")
+        redirect_uri = payload.get("redirectUri")
         if not code:
             send_json(self, 400, {"error": "Missing 'code' in request body"})
+            return
+        if not redirect_uri:
+            send_json(self, 400, {"error": "Missing 'redirectUri' in request body"})
             return
 
         try:
@@ -53,7 +58,7 @@ class handler(BaseHTTPRequestHandler):
                     "client_secret": GOG_CLIENT_SECRET,
                     "grant_type": "authorization_code",
                     "code": code,
-                    "redirect_uri": GOG_REDIRECT_URI,
+                    "redirect_uri": redirect_uri,
                 },
                 timeout=15,
             )
@@ -62,11 +67,15 @@ class handler(BaseHTTPRequestHandler):
             return
 
         if resp.status_code != 200:
-            send_json(self, 401, {"error": "GOG rejected the code (it may be expired -- codes are single-use and short-lived)"})
+            send_json(self, 401, {
+                "error": "GOG rejected the code (it may be expired -- codes are single-use and short-lived)",
+                "detail": resp.text[:200],
+            })
             return
 
         data = resp.json()
         send_json(self, 200, {
             "access_token": data.get("access_token"),
             "refresh_token": data.get("refresh_token"),
+            "user_id": data.get("user_id"),
         })

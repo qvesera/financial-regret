@@ -1,0 +1,8 @@
+{
+  "name": "financial-regret",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test public/js/*.test.mjs tests/js/*.test.mjs"
+  }
+}

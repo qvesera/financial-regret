@@ -3,87 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Library Aggregator</title>
+  <title>regret · your game library</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main>
-    <header>
-      <h1>Your game library</h1>
-      <p class="sub">Steam, GOG, and Epic Games, linked to your own accounts. Nothing runs on any server you have to manage.</p>
-    </header>
-
-    <section class="accounts">
-      <h2>Linked accounts</h2>
-      <ul class="account-list">
-        <li>
-          <span class="platform-name">Steam</span>
-          <span id="steam-status" class="status pending">not linked</span>
-          <a id="steam-link-btn" class="link-action" href="#">link account</a>
-          <a id="steam-unlink-btn" class="link-action" href="#" hidden>unlink</a>
-        </li>
-        <li>
-          <span class="platform-name">GOG</span>
-          <span id="gog-status" class="status pending">not linked</span>
-          <a id="gog-link-btn" class="link-action" href="#">link account</a>
-          <a id="gog-unlink-btn" class="link-action" href="#" hidden>unlink</a>
-        </li>
-        <li>
-          <span class="platform-name">Epic Games</span>
-          <span id="epic-status" class="status pending">not linked</span>
-          <a id="epic-link-btn" class="link-action" href="#">link account</a>
-          <a id="epic-unlink-btn" class="link-action" href="#" hidden>unlink</a>
-        </li>
-      </ul>
-
-      <div id="gog-code-form" class="code-form" hidden>
-        <p>A new tab opened GOG's login page. After logging in, GOG will redirect
-        to a page starting with <code>embed.gog.com/on_login_success</code> —
-        copy the <code>code=</code> value from that page's URL and paste it below.</p>
-        <input id="gog-code-input" type="text" placeholder="Paste the code here">
-        <button id="gog-code-submit" class="button small">Submit</button>
-        <p id="gog-code-error" class="notice" hidden></p>
-      </div>
-
-      <div id="epic-code-form" class="code-form" hidden>
-        <p>A new tab opened Epic's login page. After logging in, you'll land on a
-        page showing raw JSON text — find <code>"authorizationCode"</code> in it
-        and copy just that value (the long string in quotes after it), then paste
-        it below.</p>
-        <input id="epic-code-input" type="text" placeholder="Paste the authorizationCode here">
-        <button id="epic-code-submit" class="button small">Submit</button>
-        <p id="epic-code-error" class="notice" hidden></p>
-      </div>
-    </section>
-
-    <section class="start">
-      <p id="scan-hint">Link at least one account above, then scan to pull your
-      library and current ₹ prices.</p>
-      <button id="scan-btn" class="button">Scan library</button>
-      <p id="scan-status" class="notice" hidden></p>
-    </section>
-
-    <section id="results" hidden>
-      <div class="summary">
-        <div class="stat">
-          <span id="total-count" class="stat-value">0</span>
-          <span class="stat-label">games found</span>
-        </div>
-        <div class="stat">
-          <span id="total-value" class="stat-value">₹0.00</span>
-          <span class="stat-label"><span id="priced-count">0</span> priced</span>
-        </div>
-      </div>
-
-      <table>
-        <thead>
-          <tr><th>Game</th><th>Platform</th><th>Price</th></tr>
-        </thead>
-        <tbody id="games-tbody"></tbody>
-      </table>
-    </section>
-  </main>
-
-  <script src="app.js"></script>
+  <div id="app"></div>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

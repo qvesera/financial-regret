@@ -1,89 +1,53 @@
-# Library Aggregator (runs entirely locally)
+# financial-regret
 
-Aggregates a game library across Steam, GOG, and Epic Games, showing
-total value in ₹ via IsThereAnyDeal pricing. Runs entirely on your own
-machine — no cloud account, no hosting platform, no login of any kind.
-No history/database — each scan is a live snapshot.
+A browser-based dashboard that shows how much you have spent on games versus how much you have actually played them — a "regret" metric, in any currency you choose (INR by default).
 
-## Running it
+**No setup required.** Runs entirely in the browser after connecting your store accounts.
 
-1. Install dependencies:
-   ```
-   pip install -r api/requirements.txt -r requirements-dev.txt
-   ```
-2. Create a `.env` file in the project root:
-   ```
-   STEAM_API_KEY=your_key_here
-   ITAD_API_KEY=your_key_here
-   ```
-   - Steam key: https://steamcommunity.com/dev/apikey
-   - ITAD key: https://isthereanydeal.com/apps/my/
-   - No GOG or Epic key needed — their public client credentials are
-     already in the code (see `api/gog_exchange.py` and
-     `api/epic_exchange.py` for the source), overridable via
-     `GOG_CLIENT_ID`/`GOG_CLIENT_SECRET` and
-     `EPIC_CLIENT_ID`/`EPIC_CLIENT_SECRET` if ever needed.
-3. Run:
-   ```
-   python dev_server.py
-   ```
-4. Open http://localhost:3000
+## Features
 
-This only runs while `dev_server.py` is active in a terminal — it's a
-tool you start when you want to check your library, not an always-on
-website. If you ever want it reachable without manually starting it
-each time, that's a separate step (running it as a background service)
-and not something this setup does out of the box.
+- **Steam, GOG, Epic Games** — Steam auto-redirects (OpenID); GOG and Epic land you on the provider's own domain (neither allows a custom redirect URI for its public client), so the code is collected by paste
+- **Real regret metric** — library value, backlog value (unplayed), regret score, and coverage, all shown in your chosen currency
+- **Selectable currency** — pick a display currency (INR, USD, EUR, …) from the dashboard or keys card; prices are re-fetched from IsThereAnyDeal in that currency's store region and re-labelled
+- **Big libraries** — Epic's catalog is fetched page by page with live progress, so huge accounts never hang a single request
+- **Paid-override** — optionally enter what you actually paid per game
+- **Non-game filtering** — DLC, soundtracks, Unreal Engine builds, and Epic store content for UE (Fab/marketplace plugins, Megascans, projects) are excluded — only real games are listed
+- **In-browser only** — tokens stay in your browser localStorage; no server-side user data
+- **Privacy** — "Forget my data" clears everything instantly
 
-## How linking works
+## Quick start
 
-- **Steam**: click "link account" → real Steam login page → redirected
-  back automatically with a verified SteamID. No key ever touches the
-  browser.
-- **GOG**: click "link account" → GOG's real login page opens in a new
-  tab → after logging in, GOG redirects to a page whose URL contains
-  `?code=...` → copy that code and paste it into the form on our page.
-- **Epic Games**: click "link account" → Epic's real login page opens in
-  a new tab → after logging in, you land on a page showing raw JSON
-  containing `"authorizationCode"` → copy that value and paste it into
-  the form on our page.
+### Local dev
 
-<!-- Both GOG and Epic's manual-paste step is unavoidable: neither service's
-redirect target is something we control, so there's no way to
-auto-capture the code from a plain website the way Steam's OpenID flow
-allows. -->
+```bash
+pip install -r api/requirements.txt -r requirements-dev.txt
+./run.sh            # http://localhost:8089  (or ./run.sh <port>)
+```
 
-Linked account identifiers/tokens are stored in the browser's
-`localStorage` only — nothing is persisted server-side, consistent with
-there being no database.
+### Docker
 
-<!-- ## Why Ubisoft Connect isn't included
+```bash
+docker build -t financial-regret .
+docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
+```
 
-Ubisoft has no OAuth surface at all. The only paths other tools use
-involve session-cookie capture or hitting a private API with credentials
-directly — a meaningfully bigger security responsibility than the app
-should take on. Steam, GOG, and Epic all have some form of real or
-community-documented OAuth-style flow; Ubisoft has neither. -->
+## Environment variables
 
-<!-- ## Known limitations
+| Variable | Required | Description |
+|---|---|---|
+| `ITAD_API_KEY` | No | IsThereAnyDeal API key for price lookups. Without it, prices fall back to Steam public API. |
+| `GOG_CLIENT_ID` | No | GOG OAuth client ID. Defaults to public PKCE client. |
+| `EPIC_CLIENT_ID` | No | Epic OAuth client ID. Defaults to public PKCE client. |
+| `PORT` | No | Port to listen on (default 3000; `run.sh` passes 8089). |
+| `HOST` | No | Host to bind (default 0.0.0.0). |
 
-- **GOG game count is capped at 40 per scan** (`MAX_GAMES` in
-  `api/gog_games.py`) to stay within a serverless function's execution
-  time limit, since each game needs a separate name-lookup call. Response
-  includes `"truncated": true` if the library is bigger.
-- **Epic library fetch is capped at 5 pages** (`MAX_PAGES` in
-  `api/epic_games.py`) for the same reason. Epic game names come from
-  each item's metadata when present; items without metadata fall back to
-  their internal app name (less readable) rather than an extra lookup
-  call per game.
-- **Price lookups are batched at 25 titles per call** to the same
-  timeout constraint (`MAX_TITLES` in `api/prices.py`); the frontend
-  calls `/api/prices` in batches automatically.
-- **Price matching is by title string** — unusual titles may not match
-  well in ITAD's lookup.
-- The GOG and Epic client IDs/secrets are publicly known constants baked
-  into every real GOG Galaxy / Epic Games Launcher install (documented at
-  https://github.com/Yepoleb/gogapidocs and used by the open-source
-  `legendary` project respectively), not something either company issued
-  to this app specifically — both integrations are unofficial and could
-  break if either service changes their auth flow. -->
+## Tests
+
+```bash
+python -m unittest discover -s tests
+node --test public/js/*.test.mjs tests/js/*.test.mjs   # or: npm test
+```
+
+## License
+
+MIT
