@@ -46,7 +46,19 @@ export function symbol(currency = "INR") {
 /** "<symbol><whole>/h" figure for the per-hour column/labels. */
 export function perHour(rate, currency = "INR") {
   if (rate == null) return "—";
+  if (!Number.isFinite(rate)) return "∞/h";   // never played
   return `${symbol(currency)}${Number(rate).toFixed(0)}/h`;
+}
+
+/** Cost per hour of play, capped so it never exceeds what you paid.
+ *  Dividing by a fraction of an hour would otherwise inflate the rate above
+ *  the purchase price (a ₹500 game at 0.5 h would read ₹1000/h). */
+export function pricePerHour(price, hours) {
+  if (price == null || hours == null) return null;
+  if (price === 0) return 0;        // a free game costs nothing per hour
+  if (hours <= 0) return Infinity;  // never played
+  if (hours < 1) return price;      // sub-hour: cap at the purchase price
+  return price / hours;
 }
 
 export function hours(h) {

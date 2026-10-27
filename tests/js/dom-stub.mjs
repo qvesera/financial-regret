@@ -65,6 +65,7 @@ export class FakeElement {
   setAttribute(k, v) {
     this.attributes[k] = String(v);
     if (k === "id") this.id = v;
+    if (k === "class") this.className = v;   // mirror the real DOM
   }
   getAttribute(k) { return this.attributes[k] ?? null; }
 

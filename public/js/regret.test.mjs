@@ -8,7 +8,6 @@ const baseGame = (overrides = {}) => ({
   platform: "Steam",
   price: 1000,
   hours: null,
-  paid: null,
   ...overrides,
 });
 
@@ -40,13 +39,33 @@ describe("computeRegret", () => {
     assert.strictEqual(r.valuePerHour, 1000 / 10);
   });
 
-  it("paid basis overrides price when paid is set", () => {
-    const r = computeRegret(
-      [baseGame({ price: 1000, hours: 10, paid: 200 })],
-      "paid"
-    );
-    assert.strictEqual(r.libraryValue, 200);
-    assert.strictEqual(r.valuePerHour, 200 / 10);
+  it("bounds the library between all-time high and low", () => {
+    const r = computeRegret([
+      baseGame({ price: 1000, high: 1500, low: 400, hours: 10 }),
+      baseGame({ id: "Steam:2", price: 500, high: 500, low: 250, hours: 0 }),
+      baseGame({ id: "Steam:3", price: null, high: null, low: null, hours: null }),
+    ]);
+    assert.strictEqual(r.libraryValue, 1500);
+    assert.strictEqual(r.highestEver, 2000, "1500 + 500 (unpriced adds 0)");
+    assert.strictEqual(r.lowestEver, 650, "400 + 250");
+    assert.ok(r.lowestEver <= r.libraryValue && r.libraryValue <= r.highestEver,
+      "low <= current <= high");
+  });
+
+  it("falls back to today's price when high/low are unknown", () => {
+    const r = computeRegret([baseGame({ price: 800, hours: 5 })]);
+    assert.strictEqual(r.highestEver, 800);
+    assert.strictEqual(r.lowestEver, 800);
+  });
+
+  it("sums the hours on record, ignoring unknown playtime", () => {
+    const r = computeRegret([
+      baseGame({ price: 1000, hours: 10 }),
+      baseGame({ id: "Steam:2", price: 500, hours: 2.5 }),
+      baseGame({ id: "Steam:3", price: 300, hours: null }),
+      baseGame({ id: "Steam:4", price: 200, hours: 0 }),
+    ]);
+    assert.strictEqual(r.totalHours, 12.5, "null hours never counted; zeros add nothing");
   });
 
   it("empty list returns zeros and nulls", () => {

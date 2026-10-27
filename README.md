@@ -6,11 +6,10 @@ A browser-based dashboard that shows how much you have spent on games versus how
 
 ## Features
 
-- **Steam, GOG, Epic Games** — Steam auto-redirects (OpenID); GOG and Epic land you on the provider's own domain (neither allows a custom redirect URI for its public client), so the code is collected by paste
+- **Steam, GOG, Epic Games, Amazon Luna** — Steam auto-redirects (OpenID); GOG, Epic and Amazon land you on the provider's own domain (none allow a custom redirect URI for their public/device client), so the code is collected by paste. Amazon has no public library API, so it registers a virtual Games-launcher device (undocumented / alpha) and, having no playtime API, its rows are priced but excluded from per-hour ratios
 - **Real regret metric** — library value, backlog value (unplayed), regret score, and coverage, all shown in your chosen currency
 - **Selectable currency** — pick a display currency (INR, USD, EUR, …) from the dashboard or keys card; prices are re-fetched from IsThereAnyDeal in that currency's store region and re-labelled
 - **Big libraries** — Epic's catalog is fetched page by page with live progress, so huge accounts never hang a single request
-- **Paid-override** — optionally enter what you actually paid per game
 - **Non-game filtering** — DLC, soundtracks, Unreal Engine builds, and Epic store content for UE (Fab/marketplace plugins, Megascans, projects) are excluded — only real games are listed
 - **In-browser only** — tokens stay in your browser localStorage; no server-side user data
 - **Privacy** — "Forget my data" clears everything instantly

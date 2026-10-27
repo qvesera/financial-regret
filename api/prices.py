@@ -28,6 +28,7 @@ ITAD_API_BASE = "https://api.isthereanydeal.com"
 STEAM_SHOP_ID = 61
 MAX_WORKERS = 15        # concurrent title lookups
 CHUNK_SIZE = 200        # ITAD's per-request cap on both lookup and prices endpoints
+TITLE_CHUNK = 200       # titles per batched /lookup/id/title/v1 request
 MAX_GAMES = 5000        # hard cap to protect the ITAD quota
 MAX_BODY_BYTES = 1_048_576
 
@@ -148,6 +149,37 @@ def _request_prices(api_key: str, ids: list[str], country: str, currency: str) -
         return data if isinstance(data, list) else []
     except (requests.RequestException, ValueError):
         return []
+
+
+def _bulk_resolve_titles(api_key: str, titles: list[str]) -> dict[str, str | None]:
+    """Batched POST /lookup/id/title/v1 -> {title: itad_id or None}.
+
+    Resolves many titles in one request (ITAD matches case-insensitively and
+    tolerates ®/™), so a big library doesn't spend one-or-two calls per game
+    and trip ITAD's rate limit (1000 req / 5 min) -- which is exactly what
+    blanked out large Epic scans while Steam's batched appid lookup stayed
+    fine. Titles the batch can't match (a missing "The"/colon isn't fuzzy
+    matched here) come back None for the caller to retry per-title; a failed
+    batch simply omits its titles so they fall back too.
+    """
+    out: dict[str, str | None] = {}
+    for i in range(0, len(titles), TITLE_CHUNK):
+        chunk = titles[i:i + TITLE_CHUNK]
+        try:
+            resp = requests.post(
+                f"{ITAD_API_BASE}/lookup/id/title/v1",
+                params={"key": api_key},
+                json=chunk,
+                timeout=20,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, dict):
+                    for t in chunk:
+                        out[t] = data.get(t) or None
+        except (requests.RequestException, ValueError):
+            pass  # leave these unresolved -> the fuzzy fallback covers them
+    return out
 
 
 def _resolve_title(api_key: str, title: str) -> tuple[str | None, bool]:
@@ -281,28 +313,54 @@ class handler(BaseHTTPRequestHandler):
         unresolved.extend(g for g in games if g not in steam_games)
 
         # --- Step 2: title-based lookup, deduplicated by normalised title -----
+        # Rate-limit aware: reuse the title cache, resolve the bulk in a few
+        # batched POSTs, then fuzzy-fallback only for what the batch couldn't
+        # match. One lookup+search call per game exceeded ITAD's rate limit and
+        # blanked large Epic scans (Steam's batched appid lookup never hit it).
         by_normalised: dict[str, dict] = {}
         for g in unresolved:
             by_normalised.setdefault(_normalise_title(g["title"]), g)
 
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            future_to_title = {
-                pool.submit(_lookup_by_title, api_key, title): title
-                for title in by_normalised
-            }
-            for future in as_completed(future_to_title):
-                title = future_to_title[future]
-                try:
-                    itad_id = future.result()
-                except Exception:
-                    itad_id = None
+        resolved_by_norm: dict[str, str] = {}
+        uncached: list[str] = []
+        for norm in by_normalised:
+            cached = _cache_get(_title_cache, norm)
+            if cached is None:
+                uncached.append(norm)
+            elif cached is not _MISS:
+                resolved_by_norm[norm] = cached
+
+        if uncached:
+            for norm, itad_id in _bulk_resolve_titles(api_key, uncached).items():
                 if itad_id:
-                    for g in unresolved:
-                        if _normalise_title(g["title"]) == title:
-                            itad_id_by_game_id[g["id"]] = itad_id
+                    _cache_set(_title_cache, norm, itad_id, TITLE_TTL)
+                    resolved_by_norm[norm] = itad_id
+
+            # Fuzzy fallback for titles the batch couldn't match (or whose batch
+            # failed): handles a missing "The"/punctuation and confirmed misses.
+            still = [n for n in uncached if n not in resolved_by_norm]
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+                future_to_norm = {
+                    pool.submit(_lookup_by_title, api_key, n): n for n in still
+                }
+                for future in as_completed(future_to_norm):
+                    norm = future_to_norm[future]
+                    try:
+                        itad_id = future.result()
+                    except Exception:
+                        itad_id = None
+                    if itad_id:
+                        resolved_by_norm[norm] = itad_id
+
+        for g in unresolved:
+            itad_id = resolved_by_norm.get(_normalise_title(g["title"]))
+            if itad_id:
+                itad_id_by_game_id[g["id"]] = itad_id
 
         # --- Step 3: batch-fetch prices for resolved ITAD ids ----------------
         prices: dict[str, float | None] = {g["id"]: None for g in games}
+        highs: dict[str, float | None] = {g["id"]: None for g in games}
+        lows: dict[str, float | None] = {g["id"]: None for g in games}
         resolved: dict[str, str] = {}
         id_to_game_ids: dict[str, list[str]] = {}
         for gid, iid in itad_id_by_game_id.items():
@@ -318,9 +376,11 @@ class handler(BaseHTTPRequestHandler):
             for iid in chunk_ids:
                 key = _price_key(country, currency, iid)
                 cached = _cache_get(_price_cache, key)
-                if cached is not None:
+                if isinstance(cached, dict):
                     for gid in id_to_game_ids[iid]:
-                        prices[gid] = cached
+                        prices[gid] = cached.get("price")
+                        highs[gid] = cached.get("high")
+                        lows[gid] = cached.get("low")
                 else:
                     to_fetch.append(iid)
 
@@ -329,7 +389,7 @@ class handler(BaseHTTPRequestHandler):
             for entry in _request_prices(api_key, to_fetch, country, currency):
                 iid = entry.get("id")
                 deals = entry.get("deals", [])
-                price = None
+                price = high = low = None
                 if deals:
                     if actual_currency is None:
                         # Trust ITAD's own currency label for what the amounts
@@ -339,14 +399,36 @@ class handler(BaseHTTPRequestHandler):
                             if cur:
                                 actual_currency = cur
                                 break
-                    amounts = [d.get("price", {}).get("amount") for d in deals if d.get("price", {}).get("amount") is not None]
+                    # ITAD sends null for price/regular/storeLow on some deals.
+                    # `.get(key, {})` only defaults on a MISSING key, so a null
+                    # value must be coalesced explicitly or it raises
+                    # AttributeError and takes the whole pricing request down.
+                    amounts = [(d.get("price") or {}).get("amount") for d in deals
+                               if (d.get("price") or {}).get("amount") is not None]
                     price = min(amounts) if amounts else None
-                _cache_set(_price_cache, _price_key(country, currency, iid), price, PRICE_TTL)
+                    # Highest ever: the top list (regular) price any shop asks.
+                    regulars = [(d.get("regular") or {}).get("amount") for d in deals
+                                if (d.get("regular") or {}).get("amount") is not None]
+                    high = max(regulars) if regulars else (max(amounts) if amounts else None)
+                    # Lowest ever: ITAD's all-time low for the game (else the
+                    # best per-shop low, else today's price).
+                    hl = (entry.get("historyLow") or {}).get("all") or {}
+                    low = hl.get("amount")
+                    if low is None:
+                        store_lows = [(d.get("storeLow") or {}).get("amount") for d in deals
+                                      if (d.get("storeLow") or {}).get("amount") is not None]
+                        low = min(store_lows) if store_lows else price
+                _cache_set(_price_cache, _price_key(country, currency, iid),
+                           {"price": price, "high": high, "low": low}, PRICE_TTL)
                 for gid in id_to_game_ids.get(iid, []):
                     prices[gid] = price
+                    highs[gid] = high
+                    lows[gid] = low
 
         send_json(self, 200, {
             "prices": prices,
+            "highs": highs,
+            "lows": lows,
             "resolved": resolved,
             "currency": actual_currency or currency,
         })

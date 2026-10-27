@@ -5,7 +5,7 @@
  *  #app routes them. Elements are rebuilt whenever the phase changes, so
  *  per-node listeners would silently die — delegation does not.
  */
-import { store, applyPaidOverrides } from "./store.js";
+import { store } from "./store.js";
 import * as api from "./api.js";
 import { view } from "./view.js";
 import { computeRegret } from "./regret.js";
@@ -14,11 +14,12 @@ const KEY_STORES = {
   steam: ["steam_id"],
   gog: ["gog_access_token", "gog_refresh_token", "gog_user_id"],
   epic: ["epic_access_token", "epic_refresh_token", "epic_account_id"],
+  amazon: ["amazon_access_token", "amazon_refresh_token", "amazon_serial"],
 };
 
 let state = {
   phase: "onboarding",   // "onboarding" | "ready" | "loading"
-  accounts: { steam: false, gog: false, epic: false },
+  accounts: { steam: false, gog: false, epic: false, amazon: false },
   games: [],
   rows: [],
   prices: {},
@@ -30,8 +31,9 @@ let state = {
   coverageText: "",
   scanProgress: null,
   scanError: null,
-  basis: "price",
   filter: "All",
+  platform: "All",
+  viewMode: "list",
   sort: "price-desc",
   search: "",
   scanning: false,
@@ -43,6 +45,7 @@ function linkedAccounts() {
     steam: Boolean(localStorage.getItem("steam_id")),
     gog: Boolean(localStorage.getItem("gog_access_token")),
     epic: Boolean(localStorage.getItem("epic_access_token")),
+    amazon: Boolean(localStorage.getItem("amazon_access_token")),
   };
 }
 
@@ -52,6 +55,7 @@ function anyLinked(acc = linkedAccounts()) {
 
 function computeRows() {
   let g = state.games;
+  if (state.platform && state.platform !== "All") g = g.filter((x) => x.platform === state.platform);
   if (state.filter === "Unplayed") g = g.filter((x) => x.hours != null && x.hours < 1);
   else if (state.filter === "Played") g = g.filter((x) => x.hours != null && x.hours >= 1);
   else if (state.filter === "No data") g = g.filter((x) => x.hours == null);
@@ -86,13 +90,118 @@ function coverageLine() {
 }
 
 /** Recompute derived state and hand it to the view. */
+// ---------- cover art (grid view) ----------
+// SteamGridDB urls come back from /api/covers and are memoised here (persisted)
+// so a re-render or a restart never refetches art. Loading is lazy: only cards
+// scrolling into view are requested, which keeps a 500-game library inside one
+// rate-limit window. Without an SGDB key the grid just keeps its placeholders.
+const coversCache = new Map();      // gameId -> image url
+let coverPending = new Set();       // ids queued for the next batch
+let coverInflight = new Set();      // ids currently being fetched
+let coverTimer = null;
+let coverObserver = null;
+
+function loadCoversCache() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("covers_cache") || "{}");
+    for (const [id, url] of Object.entries(raw)) if (url) coversCache.set(id, url);
+  } catch { /* corrupt cache is simply ignored */ }
+}
+
+function persistCovers() {
+  try {
+    localStorage.setItem("covers_cache", JSON.stringify(Object.fromEntries(coversCache)));
+  } catch { /* quota exceeded: the cache is an optimisation, never fatal */ }
+}
+
+/** Stamp every rendered placeholder whose url we already know. */
+function applyCovers() {
+  for (const img of document.querySelectorAll(".cover-img")) {
+    if (img.dataset.loaded) continue;
+    const url = coversCache.get(img.dataset.coverId);
+    if (url) {
+      img.setAttribute("src", url);
+      img.dataset.loaded = "1";
+    }
+  }
+}
+
+/** Watch cards entering the viewport and fetch only those covers. */
+function observeCovers() {
+  if (typeof IntersectionObserver === "undefined") return;
+  if (coverObserver) coverObserver.disconnect();
+  coverObserver = new IntersectionObserver((entries) => {
+    const need = [];
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const id = e.target.dataset.coverId;
+      coverObserver.unobserve(e.target);
+      if (id && !coversCache.has(id)) need.push(id);
+    }
+    if (need.length) queueCovers(need);
+  }, { rootMargin: "300px" });
+  for (const img of document.querySelectorAll(".cover-img")) {
+    if (!img.dataset.loaded && !coversCache.has(img.dataset.coverId)) coverObserver.observe(img);
+  }
+}
+
+function queueCovers(ids) {
+  if (!localStorage.getItem("sgdb_api_key")) return;
+  for (const id of ids) {
+    if (!coversCache.has(id) && !coverInflight.has(id)) coverPending.add(id);
+  }
+  if (!coverPending.size) return;
+  clearTimeout(coverTimer);
+  coverTimer = setTimeout(flushCovers, 250);
+}
+
+async function flushCovers() {
+  const key = localStorage.getItem("sgdb_api_key");
+  if (!key || !coverPending.size) return;
+  const batch = [...coverPending].slice(0, 40);
+  for (const id of batch) { coverPending.delete(id); coverInflight.add(id); }
+
+  const byId = new Map(state.games.map((g) => [g.id, g]));
+  const payload = batch
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .map((g) => ({ id: g.id, title: g.name, appid: g.appid || null }));
+
+  try {
+    if (payload.length) {
+      const resp = await fetch("/api/covers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-SGDB-Key": key },
+        body: JSON.stringify({ games: payload }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        for (const [id, url] of Object.entries(data.covers || {})) {
+          if (url) coversCache.set(id, url);
+        }
+        persistCovers();
+        applyCovers();
+      }
+    }
+  } catch { /* network blip: placeholders stay, the next observe retries */ }
+  for (const id of batch) coverInflight.delete(id);
+  if (coverPending.size) flushCovers();   // keep draining the queue
+}
+
 function renderAll() {
   state.accounts = linkedAccounts();
+  if (state.platform && state.platform !== "All" && !state.games.some((g) => g.platform === state.platform)) {
+    state.platform = "All";   // selected platform vanished (rescan / unlink)
+  }
   state.rows = computeRows();
   state.counts = countByPlatform(state.games);
-  state.metrics = computeRegret(state.rows, state.basis);
+  state.metrics = computeRegret(state.rows);
   state.coverageText = coverageLine();
   view.render(state);
+  if (state.phase === "ready" && state.viewMode === "grid") {
+    applyCovers();
+    observeCovers();
+  }
 }
 
 // ---------- scanning ----------
@@ -150,24 +259,33 @@ async function scan() {
       acc.steam ? api.fetchSteamGames(localStorage.getItem("steam_id")) : [],
       acc.gog ? api.fetchGogGames() : [],
       acc.epic ? fetchAllEpicGames() : [],
+      acc.amazon ? api.fetchAmazonGames() : [],
     ]);
     const games = dedupeGames(results.flatMap((r) => (r.status === "fulfilled" ? r.value : [])));
     const errors = results
       .filter((r) => r.status === "rejected")
       .map((r) => (r.reason && r.reason.message) || String(r.reason));
-    state.games = applyPaidOverrides(games);
+    state.games = games;
     state.scanError = errors.length ? errors.join(" · ") : null;
+    let highs = {}, lows = {};
     try {
       const priced = await api.fetchPrices(state.games, state.currency);
       state.prices = priced.prices;
+      highs = priced.highs || {};
+      lows = priced.lows || {};
       // Adopt the currency the server actually priced in so labels match numbers.
       if (priced.currency) state.currency = priced.currency;
     } catch {
       state.prices = {};
     }
-    // Prices arrive as a separate id-keyed map — bake them into the rows so
+    // Prices arrive as separate id-keyed maps — bake them into the rows so
     // the regret math and the table agree.
-    state.games = state.games.map((g) => ({ ...g, price: state.prices[g.id] ?? null }));
+    state.games = state.games.map((g) => ({
+      ...g,
+      price: state.prices[g.id] ?? null,
+      high: highs[g.id] ?? null,
+      low: lows[g.id] ?? null,
+    }));
     store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency });
   } catch (e) {
     state.scanError = (e && e.message) || String(e);
@@ -192,7 +310,13 @@ async function reprice(nextCurrency) {
     const priced = await api.fetchPrices(state.games, state.currency);
     state.prices = priced.prices;
     if (priced.currency) state.currency = priced.currency;
-    state.games = state.games.map((g) => ({ ...g, price: state.prices[g.id] ?? null }));
+    const highs = priced.highs || {}, lows = priced.lows || {};
+    state.games = state.games.map((g) => ({
+      ...g,
+      price: state.prices[g.id] ?? null,
+      high: highs[g.id] ?? null,
+      low: lows[g.id] ?? null,
+    }));
     store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency });
     localStorage.setItem("currency", state.currency);
   } catch {
@@ -229,6 +353,14 @@ function linkPlatform(platform) {
     ensurePasteSurface(platform);
     const w = window.open(api.loginEpic(), "epic-link", "width=520,height=700");
     if (!w) showFormError("epic", "Popup blocked — allow popups, then paste the JSON page below.");
+  } else if (platform === "amazon") {
+    ensurePasteSurface(platform);
+    api.loginAmazon()
+      .then(({ url }) => {
+        const w = window.open(url, "amazon-link", "width=520,height=700");
+        if (!w) showFormError("amazon", "Popup blocked — allow popups, then paste the redirect URL below.");
+      })
+      .catch((e) => showFormError("amazon", String((e && e.message) || e)));
   }
 }
 
@@ -283,6 +415,10 @@ function submitPaste(kind) {
     finishGogExchange(code);
     return;
   }
+  if (kind === "amazon") {
+    finishAmazonExchange(code);
+    return;
+  }
   finishEpicExchange(code);
 }
 
@@ -300,6 +436,31 @@ async function finishGogExchange(code) {
     await scan();
   } catch (e) {
     showFormError("gog", String((e && e.message) || e));
+  }
+}
+
+/** Exchange a pasted Amazon code for a device bearer token, then rescan. */
+async function finishAmazonExchange(code) {
+  try {
+    const raw = sessionStorage.getItem("amazon_pkce");
+    if (!raw) throw new Error("Run Connect Amazon Luna again for a fresh sign-in link.");
+    const { clientId, verifier, serial } = JSON.parse(raw);
+    const data = await api.exchangeAmazon({
+      code,
+      client_id: clientId,
+      code_verifier: verifier,
+      serial,
+    });
+    if (!data.access_token) throw new Error("Amazon exchange returned no access token");
+    localStorage.setItem("amazon_access_token", data.access_token);
+    if (data.refresh_token) localStorage.setItem("amazon_refresh_token", data.refresh_token);
+    if (data.serial) localStorage.setItem("amazon_serial", data.serial);
+    sessionStorage.removeItem("amazon_pkce");
+    const box = document.getElementById("amazon-code");
+    if (box) box.value = "";
+    await scan();
+  } catch (e) {
+    showFormError("amazon", String((e && e.message) || e));
   }
 }
 
@@ -325,11 +486,7 @@ function openDrawer(id) {
   const game = state.rows.find((g) => g.id === id);
   if (!game || !view.drawer) return;
   state.openId = id;
-  view.renderDrawer(view.drawerBody, game, state.prices[id], store.getPaid(id), (gid, v) => {
-    store.setPaidOverride(gid, v);
-    state.games = applyPaidOverrides(state.games);
-    renderAll();
-  });
+  view.renderDrawer(view.drawerBody, game, state.prices[id]);
   view.drawer.classList.remove("hidden");
 }
 
@@ -340,6 +497,7 @@ function closeDrawer() {
 
 function forget() {
   store.forget();
+  coversCache.clear();
   state.games = [];
   state.rows = [];
   state.prices = {};
@@ -390,7 +548,15 @@ function onClick(e) {
     case "unlink": unlinkPlatform(platform); break;
     case "scan": scan(); break;
     case "filter": state.filter = t.dataset.filter; renderAll(); break;
-    case "basis": state.basis = t.dataset.basis; renderAll(); break;
+    case "view":
+      state.viewMode = t.dataset.view === "grid" ? "grid" : "list";
+      localStorage.setItem("view_mode", state.viewMode);
+      renderAll();
+      break;
+    case "filter-platform":
+      state.platform = state.platform === platform ? "All" : platform;
+      renderAll();
+      break;
     case "open": openDrawer(t.dataset.id); break;
     case "close-drawer": closeDrawer(); break;
     case "toggle-menu":
@@ -398,6 +564,7 @@ function onClick(e) {
       break;
     case "submit-gog": submitPaste("gog"); break;
     case "submit-epic": submitPaste("epic"); break;
+    case "submit-amazon": submitPaste("amazon"); break;
     case "save-key": saveApiKey(t.dataset.kind); break;
     case "show-keys":
       state.phase = "onboarding";
@@ -431,6 +598,9 @@ function onChange(e) {
   if (t.dataset.action === "sort") {
     state.sort = t.value;
     renderAll();
+  } else if (t.dataset.action === "platform") {
+    state.platform = t.value || "All";
+    renderAll();
   } else if (t.dataset.action === "currency") {
     const cur = (t.value || "").toUpperCase();
     if (!cur || cur === state.currency) return;
@@ -462,7 +632,7 @@ function wire(root) {
 /** Cross-tab sync: a link/unlink in another tab re-renders and rescans. */
 function wireCrossWindow() {
   window.addEventListener("storage", (e) => {
-    if (!e.key || !/^(gog_|steam_|epic_)/.test(e.key)) return;
+    if (!e.key || !/^(gog_|steam_|epic_|amazon_)/.test(e.key)) return;
     state.accounts = linkedAccounts();
     renderAll();
     if (anyLinked(state.accounts) && state.phase !== "loading") scan();
@@ -478,6 +648,8 @@ export async function boot() {
   view.shell(root);
   state.accounts = linkedAccounts();
   state.currency = localStorage.getItem("currency") || "INR";
+  state.viewMode = localStorage.getItem("view_mode") === "grid" ? "grid" : "list";
+  loadCoversCache();
   const snap = store.getSnapshot();
   if (snap) {
     state.games = snap.games || [];

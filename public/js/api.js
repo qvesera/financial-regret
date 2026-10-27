@@ -70,6 +70,8 @@ export async function fetchEpicGames(cursor = null) {
 export async function fetchPrices(games, currency = "INR") {
   const BATCH_SIZE = 200;
   const prices = {};
+  const highs = {};
+  const lows = {};
   let actual = currency;
 
   for (let i = 0; i < games.length; i += BATCH_SIZE) {
@@ -90,12 +92,14 @@ export async function fetchPrices(games, currency = "INR") {
     if (!resp.ok) continue;
     const data = await resp.json();
     Object.assign(prices, data.prices || {});
+    Object.assign(highs, data.highs || {});
+    Object.assign(lows, data.lows || {});
     // The server reports the currency the amounts are actually in (ITAD's own
     // label) so the UI symbol always matches the numbers.
     if (data.currency) actual = data.currency;
   }
 
-  return { prices, currency: actual };
+  return { prices, highs, lows, currency: actual };
 }
 
 export async function exchangeGog(code, redirectUri) {
@@ -131,7 +135,8 @@ export function parseAuthCode(text) {
   if (/^https?:\/\//i.test(t)) {
     try {
       const u = new URL(t);
-      return u.searchParams.get("code") || u.searchParams.get("authorizationCode") || "";
+      return u.searchParams.get("code") || u.searchParams.get("authorizationCode")
+        || u.searchParams.get("openid.oa2.authorization_code") || "";
     } catch {
       return "";
     }
@@ -199,4 +204,81 @@ export function loginSteam(returnTo) {
     "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select",
   });
   return `https://steamcommunity.com/openid/login?${params.toString()}`;
+}
+
+/** PKCE helpers for Amazon's device sign-in (base64url, unpadded). */
+function b64url(bytes) {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function asciiHex(str) {
+  return [...new TextEncoder().encode(str)]
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Amazon device (PKCE) login URL — the same undocumented flow the Amazon Games
+ * launcher and Nile use: an OpenID signin whose code_challenge is SHA-256 of a
+ * random verifier and whose client_id is hex(serial + "#A2UMVHOX7UP4V7").
+ * There is no public Amazon library API, so this registers a virtual launcher
+ * device. The verifier/serial are stashed for the exchange; Amazon redirects to
+ * its own domain carrying openid.oa2.authorization_code, collected via paste.
+ */
+export async function loginAmazon() {
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  const challenge = b64url(new Uint8Array(digest));
+  const serial = crypto.randomUUID().replace(/-/g, "").toUpperCase();
+  const clientId = asciiHex(`${serial}#A2UMVHOX7UP4V7`);
+  sessionStorage.setItem("amazon_pkce", JSON.stringify({ clientId, verifier, serial }));
+  const params = new URLSearchParams({
+    "openid.ns": "http://specs.openid.net/auth/2.0",
+    "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select",
+    "openid.identity": "http://specs.openid.net/auth/2.0/identifier_select",
+    "openid.mode": "checkid_setup",
+    "openid.oa2.scope": "device_auth_access",
+    "openid.ns.oa2": "http://www.amazon.com/ap/ext/oauth/2",
+    "openid.oa2.response_type": "code",
+    "openid.oa2.code_challenge_method": "S256",
+    "openid.oa2.client_id": `device:${clientId}`,
+    language: "en_US",
+    marketPlaceId: "ATVPDKIKX0DER",
+    "openid.return_to": "https://www.amazon.com",
+    "openid.pape.max_auth_age": 0,
+    "openid.assoc_handle": "amzn_sonic_games_launcher",
+    pageId: "amzn_sonic_games_launcher",
+    "openid.oa2.code_challenge": challenge,
+  });
+  return { url: `https://amazon.com/ap/signin?${params.toString()}` };
+}
+
+/** Exchange the pasted Amazon code for a device bearer token (server-side). */
+export async function exchangeAmazon(payload) {
+  const resp = await fetch("/api/amazon_exchange", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.error || "Amazon exchange failed");
+  }
+  return resp.json();
+}
+
+/** Owned Amazon Games titles. Playtime is unavailable, so `hours` is null. */
+export async function fetchAmazonGames() {
+  const token = localStorage.getItem("amazon_access_token");
+  const serial = localStorage.getItem("amazon_serial");
+  if (!token) return [];
+  const resp = await fetch("/api/amazon_games", {
+    headers: { "X-Amazon-Token": token, "X-Amazon-Serial": serial || "" },
+  });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.error || `amazon_games ${resp.status}`);
+  }
+  return (await resp.json()).games || [];
 }

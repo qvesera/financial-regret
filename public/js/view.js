@@ -1,5 +1,5 @@
 /** DOM builders. textContent only — never innerHTML with user data. */
-import { money, symbol, hours, perHour, CURRENCIES } from "./format.js";
+import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
 
 const PLATFORMS = [
   {
@@ -23,7 +23,22 @@ const PLATFORMS = [
     blurb: "Owned games. Epic needs one extra step — we walk you through it.",
     cta: "Connect Epic",
   },
+  {
+    key: "amazon",
+    name: "Amazon Luna",
+    platform: "Amazon",
+    blurb: "Owned Amazon Games titles from your Prime/Luna library. Amazon exposes no playtime, so they're priced but left out of per-hour ratios.",
+    cta: "Connect Amazon Luna",
+  },
 ];
+
+/** SVG arc path for a pie slice spanning angles a0→a1 (radians; -π/2 = top). */
+function pieSlice(cx, cy, r, a0, a1) {
+  const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+  const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  return `M ${cx} ${cy} L ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z`;
+}
 
 export const view = {
   /** Active display currency (ISO 4217); synced from state in render(). */
@@ -166,6 +181,13 @@ export const view = {
     return sel;
   },
 
+  /** Platform filter (options are repopulated from the data in updateReady). */
+  buildPlatformSelect() {
+    const sel = this.el("select", "sort platform-select");
+    sel.dataset.action = "platform";
+    return sel;
+  },
+
   /** Collapsed paste fallback used by both GOG and Epic cards. */
   pasteBlock(kind, label, placeholder) {
     const d = this.el("details", "paste");
@@ -225,6 +247,12 @@ export const view = {
           "Epic only allows its own redirect. Log in, then copy the whole JSON page it lands on and paste it below."));
         card.appendChild(this.pasteBlock("epic", "Paste the JSON page", "authorizationCode or the whole JSON blob"));
       }
+      if (p.key === "amazon") {
+        card.appendChild(this.el("p", "pc-hint",
+          "Sign in on Amazon's own page, then copy the amazon.com URL you land on and paste it below."));
+        card.appendChild(this.pasteBlock("amazon", "Paste the redirect URL",
+          "https://www.amazon.com/?openid.oa2.authorization_code=…"));
+      }
       cards.appendChild(card);
     }
     wrap.appendChild(cards);
@@ -240,6 +268,7 @@ export const view = {
       "Optional. Bring your own keys to use your own rate-limit quota instead of the shared server key. Stored only in this browser and sent only with your own requests."));
     keysCard.appendChild(this.keyField("itad", "IsThereAnyDeal API key", "used for game pricing"));
     keysCard.appendChild(this.keyField("steam", "Steam Web API key", "optional — Steam library"));
+    keysCard.appendChild(this.keyField("sgdb", "SteamGridDB API key", "optional — cover art in grid view"));
     const cwrap = this.el("div", "currency-field");
     cwrap.appendChild(this.el("label", null, "Display currency"));
     cwrap.appendChild(this.buildCurrencySelect(state.currency));
@@ -256,16 +285,20 @@ export const view = {
     return wrap;
   },
 
-  /** Results frame: KPI row, basis toggle, table + sidebar. */
+  /** Results frame: KPI row, table + sidebar. */
   buildReady() {
     const wrap = this.el("section", "ready");
 
     const kpi = this.el("div", "kpi-row");
+    let ringSvg = null;
     [
       ["kpi-library", "Library value", "est. re-buy cost"],
+      ["kpi-high", "Highest ever value", "all-time high"],
+      ["kpi-low", "Lowest ever value", "all-time low"],
       ["kpi-backlog", "Backlog value", "unplayed (<1 hr)"],
       ["kpi-regret", "Regret score", "of known value"],
       ["kpi-vph", "₹ / hour", "played games only"],
+      ["kpi-hours", "Total hours", "on record"],
     ].forEach(([id, label, sub]) => {
       const card = this.el("article", "kpi-card");
       const lab = this.el("p", "kpi-label",
@@ -275,19 +308,22 @@ export const view = {
       card.appendChild(this.el("p", "kpi-sub", sub));
       const v = this.el("p", "kpi-value", "—");
       v.id = id;
-      card.appendChild(v);
+      if (id === "kpi-regret") {
+        // The gauge and its number share this one card — the sidebar used to
+        // show the same figure again as a separate ring card.
+        ringSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        ringSvg.setAttribute("class", "kpi-ring");
+        ringSvg.setAttribute("viewBox", "0 0 80 80");
+        const gauge = this.el("div", "kpi-gauge");
+        gauge.appendChild(ringSvg);
+        gauge.appendChild(v);
+        card.appendChild(gauge);
+      } else {
+        card.appendChild(v);
+      }
       kpi.appendChild(card);
     });
     wrap.appendChild(kpi);
-
-    const basis = this.el("div", "basis-toggle");
-    [["price", "Current price"], ["paid", "What I paid"]].forEach(([mode, label], i) => {
-      const b = this.el("button", i === 0 ? "basis-btn active" : "basis-btn", label);
-      b.dataset.action = "basis";
-      b.dataset.basis = mode;
-      basis.appendChild(b);
-    });
-    wrap.appendChild(basis);
 
     const bodyEl = this.el("div", "dashboard-body");
     const panel = this.el("section", "panel");
@@ -317,6 +353,16 @@ export const view = {
     filterBar.appendChild(sort);
     const currencySelect = this.buildCurrencySelect(this.currency);
     filterBar.appendChild(currencySelect);
+    const platformSelect = this.buildPlatformSelect();
+    filterBar.appendChild(platformSelect);
+    const viewToggle = this.el("div", "view-toggle");
+    [["list", "List"], ["grid", "Grid"]].forEach(([mode, label]) => {
+      const b = this.el("button", `view-btn${mode === "list" ? " active" : ""}`, label);
+      b.dataset.action = "view";
+      b.dataset.view = mode;
+      viewToggle.appendChild(b);
+    });
+    filterBar.appendChild(viewToggle);
     panel.appendChild(filterBar);
 
     const tableWrap = this.el("div", "table-wrap");
@@ -332,6 +378,10 @@ export const view = {
     tableWrap.appendChild(table);
     panel.appendChild(tableWrap);
 
+    const gridWrap = this.el("div", "grid-wrap");
+    gridWrap.hidden = true;
+    panel.appendChild(gridWrap);
+
     const empty = this.el("p", "empty-state",
       "Nothing scanned yet — hit “Scan library” to pull your games and today's prices.");
     panel.appendChild(empty);
@@ -340,13 +390,6 @@ export const view = {
     panel.appendChild(coverage);
 
     const sidebar = this.el("aside", "sidebar");
-    const ringCard = this.el("div", "chart-card");
-    ringCard.appendChild(this.el("h3", null, "Regret"));
-    const ringSvg = this.el("svg", "regret-ring");
-    ringSvg.setAttribute("viewBox", "0 0 80 80");
-    ringCard.appendChild(ringSvg);
-    sidebar.appendChild(ringCard);
-
     const platCard = this.el("div", "chart-card");
     platCard.appendChild(this.el("h3", null, "Value by platform"));
     const platformList = this.el("div", "platform-list");
@@ -357,7 +400,7 @@ export const view = {
     bodyEl.appendChild(sidebar);
     wrap.appendChild(bodyEl);
 
-    return { wrap, kpi, basis, tabs, tbody, tableWrap, empty, coverage, ringSvg, platformList, filterBar, search, sort, currencySelect, headerCells };
+    return { wrap, kpi, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, filterBar, search, sort, currencySelect, platformSelect, headerCells };
   },
 
   /** Called on every state change. Rebuilds the phase only when it changes. */
@@ -381,10 +424,11 @@ export const view = {
       this.phaseEl.textContent = "";
       const r = this.buildReady();
       Object.assign(this, {
-        kpi: r.kpi, basisToggle: r.basis, tabs: r.tabs, tbody: r.tbody, tableWrap: r.tableWrap,
+        kpi: r.kpi, tabs: r.tabs, tbody: r.tbody, tableWrap: r.tableWrap,
+        gridWrap: r.gridWrap, viewToggle: r.viewToggle,
         emptyState: r.empty, coverage: r.coverage, ringSvg: r.ringSvg,
         platformList: r.platformList, filterBar: r.filterBar, search: r.search, sort: r.sort,
-        currencySelect: r.currencySelect, headerCells: r.headerCells,
+        currencySelect: r.currencySelect, platformSelect: r.platformSelect, headerCells: r.headerCells,
       });
       this.phaseEl.appendChild(r.wrap);
       this._builtPhase = "ready";
@@ -396,10 +440,19 @@ export const view = {
     const { rows, scanning, metrics } = state;
     this.renderKpis(this.kpi, metrics);
     this.renderRegretRing(this.ringSvg, metrics.regretScore);
-    this.renderPlatforms(this.platformList, rows, state.prices, state.counts);
-    this.renderTable(this.tbody, rows, state.prices, scanning);
+    this.renderPlatforms(this.platformList, state.games, state.prices, state.platform);
+    const gridMode = state.viewMode === "grid";
+    if (gridMode) this.renderGrid(this.gridWrap, rows, state.prices, scanning);
+    else this.renderTable(this.tbody, rows, state.prices, scanning);
 
-    this.tableWrap.hidden = !scanning && rows.length === 0;
+    const nothing = !scanning && rows.length === 0;
+    this.tableWrap.hidden = gridMode || nothing;
+    if (this.gridWrap) this.gridWrap.hidden = !gridMode || nothing;
+    if (this.viewToggle) {
+      for (const b of this.viewToggle.children) {
+        b.classList.toggle("active", b.dataset.view === (state.viewMode || "list"));
+      }
+    }
     this.emptyState.hidden = scanning || rows.length > 0;
     this.coverage.textContent = state.coverageText;
     this.phaseEl.classList.toggle("is-scanning", Boolean(scanning));
@@ -411,8 +464,19 @@ export const view = {
     if (this.sort) this.sort.value = state.sort;
     if (this.currencySelect) this.currencySelect.value = this.currency;
     if (this.headerCells && this.headerCells[4]) this.headerCells[4].textContent = `${symbol(this.currency)} / hour`;
-    if (this.basisToggle) {
-      for (const b of this.basisToggle.children) b.classList.toggle("active", b.dataset.basis === state.basis);
+    if (this.platformSelect) {
+      const plats = [...new Set((state.games || []).map((g) => g.platform))].sort();
+      const sig = plats.join("\u0000");
+      if (this.platformSelect.dataset.sig !== sig) {
+        this.platformSelect.textContent = "";
+        for (const value of ["All", ...plats]) {
+          const opt = this.el("option", null, value === "All" ? "All platforms" : value);
+          opt.value = value;
+          this.platformSelect.appendChild(opt);
+        }
+        this.platformSelect.dataset.sig = sig;
+      }
+      this.platformSelect.value = state.platform || "All";
     }
   },
 
@@ -432,9 +496,12 @@ export const view = {
       if (el) el.textContent = val;
     };
     fmt("kpi-library", money(metrics.libraryValue, cur));
+    fmt("kpi-high", money(metrics.highestEver ?? 0, cur));
+    fmt("kpi-low", money(metrics.lowestEver ?? 0, cur));
     fmt("kpi-backlog", money(metrics.backlogValue, cur));
     fmt("kpi-regret", metrics.regretScore == null ? "—" : `${(metrics.regretScore * 100).toFixed(1)} %`);
     fmt("kpi-vph", metrics.valuePerHour == null ? "—" : perHour(metrics.valuePerHour, cur));
+    fmt("kpi-hours", hours(metrics.totalHours ?? 0));
     const vlab = container.querySelector("#kpi-vph-label");
     if (vlab) vlab.textContent = `${symbol(cur)} / hour`;
   },
@@ -463,7 +530,7 @@ export const view = {
       tr.dataset.id = game.id;
       if (game.hours != null && game.hours < 1) tr.classList.add("unplayed");
 
-      const rate = game.hours && price != null ? price / game.hours : null;
+      const rate = pricePerHour(price, game.hours);
       const cells = [
         game.name,
         game.platform,
@@ -478,7 +545,45 @@ export const view = {
     }
   },
 
-  renderDrawer(drawerBody, game, price, paid, onPaidChange) {
+  /** Grid of cover cards — the alternative to the table. Placeholders until a
+   *  SteamGridDB key resolves art (the loader fills .cover-img in app.js). */
+  renderGrid(wrap, rows, prices, skeleton = false) {
+    if (!wrap) return;
+    wrap.textContent = "";
+    if (skeleton) {
+      for (let i = 0; i < 8; i += 1) wrap.appendChild(this.el("div", "game-card is-skeleton"));
+      return;
+    }
+    const hasKey = typeof localStorage !== "undefined" && !!localStorage.getItem("sgdb_api_key");
+    for (const game of rows) {
+      const price = prices[game.id];
+      const card = this.el("article", "game-card");
+      card.dataset.action = "open";
+      card.dataset.id = game.id;
+
+      const art = this.el("div", "cover");
+      const img = this.el("img", "cover-img");
+      img.alt = "";
+      img.dataset.coverId = game.id;
+      art.appendChild(img);
+      card.appendChild(art);
+
+      const meta = this.el("div", "card-meta");
+      meta.appendChild(this.el("p", "card-title", game.name));
+      meta.appendChild(this.el("p", "card-sub",
+        `${game.platform} · ${typeof price === "number" ? money(price, this.currency) : "—"}`));
+      card.appendChild(meta);
+
+      if (game.hours != null && game.hours < 1) card.classList.add("unplayed");
+      wrap.appendChild(card);
+    }
+    if (!hasKey) {
+      wrap.appendChild(this.el("p", "muted grid-hint",
+        "Add a SteamGridDB API key under API keys to load cover art."));
+    }
+  },
+
+  renderDrawer(drawerBody, game, price) {
     if (!drawerBody) return;
     drawerBody.textContent = "";
     drawerBody.appendChild(this.el("h3", null, game.name));
@@ -489,21 +594,6 @@ export const view = {
     priceRow.appendChild(this.el("strong", null, typeof price === "number" ? money(price, this.currency) : "—"));
     drawerBody.appendChild(priceRow);
 
-    const paidRow = this.el("div", "drawer-row");
-    paidRow.appendChild(this.el("span", null, `I paid ${symbol(this.currency)}`));
-    const paidInput = this.el("input", "paid-input");
-    paidInput.type = "number";
-    paidInput.min = "0";
-    paidInput.placeholder = "optional";
-    paidInput.dataset.id = game.id;
-    if (paid != null) paidInput.value = paid;
-    paidInput.addEventListener("change", (e) => {
-      const v = e.target.value.trim();
-      onPaidChange(game.id, v ? Number(v) : null);
-    });
-    paidRow.appendChild(paidInput);
-    drawerBody.appendChild(paidRow);
-
     const hoursRow = this.el("div", "drawer-row");
     hoursRow.appendChild(this.el("span", null, "Playtime"));
     hoursRow.appendChild(this.el("strong", null, game.hours == null ? "unknown" : hours(game.hours)));
@@ -511,9 +601,8 @@ export const view = {
 
     const vphRow = this.el("div", "drawer-row");
     vphRow.appendChild(this.el("span", null, `${symbol(this.currency)} / hour`));
-    const cost = paid != null ? paid : price;
     vphRow.appendChild(this.el("strong", null,
-      game.hours && cost != null ? perHour(cost / game.hours, this.currency) : "—"));
+      perHour(pricePerHour(price, game.hours), this.currency)));
     drawerBody.appendChild(vphRow);
   },
 
@@ -539,22 +628,16 @@ export const view = {
     ring.setAttribute("stroke-linecap", "round");
     ring.setAttribute("transform", "rotate(-90 40 40)");
     svg.appendChild(ring);
-
-    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    text.setAttribute("x", cx); text.setAttribute("y", cy + 5);
-    text.setAttribute("text-anchor", "middle");
-    text.setAttribute("font-size", "15");
-    text.setAttribute("font-weight", "700");
-    text.setAttribute("fill", score == null ? "var(--muted)" : "var(--text)");
-    text.textContent = score == null ? "—" : `${Math.round(pct * 100)}%`;
-    svg.appendChild(text);
+    // No centre label: the precise score sits right beside the gauge in the
+    // KPI card, so repeating a rounded version here would be the duplicate
+    // we just removed.
   },
 
-  renderPlatforms(listEl, rows, prices) {
+  renderPlatforms(listEl, games, prices, active) {
     if (!listEl) return;
     listEl.textContent = "";
     const byPlatform = {};
-    for (const g of rows) {
+    for (const g of games) {
       const p = byPlatform[g.platform] || { value: 0, count: 0 };
       const price = prices[g.id];
       if (typeof price === "number") { p.value += price; p.count += 1; }
@@ -566,17 +649,62 @@ export const view = {
       return;
     }
     const total = entries.reduce((s, [, p]) => s + p.value, 0);
-    for (const [platform, data] of entries) {
+    const colorFor = (i) => `var(--pie-${(i % 8) + 1})`;
+
+    // Pie: one slice per platform, coloured from the --pie-* palette.
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", "platform-pie");
+    svg.setAttribute("viewBox", "0 0 80 80");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Value by platform");
+    const cx = 40, cy = 40, r = 36;
+    let a0 = -Math.PI / 2;   // start at 12 o'clock
+    entries.forEach(([platform, data], i) => {
+      const frac = total ? data.value / total : 0;
+      const a1 = a0 + frac * 2 * Math.PI;
+      const fill = colorFor(i);
+      const pct = total ? Math.round((data.value / total) * 100) : 0;
+      let slice = null;
+      if (frac >= 0.9999) {                       // single platform = full circle
+        slice = document.createElementNS(NS, "circle");
+        slice.setAttribute("cx", cx); slice.setAttribute("cy", cy); slice.setAttribute("r", r);
+        slice.setAttribute("fill", fill);
+      } else if (frac > 0) {
+        slice = document.createElementNS(NS, "path");
+        slice.setAttribute("d", pieSlice(cx, cy, r, a0, a1));
+        slice.setAttribute("fill", fill);
+        slice.setAttribute("stroke", "var(--surface)");   // separate slices
+        slice.setAttribute("stroke-width", "1");
+      }
+      if (slice) {
+        const title = document.createElementNS(NS, "title");   // native hover tooltip
+        title.textContent = `${platform} — ${money(data.value, this.currency)} (${pct}%)`;
+        slice.appendChild(title);
+        slice.dataset.action = "filter-platform";             // click to filter the table
+        slice.dataset.platform = platform;
+        if (platform === active) slice.classList.add("is-active");
+        svg.appendChild(slice);
+      }
+      a0 = a1;
+    });
+    listEl.appendChild(svg);
+
+    // Legend: colour swatch, platform, value.
+    const legend = this.el("div", "platform-legend");
+    entries.forEach(([platform, data], i) => {
       const row = this.el("div", "platform-row");
-      row.appendChild(this.el("span", null, platform));
-      const barWrap = this.el("span", "platform-bar-wrap");
-      const bar = this.el("span", "platform-bar");
-      bar.style.width = total ? `${(data.value / total) * 100}%` : "0%";
-      barWrap.appendChild(bar);
-      row.appendChild(barWrap);
+      row.dataset.action = "filter-platform";
+      row.dataset.platform = platform;
+      if (platform === active) row.classList.add("is-active");
+      const swatch = this.el("span", "platform-swatch");
+      swatch.style.background = colorFor(i);
+      row.appendChild(swatch);
+      row.appendChild(this.el("span", "platform-name", platform));
       row.appendChild(this.el("span", "platform-value", money(data.value, this.currency)));
-      listEl.appendChild(row);
-    }
+      legend.appendChild(row);
+    });
+    listEl.appendChild(legend);
   },
 };
 

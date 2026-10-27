@@ -98,7 +98,7 @@ def _load_api_handler(name: str):
 CSP = (
     "default-src 'self'; "
     "connect-src 'self'; "
-    "img-src 'self' data:; "
+    "img-src 'self' data: https://cdn2.steamgriddb.com https://cdn.steamgriddb.com; "
     "style-src 'self'; "
     "frame-ancestors 'none'; "
     "base-uri 'none'; "
@@ -156,6 +156,10 @@ class DevRequestHandler(BaseHTTPRequestHandler):
             return None
 
     def _dispatch_api(self, method: str) -> None:
+        # Reset per request: HTTP/1.1 keep-alive reuses this object, so a
+        # stale True left by the previous response would skip the 500 fallback
+        # below and leave the browser hanging on "pending" forever.
+        self._response_sent = False
         path_only = self.path.split("?", 1)[0]
         name = path_only[len("/api/"):].split("/")[0]
 

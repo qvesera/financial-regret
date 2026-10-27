@@ -619,6 +619,65 @@ class TestPricesTitleResolution(unittest.TestCase):
             self.assertIsNone(prices._lookup_by_title("k", "Some Game"))
             self.assertIsNone(prices._cache_get(prices._title_cache, "Some Game"))
 
+    def test_titles_resolve_via_batched_lookup(self):
+        """Titles resolve through ONE batched /lookup/id/title/v1 call, not a
+        call per game: the per-title lookup+search path exceeded ITAD's rate
+        limit (1000 req / 5 min) and blanked large Epic scans, while Steam's
+        batched appid lookup stayed fine. A title the batch can't match still
+        falls back to the fuzzy search."""
+        import prices
+        body = json.dumps({"games": [
+            {"id": "Epic:1", "title": "Hob", "platform": "Epic"},
+            {"id": "Epic:2", "title": "Witness", "platform": "Epic"},
+            {"id": "Epic:3", "title": "Celeste", "platform": "Epic"},
+        ]}).encode()
+        fake = mock.MagicMock()
+        fake.path = "/api/prices"
+        fake.headers = {"Content-Length": str(len(body)), "X-ITAD-Key": "K"}
+        fake.rfile = io.BytesIO(body)
+        bulk_calls = []
+
+        def fake_post(url, params=None, json=None, timeout=None):
+            r = mock.MagicMock()
+            r.status_code = 200
+            if "/lookup/id/title/v1" in str(url):
+                bulk_calls.append(list(json or []))
+                r.json.return_value = {"hob": "id-hob", "witness": None,
+                                       "celeste": "id-celeste"}
+                return r
+            # prices/v3
+            r.json.return_value = [
+                {"id": "id-hob", "deals": [{"price": {"amount": 10.0, "currency": "INR"}}]},
+                {"id": "id-witness", "deals": [{"price": {"amount": 30.0, "currency": "INR"}}]},
+                {"id": "id-celeste", "deals": [{"price": {"amount": 20.0, "currency": "INR"}}]},
+            ]
+            return r
+
+        def fake_get(url, params=None, timeout=None):
+            r = mock.MagicMock()
+            r.status_code = 200
+            # fuzzy search resolves the batch's miss; lookup finds nothing
+            r.json.return_value = ([{"id": "id-witness", "title": "The Witness"}]
+                                   if "/search/" in str(url) else {"found": False})
+            return r
+
+        with mock.patch.object(prices, "requests") as rq, \
+                mock.patch.object(prices, "send_json") as sj:
+            rq.post.side_effect = fake_post
+            rq.get.side_effect = fake_get
+            rq.RequestException = Exception
+            prices.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+        self.assertEqual(status, 200)
+        self.assertEqual(len(bulk_calls), 1, "all titles resolved in one batch")
+        self.assertEqual(set(bulk_calls[0]), {"hob", "witness", "celeste"})
+        self.assertEqual(payload["resolved"]["Epic:1"], "id-hob")
+        self.assertEqual(payload["resolved"]["Epic:3"], "id-celeste")
+        self.assertEqual(payload["resolved"]["Epic:2"], "id-witness",
+                         "fuzzy fallback caught the batch's miss")
+        self.assertEqual(payload["prices"]["Epic:1"], 10.0)
+
 class TestUserSuppliedKeys(unittest.TestCase):
     """A caller's own X-ITAD-Key / X-Steam-Key must override the server .env
     key so each user brings their own rate-limit quota (public-hosting mode)."""
@@ -764,6 +823,302 @@ class TestCurrencySelection(unittest.TestCase):
         self.assertEqual(price_params[1].get("country"), "DE")
         self.assertEqual(payload["currency"], "EUR")
         self.assertEqual(payload["prices"]["Steam:730"], 19.99)
+
+    def test_high_and_low_bounds_are_returned(self):
+        """Each game also reports its all-time high (the top list price any
+        shop asks) and its all-time low so the dashboard can bound the
+        library value instead of showing a single point estimate."""
+        import prices
+        fake = self._req("INR")
+
+        def fake_post(url, params=None, json=None, timeout=None):
+            r = mock.MagicMock()
+            r.status_code = 200
+            if "/lookup/id/shop/" in url:
+                r.json.return_value = {"app/730": "itad-1"}
+                return r
+            r.json.return_value = [
+                {"id": "itad-1",
+                 "historyLow": {"all": {"amount": 275, "currency": "INR"}},
+                 "deals": [
+                     {"price": {"amount": 1100, "currency": "INR"},
+                      "regular": {"amount": 1100, "currency": "INR"}},
+                     {"price": {"amount": 1591.81, "currency": "INR"},
+                      "regular": {"amount": 1591.81, "currency": "INR"}},
+                 ]},
+            ]
+            return r
+
+        with mock.patch.object(prices, "requests") as rq, \
+                mock.patch.object(prices, "send_json") as sj:
+            rq.post.side_effect = fake_post
+            rq.RequestException = Exception
+            prices.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["prices"]["Steam:730"], 1100, "cheapest current deal")
+        self.assertEqual(payload["highs"]["Steam:730"], 1591.81, "highest list price")
+        self.assertEqual(payload["lows"]["Steam:730"], 275, "all-time low from historyLow")
+
+    def test_null_regular_and_store_low_do_not_crash(self):
+        """ITAD sends null for regular/storeLow on some deals. `.get(key, {})`
+        only defaults on a MISSING key, so a null value used to raise
+        AttributeError and take the entire pricing request down with it."""
+        import prices
+        fake = self._req("INR")
+
+        def fake_post(url, params=None, json=None, timeout=None):
+            r = mock.MagicMock()
+            r.status_code = 200
+            if "/lookup/id/shop/" in url:
+                r.json.return_value = {"app/730": "itad-1"}
+                return r
+            r.json.return_value = [
+                {"id": "itad-1",
+                 "historyLow": {"all": {"amount": 100, "currency": "INR"}},
+                 "deals": [
+                     {"price": {"amount": 200, "currency": "INR"},
+                      "regular": None, "storeLow": None},
+                     {"price": {"amount": 150, "currency": "INR"},
+                      "regular": None, "storeLow": None},
+                 ]},
+            ]
+            return r
+
+        with mock.patch.object(prices, "requests") as rq, \
+                mock.patch.object(prices, "send_json") as sj:
+            rq.post.side_effect = fake_post
+            rq.RequestException = Exception
+            prices.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+        self.assertEqual(status, 200, "null fields must not crash the handler")
+        self.assertEqual(payload["prices"]["Steam:730"], 150, "cheapest deal")
+        self.assertEqual(payload["highs"]["Steam:730"], 200,
+                         "no regular -> falls back to the top current price")
+        self.assertEqual(payload["lows"]["Steam:730"], 100, "historyLow still wins")
+
+
+class TestCovers(unittest.TestCase):
+    """Grid-view cover art comes from SteamGridDB: the caller's own key, a
+    direct appid lookup for Steam games, a title search for everything else,
+    and a placeholder-friendly 401 when no key is configured."""
+
+    def setUp(self):
+        import covers
+        covers._cache.clear()
+
+    @staticmethod
+    def _req(games, with_key=True):
+        body = json.dumps({"games": games}).encode()
+        fake = mock.MagicMock()
+        fake.path = "/api/covers"
+        fake.headers = {"Content-Length": str(len(body))}
+        if with_key:
+            fake.headers["X-SGDB-Key"] = "SGDBKEY"
+        fake.rfile = io.BytesIO(body)
+        return fake
+
+    def test_missing_key_is_401(self):
+        import covers
+        fake = self._req([{"id": "Steam:730", "title": "Counter-Strike 2", "appid": 730}],
+                         with_key=False)
+        with mock.patch.dict(os.environ, {"SGDB_API_KEY": ""}), \
+                mock.patch.object(covers, "send_json") as sj:
+            covers.handler.do_POST(fake)
+        status, payload = sj.call_args.args[1], sj.call_args.args[2]
+        self.assertEqual(status, 401)
+        self.assertIn("SteamGridDB", payload["error"])
+
+    def test_steam_game_resolves_directly_from_appid(self):
+        import covers
+        fake = self._req([{"id": "Steam:730", "title": "Counter-Strike 2", "appid": 730}])
+        calls = []
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            calls.append(url)
+            r = mock.MagicMock()
+            r.status_code = 200
+            r.json.return_value = {
+                "success": True,
+                "data": [{"id": 1, "url": "https://cdn2.steamgriddb.com/grid/x.jpg"}],
+            }
+            return r
+
+        with mock.patch.object(covers, "requests") as rq, \
+                mock.patch.object(covers, "send_json") as sj:
+            rq.get.side_effect = fake_get
+            rq.RequestException = Exception
+            covers.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["covers"]["Steam:730"],
+                         "https://cdn2.steamgriddb.com/grid/x.jpg")
+        self.assertTrue(any("/grids/steam/730" in u for u in calls), "direct appid lookup")
+        self.assertFalse(any("/search/" in u for u in calls), "no search needed for Steam")
+
+    def test_non_steam_game_searches_by_title(self):
+        import covers
+        fake = self._req([{"id": "Epic:1", "title": "Celeste"}])
+        calls = []
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            calls.append(url)
+            r = mock.MagicMock()
+            r.status_code = 200
+            if "/search/" in url:
+                r.json.return_value = {"success": True, "data": [{"id": 42, "name": "Celeste"}]}
+            else:
+                r.json.return_value = {
+                    "success": True,
+                    "data": [{"url": "https://cdn2.steamgriddb.com/grid/c.jpg"}],
+                }
+            return r
+
+        with mock.patch.object(covers, "requests") as rq, \
+                mock.patch.object(covers, "send_json") as sj:
+            rq.get.side_effect = fake_get
+            rq.RequestException = Exception
+            covers.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["covers"]["Epic:1"],
+                         "https://cdn2.steamgriddb.com/grid/c.jpg")
+        self.assertTrue(any("/grids/game/42" in u for u in calls),
+                        "searched first, then fetched by game id")
+
+
+class TestApiDispatch(unittest.TestCase):
+    """A handler crash must always produce a response. HTTP/1.1 keep-alive
+    reuses the connection object, so `_response_sent` is still True from the
+    previous request -- without a per-request reset the 500 fallback is skipped
+    and the browser sits on 'pending' forever instead of getting an error."""
+
+    def test_crash_returns_500_even_on_a_reused_connection(self):
+        import server
+        fake = mock.MagicMock()
+        fake.path = "/api/boom"
+        fake.headers = {}
+        fake._response_sent = True          # stale flag from the previous response
+
+        boom = mock.MagicMock()
+        boom.do_POST.side_effect = RuntimeError("boom")
+
+        with mock.patch.object(server, "_load_api_handler", return_value=boom):
+            server.DevRequestHandler._dispatch_api(fake, "do_POST")
+
+        fake._send_json.assert_called_once()
+        self.assertEqual(fake._send_json.call_args.args[0], 500)
+        self.assertEqual(fake._send_json.call_args.args[1],
+                         {"error": "Internal server error"})
+
+
+class TestAmazonLibrary(unittest.TestCase):
+    """Amazon has no public library API: the exchange mirrors the launcher's
+    device registration, and the library is the AGS GetEntitlements call (DLC
+    rides in the same list, and there is no playtime). Both must emit the
+    canonical game row the client consumes."""
+
+    def test_exchange_reads_bearer_from_register_response(self):
+        import amazon_exchange
+        body = json.dumps({
+            "code": "CODE123", "client_id": "abc", "code_verifier": "v", "serial": "SER",
+        }).encode()
+        fake = mock.MagicMock()
+        fake.path = "/api/amazon_exchange"
+        fake.headers = {"Content-Length": str(len(body))}
+        fake.rfile = io.BytesIO(body)
+        upstream = _resp({
+            "response": {"success": {
+                "tokens": {"bearer": {"access_token": "TOK", "refresh_token": "REF",
+                                      "expires_in": 3600}},
+                "extensions": {
+                    "device_info": {"device_serial_number": "SER"},
+                    "customer_info": {"customer_id": "cust-1"},
+                },
+            }},
+        })
+
+        with mock.patch.object(amazon_exchange, "requests") as rq, \
+                mock.patch.object(amazon_exchange, "send_json") as sj:
+            rq.post.return_value = upstream
+            rq.RequestException = Exception
+            amazon_exchange.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["access_token"], "TOK")
+        self.assertEqual(payload["refresh_token"], "REF")
+        self.assertEqual(payload["user_id"], "cust-1")
+        self.assertEqual(payload["serial"], "SER")
+
+    def test_exchange_rejects_missing_fields(self):
+        import amazon_exchange
+        body = json.dumps({"code": "ONLY"}).encode()
+        fake = mock.MagicMock()
+        fake.path = "/api/amazon_exchange"
+        fake.headers = {"Content-Length": str(len(body))}
+        fake.rfile = io.BytesIO(body)
+        with mock.patch.object(amazon_exchange, "send_json") as sj:
+            amazon_exchange.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+        self.assertEqual(status, 400)
+        self.assertIn("client_id", payload["error"])
+
+    def test_games_emit_canonical_rows_and_drop_dlc(self):
+        import amazon_games
+        fake = mock.MagicMock()
+        fake.path = "/api/amazon_games"
+        fake.headers = {"X-Amazon-Token": "TOK", "X-Amazon-Serial": "SER"}
+        entitlements = [
+            {"product": {"id": "p1", "title": "Hades"}},
+            {"product": {"id": "p2", "title": "Hades - DLC"}},
+            {"product": {"id": "p3", "title": "The Witness"}},
+            {"product": {"id": "p1", "title": "Hades"}},   # duplicate product
+        ]
+        upstream = _resp({"entitlements": entitlements, "nextToken": None})
+
+        with mock.patch.object(amazon_games, "requests") as rq, \
+                mock.patch.object(amazon_games, "send_json") as sj:
+            rq.post.return_value = upstream
+            rq.RequestException = Exception
+            amazon_games.handler.do_GET(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+        self.assertEqual(status, 200)
+        rows = payload["games"]
+        self.assertEqual({g["id"] for g in rows}, {"Amazon:p1", "Amazon:p3"},
+                         "DLC dropped and duplicate product collapsed")
+        # The exact X-Amz-Target / operation Amazon requires (a wrong FQN yields
+        # coral UnknownOperationException 404) — regression-guarded.
+        sent = rq.post.call_args.kwargs
+        self.assertEqual(sent["headers"]["X-Amz-Target"],
+                         "com.amazon.animusdistributionservice.entitlement."
+                         "AnimusEntitlementsService.GetEntitlements")
+        self.assertEqual(sent["json"]["Operation"], "GetEntitlements")
+        for g in rows:
+            self.assertEqual(set(g), CANONICAL_KEYS)
+            self.assertEqual(g["platform"], "Amazon")
+            self.assertIsNone(g["hours"], "Amazon exposes no playtime")
+            self.assertIsNone(g["appid"])
+
+    def test_games_surfaces_expired_session(self):
+        import amazon_games
+        fake = mock.MagicMock()
+        fake.path = "/api/amazon_games"
+        fake.headers = {"X-Amazon-Token": "STALE", "X-Amazon-Serial": "SER"}
+        upstream = _resp({"error": "unauthorized"}, status=401)
+        with mock.patch.object(amazon_games, "requests") as rq, \
+                mock.patch.object(amazon_games, "send_json") as sj:
+            rq.post.return_value = upstream
+            rq.RequestException = Exception
+            amazon_games.handler.do_GET(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+        self.assertEqual(status, 401)
+        self.assertIn("reconnect", payload["error"])
 
 
 if __name__ == "__main__":
