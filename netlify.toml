@@ -9,7 +9,7 @@
 # backend's per-IP rate limiting.
 #
 # Set BACKEND_URL in the Netlify UI (Site configuration > Environment
-# variables) to the API origin, e.g. https://financial-regret.fly.dev
+# variables) to the API origin, e.g. https://financial-regret-api.onrender.com
 
 [build]
   publish = "public"

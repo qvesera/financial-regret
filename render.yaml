@@ -1,10 +1,10 @@
 # Backend API for the split deploy. The static frontend lives on Netlify; this
 # runs server.py from the Dockerfile at the repo root.
 #
-# Render rather than Fly: Fly requires payment information before an app can be
-# created, and Render's free tier does not. Render's own FAQ is written for that
-# case -- if you have no payment method on file and would incur charges, Render
-# disables the service for the billing period instead of billing you.
+# Render's free tier creates services with no payment information on file --
+# its FAQ is written for that case: with no payment method on file, a service
+# that would incur charges is disabled for the billing period instead of being
+# billed.
 #
 # Free-tier costs to expect: the instance spins down after 15 idle minutes and
 # takes about a minute to come back, and Render may restart it at any time.

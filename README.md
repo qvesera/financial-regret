@@ -59,7 +59,7 @@ separately.
 
 ```
 browser ──► Netlify          public/ only (html, js, css)
-   └──────► Fly / Render     server.py + api/
+   └──────► Render           server.py + api/ (Dockerfile)
 ```
 
 The frontend reaches the API **directly** rather than through Netlify's
@@ -67,13 +67,21 @@ The frontend reaches the API **directly** rather than through Netlify's
 price scan can exceed, and it would place every visitor behind Netlify's edge
 IP and defeat the backend's per-IP rate limiting.
 
-**Backend** — `fly.toml` is provided:
+**Backend** — `render.yaml` is provided. Render creates services without
+payment information on file, and the existing `Dockerfile` deploys unchanged:
 
-```bash
-fly launch --no-deploy
-fly secrets set PLATPRICES_API_KEY=...      # optional; BYO-key is preferred
-REQUIRE_USER_KEYS=1 CORS_ALLOWED_ORIGINS=https://your-site.netlify.app fly deploy
-```
+1. Push the repo, then connect it to Render (New → Blueprint).
+2. Render reads `render.yaml`, which already sets `HOST`, `REQUIRE_USER_KEYS`
+   and `CORS_ALLOWED_ORIGINS`, and binds `/api/health` as the health check.
+3. Note the resulting `*.onrender.com` URL — it goes in `BACKEND_URL` below.
+
+Free-tier caveat: the instance spins down after 15 idle minutes and takes about
+a minute to wake, and Render may restart it at any time. Nothing depends on
+surviving a restart; the server keeps no state on disk.
+
+Set `PLATPRICES_API_KEY` and friends as Render env vars only if you want a
+shared server-side key. With `REQUIRE_USER_KEYS=1` they are a fallback, and
+bring-your-own-key is the intended public posture.
 
 **Frontend** — set `BACKEND_URL` in the Netlify UI (Site configuration →
 Environment variables) to the API origin. The build rewrites `public/js/env.js`
