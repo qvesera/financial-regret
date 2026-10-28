@@ -73,7 +73,7 @@ export class FakeElement {
     (this._listeners[type] ||= []).push(fn);
   }
 
-  /** Subtree DFS; supports "#id", ".class", and comma-separated lists of those. */
+  /** Subtree DFS; supports "#id", ".class", compound ".a.b", and comma lists. */
   querySelector(sel) {
     return descend(this, matches(sel));
   }
@@ -105,12 +105,12 @@ function descend(root, pred) {
   return null;
 }
 
-/** Build a predicate from "#id", ".class", "tag", or a comma-separated list. */
+/** Build a predicate from "#id", ".class", compound ".a.b", "tag", or a comma-separated list. */
 function matches(sel) {
   const parts = String(sel).split(",").map((s) => s.trim()).filter(Boolean);
   return (n) => parts.some((p) => {
     if (p[0] === "#") return n.id === p.slice(1);
-    if (p[0] === ".") return n.classList.contains(p.slice(1));
+    if (p[0] === ".") return p.slice(1).split(".").every((c) => n.classList.contains(c));
     return n.tagName === p.toUpperCase();
   });
 }

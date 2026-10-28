@@ -6,13 +6,12 @@ environment variables (set in a local .env file) -- this is the
 only place the key ever exists; it never reaches the browser.
 """
 
-import os
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 import requests
 
-from _common import send_json, handle_options
+from _common import send_json, handle_options, user_key
 
 STEAM_API_BASE = "https://api.steampowered.com"
 
@@ -29,10 +28,11 @@ class handler(BaseHTTPRequestHandler):
             send_json(self, 400, {"error": "Missing steamid parameter"})
             return
 
-        # Prefer the caller's own key (X-Steam-Key); fall back to the server key.
-        api_key = self.headers.get("X-Steam-Key") or os.environ.get("STEAM_API_KEY")
+        # Prefer the caller's own key (X-Steam-Key); fall back to the server
+        # key unless this deployment is public and REQUIRE_USER_KEYS=1.
+        api_key = user_key(self, "X-Steam-Key", "STEAM_API_KEY")
         if not api_key:
-            send_json(self, 500, {"error": "No Steam key: set STEAM_API_KEY on the server or supply your own"})
+            send_json(self, 500, {"error": "No Steam key: add your own under API keys"})
             return
 
         try:

@@ -61,14 +61,23 @@ test("cold start shows onboarding, hides metrics chrome", async () => {
   assert.equal(mod.getState().phase, "onboarding");
   assert.ok(env.root.querySelector(".onboarding"), "onboarding section rendered");
   assert.ok(env.root.querySelector(".hero-title"), "hero rendered");
-  assert.equal(env.root.querySelectorAll(".platform-card").length, 5, "four store cards + API keys card");
+  assert.equal(env.root.querySelectorAll(".platform-card").length, 7, "five store cards + one roadmap card + API keys card");
+  // Xbox alone remains scaffolded, not linkable: an honest note about what
+  // blocks it and no button pretending otherwise. PSN is now live.
+  const planned = env.root.querySelectorAll(".platform-card.planned");
+  assert.equal(planned.length, 1, "one planned card (Xbox)");
+  for (const c of planned) {
+    assert.ok(c.querySelector(".pc-planned"), "each says why it is not built yet");
+    const links = c.querySelectorAll("button").filter((b) => b.dataset.action === "link");
+    assert.equal(links.length, 0, "no dead Link button on a planned card");
+  }
   assert.ok(env.root.querySelector(".api-keys"), "API keys card rendered");
   assert.equal(env.document.getElementById("kpi-library"), null, "no KPIs before linking");
   assert.equal(env.root.querySelector(".sources").hidden, true, "sources strip hidden on onboarding");
 
   // The link cards now say what will happen, in order, and the paste field
   // they point at is visible — it used to hide behind a collapsed <details>.
-  assert.equal(env.root.querySelectorAll(".pc-steps").length, 4, "every store card lists its steps");
+  assert.equal(env.root.querySelectorAll(".pc-steps").length, 5, "every live store card lists its steps");
   assert.equal(env.document.getElementById("epic-paste").open, true,
     "the paste field a step points at is open");
   assert.equal(env.root.querySelector(".api-keys").parentNode.className, "onboarding",
@@ -803,6 +812,13 @@ test("the header offers each control exactly once, in plain words", async () => 
   assert.ok(labels.includes("link:Link"), `an unlinked store reads Link: ${labels}`);
   assert.equal(env.root.querySelector(".brand-sub").textContent,
     "what your library actually cost");
+  // The topbar shows only linkable stores — the still-planned Xbox chip is
+  // absent, but PlayStation (now live) is present.
+  const chipNames = env.root.querySelectorAll(".source-name").map((e) => e.textContent);
+  assert.ok(!chipNames.includes("Xbox"),
+    `planned Xbox stays out of the topbar: ${chipNames}`);
+  assert.ok(chipNames.includes("PlayStation"),
+    `live PlayStation is in the topbar: ${chipNames}`);
 });
 
 test("what-if slider recomputes the rate and persists the setting", async () => {
@@ -863,3 +879,47 @@ test("the ranked insight lists name the worst and the best buy", async () => {
   assert.ok(worst.querySelectorAll(".rank-rate")[0].textContent.includes("/h"));
 });
 
+
+// Sony has no approval screen, so PlayStation linking is two manual steps and
+// the Connect button may only perform step one: get a signed-in session on
+// playstation.com. This pins the order, because getting it wrong is invisible
+// in code review and instantly visible to the user: the NPSSO endpoint opened
+// cold answers a signed-out browser with `invalid_grant` JSON, never a login
+// form, so there is nothing there to sign in on.
+test("PSN connect opens the sign-in page, never the NPSSO endpoint", async () => {
+  const { env } = await boot();
+
+  byAction(env, "link", "psn").dispatch("click");
+  await settle();
+
+  assert.equal(env.opened.length, 1, "one popup, for the sign-in step");
+  const signIn = new URL(env.opened[0].url);
+  assert.equal(signIn.origin, "https://www.playstation.com", "step one is the sign-in page");
+  assert.ok(!env.opened[0].url.includes("ssocookie"),
+    "must not open the NPSSO endpoint cold — it answers invalid_grant");
+  assert.ok(!env.opened[0].url.includes("ca.account.sony.com"),
+    "no Sony account endpoint on the first step");
+
+  const card = env.root.querySelectorAll(".platform-card")
+    .find((c) => c.dataset.platform === "psn");
+  assert.ok(card, "psn card rendered");
+
+  // Step two must be reachable: the paste block carries a real link to the
+  // NPSSO page, because that is where the value to paste actually lives.
+  const paste = env.document.getElementById("psn-paste");
+  assert.ok(paste, "psn paste block exists");
+  assert.equal(paste.open, true, "paste block visible, since the steps say 'below'");
+
+  const linkRow = paste.querySelector(".paste-link");
+  assert.ok(linkRow, "paste block links to the NPSSO page");
+  const anchor = linkRow.children.find((c) => String(c.tagName).toLowerCase() === "a");
+  assert.ok(anchor, "the link is a real anchor, not plain text");
+  assert.equal(anchor.href, "https://ca.account.sony.com/api/v1/ssocookie");
+  assert.equal(anchor.target, "_blank", "opens beside the app, not in place");
+
+  // And the copy has to lead with the sign-in, then the token.
+  const steps = card.querySelector(".pc-steps").textContent.toLowerCase();
+  assert.ok(steps.includes("sign in"), "step one says to sign in");
+  assert.ok(steps.indexOf("sign in") < steps.indexOf("npsso"),
+    "signing in comes before fetching the NPSSO");
+});

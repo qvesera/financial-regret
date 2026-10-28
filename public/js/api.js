@@ -1,14 +1,26 @@
 /** API clients. All tokens travel in headers or JSON bodies — never in URLs. */
 
+import { API_BASE } from "./env.js";
+
+/**
+ * Resolve an API path against the configured backend.
+ *
+ * Empty API_BASE keeps every URL relative, which is the dev-server default:
+ * server.py serves public/ and /api from one process, so there is nothing to
+ * configure. A split deploy prefixes the API host instead. Routing every call
+ * through here is what makes that a one-line change rather than thirteen.
+ */
+export const apiUrl = (path) => `${API_BASE}${path}`;
+
 export async function fetchConfig() {
-  const resp = await fetch("/api/config");
+  const resp = await fetch(apiUrl("/api/config"));
   if (!resp.ok) throw new Error(`config ${resp.status}`);
   return resp.json();
 }
 
 export async function fetchSteamGames(steamId) {
   const steamKey = localStorage.getItem("steam_api_key");
-  const resp = await fetch(`/api/steam_games?steamid=${encodeURIComponent(steamId)}`,
+  const resp = await fetch(apiUrl(`/api/steam_games?steamid=${encodeURIComponent(steamId)}`),
     steamKey ? { headers: { "X-Steam-Key": steamKey } } : {});
   if (!resp.ok) throw new Error(`steam_games ${resp.status}`);
   const data = await resp.json();
@@ -22,7 +34,7 @@ export async function fetchGogGames() {
   const userId = localStorage.getItem("gog_user_id");
   if (!accessToken) return [];
 
-  const resp = await fetch("/api/gog_games", {
+  const resp = await fetch(apiUrl("/api/gog_games"), {
     headers: {
       "X-GOG-Token": accessToken,
       "X-GOG-Refresh": refreshToken || "",
@@ -46,9 +58,9 @@ export async function fetchEpicGames(cursor = null) {
   const accountId = localStorage.getItem("epic_account_id");
   if (!accessToken) return { games: [], nextCursor: null, filtered: 0 };
 
-  const url = cursor
+  const url = apiUrl(cursor
     ? `/api/epic_games?cursor=${encodeURIComponent(cursor)}`
-    : "/api/epic_games";
+    : "/api/epic_games");
   const resp = await fetch(url, {
     headers: {
       "X-Epic-Token": accessToken,
@@ -67,7 +79,88 @@ export async function fetchEpicGames(cursor = null) {
   return { games: data.games || [], nextCursor: data.next_cursor || null, filtered: data.filtered_count || 0 };
 }
 
+/**
+ * Prices for a mixed batch, from whichever source can actually answer it.
+ *
+ * Every store except PlayStation is priced by IsThereAnyDeal, whose catalog has
+ * no PlayStation Store at all -- so PSN rows sent there always come back empty.
+ * PlatPrices covers PSN instead, and it keys on the PSN title id, so the batch
+ * is split by platform rather than quietly pricing nothing.
+ */
 export async function fetchPrices(games, currency = "INR") {
+  const psn = games.filter((g) => g.platform === "PlayStation" && g.titleId);
+  const rest = psn.length ? games.filter((g) => !psn.includes(g)) : games;
+
+  const out = { prices: {}, highs: {}, lows: {}, currency, attribution: null, psnReason: null };
+  const merge = (part) => {
+    if (!part) return;
+    Object.assign(out.prices, part.prices || {});
+    Object.assign(out.highs, part.highs || {});
+    Object.assign(out.lows, part.lows || {});
+    if (part.currency) out.currency = part.currency;
+    // Only PlatPrices sets one; it must survive the merge or the UI can never
+    // show the credit the free plans require.
+    if (part.attribution) out.attribution = part.attribution;
+    // Why PlayStation pricing came back empty, if it did -- the difference
+    // between "no key saved here" and "the store has no price for this".
+    if (part.psnReason) out.psnReason = part.psnReason;
+  };
+
+  if (rest.length) merge(await fetchItadPrices(rest, currency));
+  if (psn.length) {
+    try {
+      merge(await fetchPsnPrices(psn, currency));
+    } catch {
+      /* pricing is optional: PSN rows just stay "Unpriced" */
+    }
+  }
+  return out;
+}
+
+/**
+ * PlayStation Store prices from PlatPrices, batched by PSN title id. Returns
+ * nulls for titles the store does not carry, so they still render as "Unpriced"
+ * rather than being dropped from the batch.
+ */
+export async function fetchPsnPrices(games, currency = "INR") {
+  const BATCH_SIZE = 200;
+  const prices = {};
+  const highs = {};
+  const lows = {};
+  let actual = currency;
+  let attribution = null;
+  let reason = null;
+
+  const headers = { "Content-Type": "application/json" };
+  // Same pattern as the ITAD key: a user-supplied key carries their own quota.
+  const platpricesKey = localStorage.getItem("platprices_api_key");
+  if (platpricesKey) headers["X-Platprices-Key"] = platpricesKey;
+
+  for (let i = 0; i < games.length; i += BATCH_SIZE) {
+    const batch = games.slice(i, i + BATCH_SIZE).map((g) => ({
+      id: g.id,
+      titleId: g.titleId,
+    }));
+    const resp = await fetch(apiUrl("/api/psn_prices"), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ games: batch, currency }),
+    });
+    if (!resp.ok) continue;
+    const data = await resp.json();
+    Object.assign(prices, data.prices || {});
+    Object.assign(highs, data.highs || {});
+    Object.assign(lows, data.lows || {});
+    if (data.currency) actual = data.currency;
+    if (data.attribution) attribution = data.attribution;
+    if (data.reason) reason = data.reason;
+  }
+
+  return { prices, highs, lows, currency: actual, attribution, psnReason: reason };
+}
+
+/** IsThereAnyDeal prices for the non-PlayStation stores. */
+async function fetchItadPrices(games, currency = "INR") {
   const BATCH_SIZE = 200;
   const prices = {};
   const highs = {};
@@ -84,7 +177,7 @@ export async function fetchPrices(games, currency = "INR") {
     const headers = { "Content-Type": "application/json" };
     const itadKey = localStorage.getItem("itad_api_key");
     if (itadKey) headers["X-ITAD-Key"] = itadKey;
-    const resp = await fetch("/api/prices", {
+    const resp = await fetch(apiUrl("/api/prices"), {
       method: "POST",
       headers,
       body: JSON.stringify({ games: batch, currency }),
@@ -103,7 +196,7 @@ export async function fetchPrices(games, currency = "INR") {
 }
 
 export async function exchangeGog(code, redirectUri) {
-  const resp = await fetch("/api/gog_exchange", {
+  const resp = await fetch(apiUrl("/api/gog_exchange"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code, redirectUri }),
@@ -116,7 +209,7 @@ export async function exchangeGog(code, redirectUri) {
 }
 
 export async function exchangeEpic(code) {
-  const resp = await fetch("/api/epic_exchange", {
+  const resp = await fetch(apiUrl("/api/epic_exchange"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code }),
@@ -152,7 +245,7 @@ export function parseAuthCode(text) {
 }
 
 export async function verifySteam(queryString) {
-  const resp = await fetch(`/api/steam_verify${queryString}`);
+  const resp = await fetch(apiUrl(`/api/steam_verify${queryString}`));
   if (!resp.ok) throw new Error(`steam_verify ${resp.status}`);
   return resp.json();
 }
@@ -256,7 +349,7 @@ export async function loginAmazon() {
 
 /** Exchange the pasted Amazon code for a device bearer token (server-side). */
 export async function exchangeAmazon(payload) {
-  const resp = await fetch("/api/amazon_exchange", {
+  const resp = await fetch(apiUrl("/api/amazon_exchange"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -273,7 +366,7 @@ export async function fetchAmazonGames() {
   const token = localStorage.getItem("amazon_access_token");
   const serial = localStorage.getItem("amazon_serial");
   if (!token) return [];
-  const resp = await fetch("/api/amazon_games", {
+  const resp = await fetch(apiUrl("/api/amazon_games"), {
     headers: { "X-Amazon-Token": token, "X-Amazon-Serial": serial || "" },
   });
   if (!resp.ok) {
@@ -281,4 +374,54 @@ export async function fetchAmazonGames() {
     throw new Error(data.error || `amazon_games ${resp.status}`);
   }
   return (await resp.json()).games || [];
+}
+
+/**
+ * PlayStation has no approval screen, so linking is a two-step manual dance.
+ * Connect opens the *sign-in* page first — that session is the credential.
+ * Opening the NPSSO URL while signed out answers with an `invalid_grant` error,
+ * not a login form, so the two URLs can never be the same link.
+ */
+export const PSN_SIGNIN_URL = "https://www.playstation.com/";
+
+/** Step two: read the short-lived NPSSO (only works once signed in). */
+export const PSN_NPSSO_URL = "https://ca.account.sony.com/api/v1/ssocookie";
+
+/** Exchange a pasted NPSSO for access + refresh tokens (server-side). */
+export async function exchangePsn(npsso) {
+  const resp = await fetch(apiUrl("/api/psn_exchange"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ npsso }),
+  });
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.error || "PlayStation exchange failed");
+  }
+  return resp.json();
+}
+
+/**
+ * Played PSN titles, with real playtime. Sony exposes no owned-but-unplayed
+ * list, so this is played-only. Prices are fetched separately by title id, in
+ * fetchPsnPrices.
+ */
+export async function fetchPsnGames() {
+  const accessToken = localStorage.getItem("psn_access_token");
+  const refreshToken = localStorage.getItem("psn_refresh_token");
+  if (!accessToken) return [];
+  const resp = await fetch(apiUrl("/api/psn_games"), {
+    headers: { "X-PSN-Token": accessToken, "X-PSN-Refresh": refreshToken || "" },
+  });
+  if (resp.status === 401) return [];   // relink needed
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.error || `psn_games ${resp.status}`);
+  }
+  const data = await resp.json();
+  if (data.new_tokens) {
+    localStorage.setItem("psn_access_token", data.new_tokens.access_token);
+    localStorage.setItem("psn_refresh_token", data.new_tokens.refresh_token);
+  }
+  return data.games || [];
 }

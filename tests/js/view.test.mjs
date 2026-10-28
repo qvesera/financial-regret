@@ -166,3 +166,25 @@ test("pageWindow shows every page when few, a window with ellipses when many", (
   assert.deepEqual(pageWindow(37, 38), [1, "…", 36, 37, 38], "no trailing gap next to the last page");
   assert.deepEqual(pageWindow(38, 38), [1, "…", 37, 38], "the last page offers the way back");
 });
+
+
+test("the shell builds the credit line, and setPricingAttribution toggles it", () => {
+  installEnv();
+  view.shell(document.createElement("div"));
+
+  // Read the node back out of the real footer: a test that injects its own
+  // node would still pass if the shell never rendered one.
+  const line = view.footer.querySelector(".disclaimer-attribution");
+  assert.ok(line, "the credit line is part of the disclaimer footer");
+  assert.equal(line.hidden, true, "hidden until PlatPrices data actually arrives");
+
+  view.setPricingAttribution("Powered by PlatPrices");
+  assert.equal(line.textContent, "Powered by PlatPrices");
+  assert.equal(line.hidden, false, "a credit is shown whenever PlatPrices data is");
+
+  view.setPricingAttribution(null);
+  assert.equal(line.hidden, true, "no PSN prices means no dead credit line");
+  assert.equal(line.textContent, "", "a hidden credit never leaves stale text");
+
+  view.attribution = null;   // do not leak into the next test
+});

@@ -1,14 +1,18 @@
 """Small shared helpers for the API handler modules (JSON responses + security headers).
 
-No CORS wildcard: the frontend is same-origin with this server, so
-Access-Control-Allow-Origin: * is neither needed nor safe for a public host.
+No CORS wildcard: the frontend is normally same-origin with this server, and a
+split deploy must name its origins explicitly through CORS_ALLOWED_ORIGINS (see
+_cors.py). A wildcard is neither needed nor safe for a public host.
 """
 import json
+import os
+
+from _cors import send_cors
 
 CSP = (
     "default-src 'self'; "
     "connect-src 'self'; "
-    "img-src 'self' data:; "
+    "img-src 'self' data: https://cdn2.steamgriddb.com https://cdn.steamgriddb.com; "
     "style-src 'self'; "
     "frame-ancestors 'none'; "
     "base-uri 'none'; "
@@ -31,11 +35,38 @@ def send_json(handler, status: int, data: dict) -> None:
     handler.send_header("Content-Type", "application/json")
     handler.send_header("Content-Length", str(len(body)))
     _security_headers(handler)
+    send_cors(handler)
     handler.end_headers()
     handler.wfile.write(body)
 
 
 def handle_options(handler) -> None:
+    handler._response_sent = True
     handler.send_response(204)
     _security_headers(handler)
+    send_cors(handler)
     handler.end_headers()
+
+
+def require_user_keys() -> bool:
+    return os.environ.get("REQUIRE_USER_KEYS", "0").lower() in ("1", "true", "yes")
+
+
+def user_key(handler, header: str, env_var: str) -> str | None:
+    """The API key to spend on this request: the caller's, or the server's.
+
+    Public deployments set REQUIRE_USER_KEYS=1 so the server key is never spent
+    on a stranger's request. That quota is a shared pool -- PlatPrices' free
+    tier is 1,000 requests a month -- so one busy visitor would drain it for
+    everybody, and reselling another provider's data on your own account is
+    exactly what their paid tiers are for.
+
+    Self-hosted installs leave the flag unset and keep the convenience of a
+    server-side key, which is what the existing contract tests pin.
+    """
+    key = (handler.headers.get(header) or "").strip()
+    if key:
+        return key
+    if require_user_keys():
+        return None
+    return (os.environ.get(env_var) or "").strip() or None

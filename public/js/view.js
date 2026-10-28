@@ -134,6 +134,29 @@ const PLATFORMS = [
       "Paste it below. Amazon exposes no playtime, so these games are priced but left out of per-hour ratios.",
     ],
   },
+  // Scaffolded, not linkable: shown so the roadmap is visible and the gap is
+  // explained, but renderSources skips them and onboarding offers no button.
+  {
+    key: "xbox",
+    name: "Xbox",
+    platform: "Xbox",
+    planned: true,
+    blurb: "Owned games via Microsoft's official API.",
+    why: "Official and durable — but Microsoft's API exposes last-played, not hours played. Xbox titles would price where IsThereAnyDeal covers the Microsoft Store and land in “Unknown hours” otherwise, priced-only like Amazon. Needs a one-time Azure app registration (a client ID) to build.",
+  },
+  {
+    key: "psn",
+    name: "PlayStation",
+    platform: "PlayStation",
+    blurb: "Played titles, with real playtime. Sony has no official API, so this uses the community flow; prices come from PlatPrices when a key is set.",
+    cta: "Connect PlayStation",
+    steps: [
+      "Click Connect and sign in on PlayStation's own page. Sony offers no approval screen — the signed-in session is what earns us the next step.",
+      "Still signed in? Open the NPSSO page (link below). It shows one line of JSON, not a website — copy the 64-character npsso value.",
+      "Paste it below straight away; it expires fast. We trade it for a long-lived refresh token and never store the NPSSO itself.",
+      "Sony exposes only played titles, so these arrive with real hours. Prices come from PlatPrices when a key is configured; without one they still count toward time, only spend stays blank.",
+    ],
+  },
 ];
 
 
@@ -145,6 +168,8 @@ const BRAND_PATHS = {
   gog: "M7.15 15.24H4.36a.4.4 0 0 0-.4.4v2c0 .21.18.4.4.4h2.8v1.32h-3.5c-.56 0-1.02-.46-1.02-1.03v-3.39c0-.56.46-1.02 1.03-1.02h3.48v1.32zM8.16 11.54c0 .58-.47 1.05-1.05 1.05H2.63v-1.35h3.78a.4.4 0 0 0 .4-.4V6.39a.4.4 0 0 0-.4-.4H4.39a.4.4 0 0 0-.41.4v2.02c0 .23.18.4.4.4H6v1.35H3.68c-.58 0-1.05-.46-1.05-1.04V5.68c0-.57.47-1.04 1.05-1.04H7.1c.58 0 1.05.47 1.05 1.04v5.86zM21.36 19.36h-1.32v-4.12h-.93a.4.4 0 0 0-.4.4v3.72h-1.33v-4.12h-.93a.4.4 0 0 0-.4.4v3.72h-1.33v-4.42c0-.56.46-1.02 1.03-1.02h5.61v5.44zM21.37 11.54c0 .58-.47 1.05-1.05 1.05h-4.48v-1.35h3.78a.4.4 0 0 0 .4-.4V6.39a.4.4 0 0 0-.4-.4h-2.03a.4.4 0 0 0-.4.4v2.02c0 .23.18.4.4.4h1.62v1.35H16.9c-.58 0-1.05-.46-1.05-1.04V5.68c0-.57.47-1.04 1.05-1.04h3.43c.58 0 1.05.47 1.05 1.04v5.86zM13.72 4.64h-3.44c-.58 0-1.04.47-1.04 1.04v3.44c0 .58.46 1.04 1.04 1.04h3.44c.57 0 1.04-.46 1.04-1.04V5.68c0-.57-.47-1.04-1.04-1.04m-.3 1.75v2.02a.4.4 0 0 1-.4.4h-2.03a.4.4 0 0 1-.4-.4V6.4c0-.22.17-.4.4-.4H13c.23 0 .4.18.4.4zM12.63 13.92H9.24c-.57 0-1.03.46-1.03 1.02v3.39c0 .57.46 1.03 1.03 1.03h3.39c.57 0 1.03-.46 1.03-1.03v-3.39c0-.56-.46-1.02-1.03-1.02m-.3 1.72v2a.4.4 0 0 1-.4.4v-.01H9.94a.4.4 0 0 1-.4-.4v-1.99c0-.22.18-.4.4-.4h2c.22 0 .4.18.4.4zM23.49 1.1a1.74 1.74 0 0 0-1.24-.52H1.75A1.74 1.74 0 0 0 0 2.33v19.34a1.74 1.74 0 0 0 1.75 1.75h20.5A1.74 1.74 0 0 0 24 21.67V2.33c0-.48-.2-.92-.51-1.24m0 20.58a1.23 1.23 0 0 1-1.24 1.24H1.75A1.23 1.23 0 0 1 .5 21.67V2.33a1.23 1.23 0 0 1 1.24-1.24h20.5a1.24 1.24 0 0 1 1.24 1.24v19.34z",
   epic: "M3.537 0C2.165 0 1.66.506 1.66 1.879V18.44a4.262 4.262 0 00.02.433c.031.3.037.59.316.92.027.033.311.245.311.245.153.075.258.13.43.2l8.335 3.491c.433.199.614.276.928.27h.002c.314.006.495-.071.928-.27l8.335-3.492c.172-.07.277-.124.43-.2 0 0 .284-.211.311-.243.28-.33.285-.621.316-.92a4.261 4.261 0 00.02-.434V1.879c0-1.373-.506-1.88-1.878-1.88zm13.366 3.11h.68c1.138 0 1.688.553 1.688 1.696v1.88h-1.374v-1.8c0-.369-.17-.54-.523-.54h-.235c-.367 0-.537.17-.537.539v5.81c0 .369.17.54.537.54h.262c.353 0 .523-.171.523-.54V8.619h1.373v2.143c0 1.144-.562 1.71-1.7 1.71h-.694c-1.138 0-1.7-.566-1.7-1.71V4.82c0-1.144.562-1.709 1.7-1.709zm-12.186.08h3.114v1.274H6.117v2.603h1.648v1.275H6.117v2.774h1.74v1.275h-3.14zm3.816 0h2.198c1.138 0 1.7.564 1.7 1.708v2.445c0 1.144-.562 1.71-1.7 1.71h-.799v3.338h-1.4zm4.53 0h1.4v9.201h-1.4zm-3.13 1.235v3.392h.575c.354 0 .523-.171.523-.54V4.965c0-.368-.17-.54-.523-.54zm-3.74 10.147a1.708 1.708 0 01.591.108 1.745 1.745 0 01.49.299l-.452.546a1.247 1.247 0 00-.308-.195.91.91 0 00-.363-.068.658.658 0 00-.28.06.703.703 0 00-.224.163.783.783 0 00-.151.243.799.799 0 00-.056.299v.008a.852.852 0 00.056.31.7.7 0 00.157.245.736.736 0 00.238.16.774.774 0 00.303.058.79.79 0 00.445-.116v-.339h-.548v-.565H7.37v1.255a2.019 2.019 0 01-.524.307 1.789 1.789 0 01-.683.123 1.642 1.642 0 01-.602-.107 1.46 1.46 0 01-.478-.3 1.371 1.371 0 01-.318-.455 1.438 1.438 0 01-.115-.58v-.008a1.426 1.426 0 01.113-.57 1.449 1.449 0 01.312-.46 1.418 1.418 0 01.474-.309 1.58 1.58 0 01.598-.111 1.708 1.708 0 01.045 0zm11.963.008a2.006 2.006 0 01.612.094 1.61 1.61 0 01.507.277l-.386.546a1.562 1.562 0 00-.39-.205 1.178 1.178 0 00-.388-.07.347.347 0 00-.208.052.154.154 0 00-.07.127v.008a.158.158 0 00.022.084.198.198 0 00.076.066.831.831 0 00.147.06c.062.02.14.04.236.061a3.389 3.389 0 01.43.122 1.292 1.292 0 01.328.17.678.678 0 01.207.24.739.739 0 01.071.337v.008a.865.865 0 01-.081.382.82.82 0 01-.229.285 1.032 1.032 0 01-.353.18 1.606 1.606 0 01-.46.061 2.16 2.16 0 01-.71-.116 1.718 1.718 0 01-.593-.346l.43-.514c.277.223.578.335.9.335a.457.457 0 00.236-.05.157.157 0 00.082-.142v-.008a.15.15 0 00-.02-.077.204.204 0 00-.073-.066.753.753 0 00-.143-.062 2.45 2.45 0 00-.233-.062 5.036 5.036 0 01-.413-.113 1.26 1.26 0 01-.331-.16.72.72 0 01-.222-.243.73.73 0 01-.082-.36v-.008a.863.863 0 01.074-.359.794.794 0 01.214-.283 1.007 1.007 0 01.34-.185 1.423 1.423 0 01.448-.066 2.006 2.006 0 01.025 0zm-9.358.025h.742l1.183 2.81h-.825l-.203-.499H8.623l-.198.498h-.81zm2.197.02h.814l.663 1.08.663-1.08h.814v2.79h-.766v-1.602l-.711 1.091h-.016l-.707-1.083v1.593h-.754zm3.469 0h2.235v.658h-1.473v.422h1.334v.61h-1.334v.442h1.493v.658h-2.255zm-5.3.897l-.315.793h.624zm-1.145 5.19h8.014l-4.09 1.348z",
   amazon: "M21.757 15.4031a4.5796 4.5796 0 0 0-.8157-.3675h-.0038c-.0431-.015-.0863-.0244-.1294-.0375-.5081-.1556-2.4-.8494-3.4782-2.8126v.002l-1.9256-3.334c-.81-1.4212-.6732-3.6844-.585-4.5413a4.519 4.519 0 0 0 .0393-.3244.2659.2659 0 0 0 .0038-.0206h-.0019c.0056-.077.0113-.152.0113-.2307-.002-1.9388-1.5732-3.512-3.512-3.512s-3.512 1.5732-3.512 3.512c0 .0769.0075.1538.0113.2307h-.0038s.0019.0168.0056.045c.0075.09.0188.1762.032.2643.09.8363.2455 3.1876-.6057 4.624h.0018l-2.7582 4.7757v-.0037l-.0318.0581-.2588.45c-.0206.0375-.0356.0769-.0562.1144-.285.4931-.72 1.2057-1.1982 1.8507-.3994.54-1.0238 1.0725-1.637 1.4325l.0076.002c-.0563.028-.1144.0524-.1688.0862a2.3952 2.3952 0 0 0-.8625.8737c-.6694 1.1588-.2719 2.642.8869 3.3114.6056.3506 1.2975.4012 1.9182.2119l-.0038.0056c1.0688-.3732 2.237-.7014 2.8351-.8382 1.0032-.2288 2.4882-.285 3.332-.2963h.96c4.2845.0412 6.4558 1.8582 6.4558 1.8582l.0038-.0038c.1744.1387.3544.27.5531.3844 2.1451 1.2394 4.8902.5043 6.1277-1.6426 1.245-2.145.51-4.8901-1.637-6.1277zm-5.0308 2.267c-.4482.7743-1.0857 1.1568-2.1432 1.2375-1.0575.0806-1.2863.1425-3.2232.1425-1.937 0-2.2295-.06-3.2232-.1425-.992-.0825-1.695-.4632-2.1432-1.2376-.4482-.7744-.4107-1.6594 0-2.475.4106-.8157.6731-1.4457 1.4363-2.7676.7631-1.322 1.0669-1.8226 1.785-2.8145.72-.9919 1.2488-1.2375 2.1432-1.2375.8944 0 1.4644.3319 2.1432 1.2375.6788.9057.8719 1.2563 1.7138 2.7151s1.0556 1.952 1.5075 2.867c.4557.915.45 1.7006.0038 2.475z",
+  xbox: "M4.102 21.033C6.211 22.881 8.977 24 12 24c3.026 0 5.789-1.119 7.902-2.967 1.877-1.912-4.316-8.709-7.902-11.417-3.582 2.708-9.779 9.505-7.898 11.417zm11.16-14.406c2.5 2.961 7.484 10.313 6.076 12.912C23.002 17.48 24 14.861 24 12.004c0-3.34-1.365-6.362-3.57-8.536 0 0-.027-.022-.082-.042-.063-.022-.152-.045-.281-.045-.592 0-1.985.434-4.805 3.246zM3.654 3.426c-.057.02-.082.041-.086.042C1.365 5.642 0 8.664 0 12.004c0 2.854.998 5.473 2.661 7.533-1.401-2.605 3.579-9.951 6.08-12.91-2.82-2.813-4.216-3.245-4.806-3.245-.131 0-.223.021-.281.046v-.002zM12 3.551S9.055 1.828 6.755 1.746c-.903-.033-1.454.295-1.521.339C7.379.646 9.659 0 11.984 0H12c2.334 0 4.605.646 6.766 2.085-.068-.046-.615-.372-1.52-.339C14.946 1.828 12 3.545 12 3.545v.006z",
+  psn: "M8.984 2.596v17.547l3.915 1.261V6.688c0-.69.304-1.151.794-.991.636.18.76.814.76 1.505v5.875c2.441 1.193 4.362-.002 4.362-3.152 0-3.237-1.126-4.675-4.438-5.827-1.307-.448-3.728-1.186-5.39-1.502zm4.656 16.241l6.296-2.275c.715-.258.826-.625.246-.818-.586-.192-1.637-.139-2.357.123l-4.205 1.5V14.98l.24-.085s1.201-.42 2.913-.615c1.696-.18 3.785.03 5.437.661 1.848.601 2.04 1.472 1.576 2.072-.465.6-1.622 1.036-1.622 1.036l-8.544 3.107V18.86zM1.807 18.6c-1.9-.545-2.214-1.668-1.352-2.32.801-.586 2.16-1.052 2.16-1.052l5.615-2.013v2.313L4.205 17c-.705.271-.825.632-.239.826.586.195 1.637.15 2.343-.12L8.247 17v2.074c-.12.03-.256.044-.39.073-1.939.331-3.996.196-6.038-.479z",
 };
 
 /** Display name ("Epic", "GOG", "Amazon") → PLATFORMS key, or null. */
@@ -270,6 +295,19 @@ export const view = {
     const footer = this.el("footer", "disclaimer");
     footer.appendChild(this.el("p", null, "Prices are today's cheapest price (IsThereAnyDeal) in your selected currency — a replacement-cost estimate, not what you actually paid. Games with unknown playtime are excluded from every ratio, never counted as zero."));
     footer.appendChild(this.el("p", null, "GOG and Epic use the unofficial credentials baked into their own launchers. Tokens stay in this browser's localStorage and are never logged or stored server-side."));
+    // PlatPrices' free and Indie plans require a credit wherever its data is
+    // shown. Left hidden until the server actually returns one, so a library
+    // with no PSN rows carries no dead credit line.
+    const attribution = this.el("p", "disclaimer-attribution");
+    attribution.hidden = true;
+    footer.appendChild(attribution);
+    // Why PlayStation pricing is empty, when that is knowable. Without it the
+    // four different reasons -- no key saved, region not on the key's plan,
+    // upstream down, store has no such title -- all look identical: a blank
+    // column, and a user hunting for a bug that is really a setting.
+    const psnNote = this.el("p", "disclaimer-psn-note");
+    psnNote.hidden = true;
+    footer.appendChild(psnNote);
 
     main.appendChild(topbar);
     main.appendChild(phaseEl);
@@ -278,17 +316,33 @@ export const view = {
     main.appendChild(drawer);
     root.appendChild(main);
 
-    Object.assign(this, { main, topbar, sources, scanBtn, keysBtn, menuBtn, menu, phaseEl, drawer, drawerBody, footer });
+    Object.assign(this, { main, topbar, sources, scanBtn, keysBtn, menuBtn, menu, phaseEl, drawer, drawerBody, footer, attribution, psnNote });
     this._builtPhase = null;
     return this;
   },
 
+
+  /** Show the provider credit PlatPrices' free/Indie plans require, or hide
+   *  it entirely when no PSN prices came back. */
+  setPricingAttribution(text) {
+    if (!this.attribution) return;
+    this.attribution.textContent = text || "";
+    this.attribution.hidden = !text;
+  },
+
+  /** Explain why PlayStation prices are missing, or hide the line entirely. */
+  setPsnPricingNote(text) {
+    if (!this.psnNote) return;
+    this.psnNote.textContent = text || "";
+    this.psnNote.hidden = !text;
+  },
 
   /** Compact per-platform strip in the topbar (ready/loading phases). */
   renderSources(state) {
     const box = this.sources;
     box.textContent = "";
     for (const p of PLATFORMS) {
+      if (p.planned) continue;   // roadmap only — no account to show
       const linked = Boolean(state.accounts[p.key]);
       const chip = this.el("span", `source${linked ? " linked" : ""}`);
 
@@ -361,12 +415,23 @@ export const view = {
     return sel;
   },
 
-  /** Collapsed paste fallback used by both GOG and Epic cards. */
-  pasteBlock(kind, label, placeholder) {
+  /** Collapsed paste fallback used by GOG, Epic, Amazon and PlayStation.
+   *  `link` is an optional page to visit mid-flow — PlayStation needs one,
+   *  because the value to paste lives on a second URL you must be signed in to read. */
+  pasteBlock(kind, label, placeholder, link = null) {
     const d = this.el("details", "paste");
     d.id = `${kind}-paste`;
     d.open = true;   // the steps say "paste it below" — below must be visible
     d.appendChild(this.el("summary", null, label));
+    if (link) {
+      const p = this.el("p", "paste-link");
+      const a = this.el("a", null, link.text);
+      a.href = link.href;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      p.appendChild(a);
+      d.appendChild(p);
+    }
     const input = this.el("input", null);
     input.type = "text";
     input.placeholder = placeholder;
@@ -393,7 +458,7 @@ export const view = {
 
     const cards = this.el("div", "platform-cards");
     for (const p of PLATFORMS) {
-      const card = this.el("article", `platform-card${p.key === "steam" ? " featured" : ""}`);
+      const card = this.el("article", `platform-card${p.key === "steam" ? " featured" : ""}${p.planned ? " planned" : ""}`);
       card.dataset.platform = p.key;
 
       const head = this.el("div", "pc-head");
@@ -404,8 +469,17 @@ export const view = {
       head.appendChild(pmark);
       head.appendChild(this.el("h2", null, p.name));
       if (p.key === "steam") head.appendChild(this.el("span", "pc-tag", "best data"));
+      if (p.planned) head.appendChild(this.el("span", "pc-tag", "coming soon"));
       card.appendChild(head);
       card.appendChild(this.el("p", "pc-blurb", p.blurb));
+
+      if (p.planned) {
+        // Say what actually blocks it — not "coming soon". No button: there
+        // is nothing behind one to press.
+        card.appendChild(this.el("p", "pc-planned", p.why));
+        cards.appendChild(card);
+        continue;
+      }
 
       // What actually happens, in order. The old cards jumped straight to a
       // button and a collapsed <details> telling you to "paste it below" with
@@ -432,6 +506,11 @@ export const view = {
       if (p.key === "amazon") {
         card.appendChild(this.pasteBlock("amazon", "Paste the URL you landed on",
           "https://www.amazon.com/?openid.oa2.authorization_code=…"));
+      }
+      if (p.key === "psn") {
+        card.appendChild(this.pasteBlock("psn", "Paste your NPSSO token",
+          "the 64-character npsso value from the JSON",
+          { href: "https://ca.account.sony.com/api/v1/ssocookie", text: "Open the NPSSO page" }));
       }
       cards.appendChild(card);
     }

@@ -15,6 +15,18 @@ import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
  *  `view_mode` stays in its own key: several tests assert it by name. */
 const UI_STATE_KEY = "ui_state";
 
+/** Human wording for /api/psn_prices' `reason`. An unpriced PlayStation row is
+ *  normal and needs no comment, but when every one of them is unpriced the user
+ *  deserves to know which of four very different causes it is. */
+const PSN_PRICING_NOTE = {
+  no_key: "PlayStation prices need a PlatPrices key — add one under API keys. Playtime is unaffected.",
+  no_region: "PlatPrices has no PlayStation Store for this display currency, so PSN rows stay unpriced.",
+  upstream_failed: "PlatPrices did not answer, so PlayStation prices are unavailable right now.",
+  no_match: "PlatPrices carries no price for these PlayStation titles, so they stay unpriced.",
+};
+
+const psnNoteFor = (reason) => (reason ? PSN_PRICING_NOTE[reason] || null : null);
+
 function loadUiState() {
   try {
     const raw = localStorage.getItem(UI_STATE_KEY);
@@ -38,11 +50,12 @@ const KEY_STORES = {
   gog: ["gog_access_token", "gog_refresh_token", "gog_user_id"],
   epic: ["epic_access_token", "epic_refresh_token", "epic_account_id"],
   amazon: ["amazon_access_token", "amazon_refresh_token", "amazon_serial"],
+  psn: ["psn_access_token", "psn_refresh_token"],
 };
 
 let state = {
   phase: "onboarding",   // "onboarding" | "ready" | "loading"
-  accounts: { steam: false, gog: false, epic: false, amazon: false },
+  accounts: { steam: false, gog: false, epic: false, amazon: false, psn: false },
   games: [],
   rows: [],
   prices: {},
@@ -80,6 +93,7 @@ function linkedAccounts() {
     gog: Boolean(localStorage.getItem("gog_access_token")),
     epic: Boolean(localStorage.getItem("epic_access_token")),
     amazon: Boolean(localStorage.getItem("amazon_access_token")),
+    psn: Boolean(localStorage.getItem("psn_access_token")),
   };
 }
 
@@ -215,7 +229,7 @@ async function flushCovers() {
 
   try {
     if (payload.length) {
-      const resp = await fetch("/api/covers", {
+      const resp = await fetch(api.apiUrl("/api/covers"), {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-SGDB-Key": key },
         body: JSON.stringify({ games: payload }),
@@ -322,6 +336,7 @@ async function scan() {
     acc.gog && ["GOG", () => api.fetchGogGames()],
     acc.epic && ["Epic", () => fetchAllEpicGames()],
     acc.amazon && ["Amazon Luna", () => api.fetchAmazonGames()],
+    acc.psn && ["PlayStation", () => api.fetchPsnGames()],
   ].filter(Boolean);
   state.scanSteps = specs.map(([label]) => ({ label, status: "pending" }));
   renderAll();
@@ -354,6 +369,8 @@ async function scan() {
       highs = { ...highs, ...(priced.highs || {}) };
       lows = { ...lows, ...(priced.lows || {}) };
       if (priced.currency) state.currency = priced.currency;
+      view.setPricingAttribution(priced.attribution);
+      view.setPsnPricingNote(psnNoteFor(priced.psnReason));
       bake();
       renderAll();
     } catch {
@@ -405,6 +422,8 @@ async function reprice(nextCurrency) {
     const priced = await api.fetchPrices(state.games, state.currency);
     state.prices = priced.prices;
     if (priced.currency) state.currency = priced.currency;
+    view.setPricingAttribution(priced.attribution);
+    view.setPsnPricingNote(psnNoteFor(priced.psnReason));
     const highs = priced.highs || {}, lows = priced.lows || {};
     state.games = state.games.map((g) => ({
       ...g,
@@ -456,6 +475,14 @@ function linkPlatform(platform) {
         if (!w) showFormError("amazon", "Popup blocked — allow popups, then paste the redirect URL below.");
       })
       .catch((e) => showFormError("amazon", String((e && e.message) || e)));
+  } else if (platform === "psn") {
+    // Sony offers no approval screen, so this is a two-step manual flow and the
+    // button only performs step one: get a signed-in session on playstation.com.
+    // The NPSSO URL answers a signed-out browser with invalid_grant JSON, never
+    // a login form — so we must not send them there first. Step two (grab the
+    // NPSSO) is the link inside the paste block, which the steps point at.
+    ensurePasteSurface(platform);
+    window.open(api.PSN_SIGNIN_URL, "psn-signin", "width=520,height=700");
   }
 }
 
@@ -492,6 +519,12 @@ function submitPaste(kind) {
   const text = input.value.trim();
   if (!text) {
     showFormError(kind, kind === "epic" ? "Paste the authorizationCode." : "Paste the landing URL.");
+    return;
+  }
+  if (kind === "psn") {
+    // A raw NPSSO token, not a redirect URL or auth code — it must clear the
+    // parse below, which would reject it, so it branches here instead.
+    finishPsnExchange(text);
     return;
   }
   const code = api.parseAuthCode(text);
@@ -556,6 +589,21 @@ async function finishAmazonExchange(code) {
     await scan();
   } catch (e) {
     showFormError("amazon", String((e && e.message) || e));
+  }
+}
+
+/** Exchange a pasted PSN NPSSO for tokens, then rescan. */
+async function finishPsnExchange(npsso) {
+  try {
+    const data = await api.exchangePsn(npsso.trim());
+    if (!data.access_token) throw new Error("PlayStation exchange returned no access token");
+    localStorage.setItem("psn_access_token", data.access_token);
+    if (data.refresh_token) localStorage.setItem("psn_refresh_token", data.refresh_token);
+    const box = document.getElementById("psn-code");
+    if (box) box.value = "";
+    await scan();
+  } catch (e) {
+    showFormError("psn", String((e && e.message) || e));
   }
 }
 
@@ -713,6 +761,7 @@ function onClick(e) {
     case "submit-gog": submitPaste("gog"); break;
     case "submit-epic": submitPaste("epic"); break;
     case "submit-amazon": submitPaste("amazon"); break;
+    case "submit-psn": submitPaste("psn"); break;
     case "save-key": saveApiKey(t.dataset.kind); break;
     case "show-keys":
       state.phase = "onboarding";

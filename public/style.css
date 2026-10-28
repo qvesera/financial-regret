@@ -243,6 +243,16 @@ button { cursor: pointer; font-family: inherit; }
 }
 .pc-steps li::marker { color: var(--text); opacity: 0.55; font-weight: 600; }
 
+/* Honest roadmap note on a scaffolded store card. No button, because there
+   is nothing behind one to press — the copy says what actually blocks it. */
+.pc-planned {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.platform-card.planned { opacity: 0.82; }
+
 .pc-status { font-size: 0.85rem; color: var(--muted); }
 .pc-status.linked { color: var(--accent); }
 
@@ -256,6 +266,10 @@ button { cursor: pointer; font-family: inherit; }
 }
 
 .paste summary { color: var(--muted); cursor: pointer; }
+/* PlayStation's two-step flow: the value to paste lives on a second URL you
+   must be signed in to read, so the card carries a real link to it. */
+.paste-link { margin: 0.35rem 0 0; font-size: 0.82rem; }
+.paste-link a { color: var(--accent); }
 
 .paste input {
   width: 100%;
@@ -695,6 +709,25 @@ tr.game-row:hover { background: var(--surface-2); }
   padding-top: 1rem;
 }
 .disclaimer p { margin: 0.4rem 0; }
+/* Third-party data credit (PlatPrices). Kept visually quiet but present. */
+.disclaimer-attribution {
+  margin-top: 0.8rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--border);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+/* Why PlayStation prices are absent -- an actionable hint, so it sits a step
+   louder than the credit line above it. */
+.disclaimer-psn-note {
+  margin-top: 0.8rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--border);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
 
 /* ---------- results extras ---------- */
 
@@ -829,6 +862,8 @@ tr.game-row:hover { background: var(--surface-2); }
 .pc-mark.gog { color: #86328a; }
 .pc-mark.epic { color: #0078f2; }
 .pc-mark.amazon { color: #9146ff; }
+.pc-mark.xbox { color: #9bf00b; }
+.pc-mark.psn { color: #0070d1; }
 .platform-mark { color: var(--muted); flex: 0 0 auto; margin-right: 0.35rem; vertical-align: -2px; }
 td.cell-platform { white-space: nowrap; }
 

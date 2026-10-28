@@ -14,7 +14,6 @@ multiple rows without being priced twice.
 Response: {"prices": {"Steam:730": 499.0, "GOG:123": null}, "resolved": {"Steam:730": "itad-id"}}
 """
 import json
-import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -22,7 +21,7 @@ from http.server import BaseHTTPRequestHandler
 
 import requests
 
-from _common import send_json, handle_options
+from _common import send_json, handle_options, user_key
 
 ITAD_API_BASE = "https://api.isthereanydeal.com"
 STEAM_SHOP_ID = 61
@@ -270,10 +269,11 @@ class handler(BaseHTTPRequestHandler):
                 return
 
         # Prefer the caller's own key (X-ITAD-Key) so each user brings their
-        # own IsThereAnyDeal rate-limit quota; fall back to the server key.
-        api_key = self.headers.get("X-ITAD-Key") or os.environ.get("ITAD_API_KEY")
+        # own IsThereAnyDeal rate-limit quota; fall back to the server key
+        # unless this deployment is public and REQUIRE_USER_KEYS=1.
+        api_key = user_key(self, "X-ITAD-Key", "ITAD_API_KEY")
         if not api_key:
-            send_json(self, 500, {"error": "No ITAD key: set ITAD_API_KEY on the server or supply your own"})
+            send_json(self, 500, {"error": "No ITAD key: add your own under API keys"})
             return
 
         # Caller-selected display currency (ISO 4217) forwarded to ITAD; the

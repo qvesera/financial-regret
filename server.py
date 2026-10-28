@@ -18,6 +18,8 @@ Security notes for public hosting:
   * per-IP rate limiting on every endpoint
   * strict CSP + security headers on all responses
   * path traversal is impossible (resolve() + is_relative_to guard)
+  * cross-origin access is opt-in per origin (CORS_ALLOWED_ORIGINS), never a
+    wildcard, so a browser can only reach this API from origins you named
 """
 import importlib.util
 import mimetypes
@@ -41,6 +43,12 @@ except ImportError:
     pass
 
 sys.path.insert(0, str(API_DIR))
+
+# api/ is on the path now, so the shared response/header helpers are importable
+# here. server.py keeps its own copies of the response writers because it also
+# serves static files and its own /api/health and /api/config.
+from _common import CSP, handle_options, require_user_keys   # noqa: E402
+from _cors import send_cors               # noqa: E402
 
 _module_cache = {}
 _module_cache_lock = threading.Lock()
@@ -95,17 +103,6 @@ def _load_api_handler(name: str):
     return module.handler
 
 
-CSP = (
-    "default-src 'self'; "
-    "connect-src 'self'; "
-    "img-src 'self' data: https://cdn2.steamgriddb.com https://cdn.steamgriddb.com; "
-    "style-src 'self'; "
-    "frame-ancestors 'none'; "
-    "base-uri 'none'; "
-    "form-action 'self'"
-)
-
-
 def _security_headers(handler: BaseHTTPRequestHandler) -> None:
     handler.send_header("X-Content-Type-Options", "nosniff")
     handler.send_header("Referrer-Policy", "no-referrer")
@@ -117,9 +114,18 @@ def _security_headers(handler: BaseHTTPRequestHandler) -> None:
 class DevRequestHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def log_message(self, fmt, *args) -> None:
+    def log_message(self, fmt: str, *args) -> None:
         path_only = self.path.split("?", 1)[0]
         print(f"  {self.command} {path_only}", end="")
+        # The inherited line logs self.requestline verbatim, which would put the
+        # query string straight back after the redacted print above. Strip it
+        # from every string argument before handing them on, so the "tokens are
+        # never logged" claim in the module docstring is actually true.
+        if self.path != path_only:
+            args = tuple(
+                a.replace(self.path, path_only) if isinstance(a, str) else a
+                for a in args
+            )
         super().log_message(fmt, *args)
 
     def _send_json(self, status: int, data: dict, extra_headers=None) -> None:
@@ -133,6 +139,7 @@ class DevRequestHandler(BaseHTTPRequestHandler):
         if extra_headers:
             for k, v in extra_headers.items():
                 self.send_header(k, v)
+        send_cors(self)
         self.end_headers()
         self.wfile.write(body)
 
@@ -269,18 +276,20 @@ class DevRequestHandler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/"):
             self._dispatch_api("do_OPTIONS")
         else:
-            self.send_response(204)
-            _security_headers(self)
-            self.end_headers()
+            handle_options(self)
 
 
 def _health_handler(handler: BaseHTTPRequestHandler) -> None:
     handler._send_json(200, {
         "ok": True,
         "uptime_s": round(time.monotonic() - _START_TIME, 3),
+        # In BYO-key mode the server's own keys are ignored, so say which mode
+        # this is rather than implying the ones listed below are live.
+        "require_user_keys": require_user_keys(),
         "keys": {
             "steam": bool(os.environ.get("STEAM_API_KEY")),
             "itad": bool(os.environ.get("ITAD_API_KEY")),
+            "platprices": bool(os.environ.get("PLATPRICES_API_KEY")),
         },
     })
 
@@ -299,12 +308,12 @@ _START_TIME = time.monotonic()
 # register built-in endpoints; handler contract is do_GET/do_POST/do_OPTIONS(self)
 class _HealthHandler:
     do_GET = staticmethod(_health_handler)
-    do_OPTIONS = staticmethod(lambda h: h._send_json(204, {}))
+    do_OPTIONS = staticmethod(handle_options)
 
 
 class _ConfigHandler:
     do_GET = staticmethod(_config_handler)
-    do_OPTIONS = staticmethod(lambda h: h._send_json(204, {}))
+    do_OPTIONS = staticmethod(handle_options)
 
 
 _module_cache["health"] = _HealthHandler

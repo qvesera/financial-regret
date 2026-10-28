@@ -17,7 +17,6 @@ library inside a single rate-limit window.
 Response: {"covers": {"Steam:730": "https://cdn2.steamgriddb.com/..."}}
 """
 import json
-import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,7 +25,7 @@ from urllib.parse import quote
 
 import requests
 
-from _common import send_json, handle_options
+from _common import send_json, handle_options, user_key
 
 SGDB_BASE = "https://www.steamgriddb.com/api/v2"
 MAX_GAMES = 40          # per request; the client pages through the rest
@@ -180,7 +179,7 @@ class handler(BaseHTTPRequestHandler):
                 return
         games = games[:MAX_GAMES]
 
-        key = self.headers.get("X-SGDB-Key") or os.environ.get("SGDB_API_KEY")
+        key = user_key(self, "X-SGDB-Key", "SGDB_API_KEY")
         if not key:
             send_json(self, 401, {"error": "No SteamGridDB key: add one under API keys"})
             return
