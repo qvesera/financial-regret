@@ -1,0 +1,13 @@
+# Build context sent to Fly's remote builder. COPY in the Dockerfile is
+# explicit, so nothing here is actually copied into the image -- but the whole
+# context is still uploaded, and that includes .env. Keeping it out means the
+# API keys never leave this machine on the way to a build server.
+.git
+.env
+.env.*
+.netlify
+.venv
+**/__pycache__
+*.pyc
+node_modules
+tests

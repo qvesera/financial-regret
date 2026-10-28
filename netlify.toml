@@ -1,0 +1,22 @@
+# Static site only. The API is a separate Python service: Netlify Functions
+# run TypeScript, JavaScript or Go, so server.py has no runtime here and does
+# not try to deploy as one.
+#
+# The browser reaches the API directly, and the backend's CORS_ALLOWED_ORIGINS
+# must name this site. Netlify's own /api/* proxy rewrite is deliberately not
+# used: it caps requests at 26 seconds, which a cold price scan can exceed, and
+# it would collapse every visitor behind Netlify's edge IP and defeat the
+# backend's per-IP rate limiting.
+#
+# Set BACKEND_URL in the Netlify UI (Site configuration > Environment
+# variables) to the API origin, e.g. https://financial-regret.fly.dev
+
+[build]
+  publish = "public"
+  command = "sh scripts/gen_env.sh"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Security headers are emitted by the build into public/_headers, because the
+# CSP must name the real BACKEND_URL and this file cannot interpolate it.
