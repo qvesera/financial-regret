@@ -18,7 +18,9 @@ ENV PORT=8080
 ENV HOST=0.0.0.0
 EXPOSE 8080
 
+# Health probe follows $PORT: the image defaults to 8080, but Render injects
+# 10000, so a hardcoded port would probe a socket nothing is listening on.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)" || exit 1
+  CMD python3 -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/health' % os.environ.get('PORT','8080'), timeout=3)" || exit 1
 
 CMD ["python", "server.py"]
