@@ -1,0 +1,137 @@
+/** Unit tests for the pure verdict engine (no DOM needed). */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  benchmark, rateSamples, verdictOf, verdictMap, whatIf, coverHue, headline, comparators,
+  TIER_LABEL,
+} from "../../public/js/verdict.js";
+
+const g = (id, name, hours, price) => ({ id, name, hours, price, platform: "Steam" });
+
+// 4 priced + played games → a real quartile set: 10, 20, 40, 80
+const LIB = [
+  g("a", "A", 40, 400),   // 10/h
+  g("b", "B", 20, 400),   // 20/h
+  g("c", "C", 10, 400),   // 40/h
+  g("d", "D", 5, 400),    // 80/h
+  g("e", "E", 0, 400),    // unplayed → not an observation
+  g("f", "F", null, 400), // no hours → not an observation
+  g("h", "H", 12, null),  // unpriced → not an observation
+];
+
+test("rateSamples only counts priced, played games with a finite rate", () => {
+  assert.deepEqual(rateSamples(LIB), [10, 20, 40, 80]);
+});
+
+test("benchmark reports quartiles of the library", () => {
+  const b = benchmark(LIB);
+  assert.equal(b.samples, 4);
+  assert.equal(b.p50, 30);      // pos 1.5 → 20 + (40-20)*0.5
+  assert.equal(b.p25, 17.5);    // pos 0.75 → 10 + (20-10)*0.75
+  assert.equal(b.p75, 50);      // pos 2.25 → 40 + (80-40)*0.25
+  assert.equal(b.max, 80);
+  assert.equal(b.p90, 68);      // pos 2.7 → 40 + (80-40)*0.7
+});
+
+test("benchmark stays null below three observations (no invented thresholds)", () => {
+  const b = benchmark([g("a", "A", 10, 100), g("b", "B", 5, 100)]);
+  assert.equal(b.samples, 2);
+  assert.equal(b.p25, null);
+  assert.equal(b.p50, null);
+  assert.equal(verdictOf(g("a", "A", 10, 100), b), "unknown");
+});
+
+test("verdictOf sorts a game into the quartile bands", () => {
+  const b = benchmark(LIB);
+  assert.equal(verdictOf(g("x", "X", 40, 400), b), "worth");   // 10/h ≤ p25
+  assert.equal(verdictOf(g("y", "Y", 20, 400), b), "fair");    // 20/h ≤ p50
+  assert.equal(verdictOf(g("z", "Z", 1, 400), b), "regret");   // 400/h > p50
+});
+
+test("verdictOf treats a missing price and missing playtime differently", () => {
+  const b = benchmark(LIB);
+  assert.equal(verdictOf(g("n", "N", 10, null), b), "nodata", "price unknown");
+  assert.equal(verdictOf(g("u", "U", null, 400), b), "untouched", "hours unknown");
+  assert.equal(verdictOf(g("s", "S", 0.5, 400), b), "untouched", "sub-hour play");
+  assert.equal(verdictOf(null, b), "nodata");
+});
+
+test("a free played game is always worth it", () => {
+  const b = benchmark(LIB);
+  assert.equal(verdictOf(g("free", "Free", 3, 0), b), "worth");
+});
+
+test("verdictMap keys every game in the library", () => {
+  const b = benchmark(LIB);
+  const m = verdictMap(LIB, b);
+  assert.equal(m.size, LIB.length);
+  assert.equal(m.get("h"), "nodata");
+  assert.equal(m.get("e"), "untouched");
+});
+
+test("whatIf replays a playtime and reports whether the verdict flips", () => {
+  const b = benchmark(LIB);
+
+  // an unplayed purchase played for 20h lands at 20/h → inside the fair band
+  const now = whatIf(g("u", "Untouched", 0, 400), b, 20);
+  assert.equal(now.tier, "fair");
+  assert.equal(now.nowTier, "untouched", "it is unplayed today");
+  assert.equal(now.changed, true, "the verdict flips");
+  assert.equal(now.delta, null, "no finite current rate to compare against");
+
+  // a played game pushed to half its hours costs double per hour
+  const worse = whatIf(g("a", "A", 40, 400), b, 20);
+  assert.equal(worse.nowTier, "worth");
+  assert.equal(worse.tier, "fair", "20/h is no longer a bargain");
+  assert.equal(worse.changed, true);
+  assert.equal(worse.delta, 10, "20/h minus the current 10/h");
+
+  // replaying at today's playtime changes nothing
+  const same = whatIf(g("a", "A", 40, 400), b, 40);
+  assert.equal(same.tier, "worth");
+  assert.equal(same.changed, false);
+  assert.equal(same.delta, 0);
+});
+
+test("whatIf never returns an infinite rate", () => {
+  const b = benchmark(LIB);
+  const r = whatIf(g("u", "U", 0, 400), b, 0);
+  assert.equal(r.rate, null, "0 hours is not a rate");
+  assert.equal(r.delta, null);
+});
+
+test("coverHue is stable per id and inside the hue circle", () => {
+  assert.equal(coverHue("Steam:730"), coverHue("Steam:730"));
+  assert.notEqual(coverHue("Steam:730"), coverHue("Epic:730"));
+  for (const id of ["", "a", "Steam:1", null]) {
+    const h = coverHue(id);
+    assert.ok(h >= 0 && h < 360, `${id} → ${h}`);
+  }
+});
+
+test("headline reads as a sentence and handles the empty library", () => {
+  assert.equal(headline({}), "", "nothing to say yet");
+  assert.equal(headline({ total: 100, played: 0 }),
+    "100 games, none played yet — the shelf is the story.");
+  assert.equal(headline({ total: 100, played: 38, worstName: "Anthem", worstRate: "₹2,100" }),
+    "38% of 100 games played. Worst buy: Anthem at ₹2,100/h.");
+  assert.equal(headline({ total: 100, played: 100 }),
+    "100 of 100 games played — 100% of the library.");
+});
+
+test("comparators rank the extremes and ignore unproven games", () => {
+  const { worst, best } = comparators(LIB, 3);
+  assert.equal(worst[0].name, "D", "80/h is the worst buy");
+  assert.equal(best[0].name, "A", "10/h is the best value");
+  assert.equal(worst.length, 3, "limited to the requested count");
+  assert.equal(best.length, 3);
+  assert.ok(!worst.some((x) => x.name === "E"), "unplayed games are excluded");
+  assert.ok(!worst.some((x) => x.name === "H"), "unpriced games are excluded");
+});
+
+test("every tier has a human label", () => {
+  for (const t of ["worth", "fair", "regret", "untouched", "nodata", "unknown"]) {
+    assert.ok(TIER_LABEL[t], `${t} labelled`);
+  }
+});
+

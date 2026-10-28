@@ -65,6 +65,24 @@ test("cold start shows onboarding, hides metrics chrome", async () => {
   assert.ok(env.root.querySelector(".api-keys"), "API keys card rendered");
   assert.equal(env.document.getElementById("kpi-library"), null, "no KPIs before linking");
   assert.equal(env.root.querySelector(".sources").hidden, true, "sources strip hidden on onboarding");
+
+  // The link cards now say what will happen, in order, and the paste field
+  // they point at is visible — it used to hide behind a collapsed <details>.
+  assert.equal(env.root.querySelectorAll(".pc-steps").length, 4, "every store card lists its steps");
+  assert.equal(env.document.getElementById("epic-paste").open, true,
+    "the paste field a step points at is open");
+  assert.equal(env.root.querySelector(".api-keys").parentNode.className, "onboarding",
+    "the optional keys card sits outside the store grid");
+
+  // The key inputs used to carry their name in the placeholder only — no
+  // label for screen readers, and (worse) no input styling in dark mode.
+  for (const kind of ["itad", "steam", "sgdb"]) {
+    const input = env.document.getElementById(`${kind}-key`);
+    assert.ok(input, `${kind} key input exists`);
+    const lab = env.root.querySelectorAll("label").find((l) => l.htmlFor === `${kind}-key`);
+    assert.ok(lab && lab.textContent.length > 3, `${kind} key has a real <label for>`);
+  }
+  assert.equal(env.root.querySelectorAll(".key-group").length, 3, "keys grouped by purpose");
 });
 
 test("Steam link navigates to OpenID checkid_setup with return_to", async () => {
@@ -171,6 +189,85 @@ test("scan yields 3 rows, correct KPIs, and coverage text", async () => {
   assert.ok(env.root.querySelector(".coverage").textContent.includes("2 / 3"));
   assert.ok(env.root.querySelector(".coverage").textContent.includes("67.1%"));
   assert.equal(env.root.querySelector(".empty-state").hidden, true, "empty state hidden after scan");
+  assert.equal(env.root.querySelector(".pager").classList.contains("hidden"), true,
+    "a one-page library gets no pager");
+});
+
+test("a big library pages instead of rendering every row at once", async () => {
+  const env = installEnv();
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  const many = {
+    games: Array.from({ length: 30 }, (_, i) => (
+      { id: `Steam:${1000 + i}`, name: `Game ${i}`, platform: "Steam", hours: i + 1, appid: 1000 + i })),
+  };
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) return { json: many };
+    if (url.includes("/api/prices")) return { json: { prices: {} } };
+    return { json: { games: [] } };
+  });
+  caseId += 1;
+  const mod = await import(`../../public/js/app.js?case=${caseId}`);
+  await settle();
+
+  assert.equal(env.root.querySelectorAll(".game-row").length, 24, "first page only, not all 30");
+  const status = env.root.querySelector(".pager-status");
+  assert.ok(status.textContent.includes("1–24 of 30"), `range reads: ${status.textContent}`);
+  assert.ok(status.textContent.includes("page 1 of 2"));
+
+  env.root.querySelectorAll("button").find((b) => b.dataset.action === "page-next").dispatch("click");
+  await settle();
+  assert.equal(env.root.querySelectorAll(".game-row").length, 6, "the tail page shows the remainder");
+  assert.ok(env.root.querySelector(".pager-status").textContent.includes("25–30 of 30"));
+  assert.equal(env.root.querySelectorAll("button").find((b) => b.dataset.action === "page-next").disabled,
+    true, "no next past the end");
+
+  env.root.querySelectorAll("button").find((b) => b.dataset.action === "page-prev").dispatch("click");
+  await settle();
+  assert.equal(env.root.querySelectorAll(".game-row").length, 24, "prev walks back");
+
+  // A strip above and below the results, with direct jump targets.
+  assert.equal(env.root.querySelectorAll(".pager").length, 2, "top and bottom strips");
+  const topPager = env.root.querySelector(".pager");
+  assert.deepEqual(topPager.querySelectorAll(".page-num").map((b) => b.textContent), ["1", "2"],
+    "every page directly selectable");
+  topPager.querySelectorAll(".page-num").find((b) => b.dataset.page === "2").dispatch("click");
+  await settle();
+  assert.equal(mod.getState().page, 2, "a page number jumps straight there");
+  assert.equal(env.root.querySelectorAll(".game-row").length, 6);
+  assert.equal(topPager.querySelectorAll(".page-num")[1].getAttribute("aria-current"), "page",
+    "the current page is marked, not just coloured");
+
+  // Any change to the query starts over at page 1 — page 2 of a filter that
+  // now matches three games would be an empty screen.
+  env.root.querySelectorAll("button").find((b) => b.dataset.action === "filter")
+    .dispatch("click");
+  await settle();
+  assert.equal(mod.getState().page, 1, "filters reset the page");
+});
+
+test("the filter tabs explain themselves: counts, clear names, no self-shrinking", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
+  await settle();
+
+  const tab = (f) => env.root.querySelectorAll(".tab").find((t) => t.dataset.filter === f);
+  const count = (f) => tab(f).querySelector(".tab-count").textContent;
+  assert.equal(count("All"), "3");
+  assert.equal(count("Unplayed"), "1", "Cyberpunk at 0 h");
+  assert.equal(count("Played"), "1", "Hades at 20 h");
+  assert.equal(count("No data"), "1", "Elden Ring, hours unknown");
+  assert.equal(tab("No data").querySelector(".tab-label").textContent, "Unknown hours",
+    "the tab is named for what it actually filters");
+
+  tab("Unplayed").dispatch("click");
+  await settle();
+  assert.equal(mod.getState().rows.length, 1, "the tab filters");
+  assert.equal(count("Unplayed"), "1", "and its own count survives the selection");
+
+  // The verdict facet that used to share the name "No data" is now
+  // "Unpriced" — the phrase means exactly one thing in the UI.
+  const facetNames = env.root.querySelectorAll(".tier-facet")
+    .map((b) => b.querySelector(".tier-name").textContent);
+  assert.ok(facetNames.includes("Unpriced"), `verdict facets read: ${facetNames}`);
 });
 
 test("regret gauge lives in its KPI card, not a second sidebar card", async () => {
@@ -216,8 +313,21 @@ test("row click opens the drawer; close hides it", async () => {
   assert.ok(drawer.textContent.includes("Current price"), "price row shown");
   assert.equal(drawer.querySelector(".paid-input"), null, "no paid input (feature removed)");
 
+  // The panel carries its own cover: the same layered fallback as the grid
+  // cards, keyed so the loader can stamp the art in when the url is known.
+  const cover = drawer.querySelector(".drawer-cover");
+  assert.ok(cover, "cover shown in the details panel");
+  assert.equal(cover.querySelector(".cover-img").dataset.coverId, "Steam:730");
+
   drawer.querySelectorAll("button").find((b) => b.dataset.action === "close-drawer").dispatch("click");
   assert.equal(env.root.querySelector(".drawer").classList.contains("hidden"), true, "drawer closes");
+
+  // Reopen, then dismiss via the scrim — a click on the panel element itself.
+  row.dispatch("click");
+  assert.equal(env.root.querySelector(".drawer").classList.contains("hidden"), false, "reopens");
+  env.root.querySelector(".drawer").dispatch("click");
+  assert.equal(env.root.querySelector(".drawer").classList.contains("hidden"), true,
+    "clicking the scrim closes it");
 });
 
 test("unlinking the last account returns to onboarding and clears storage", async () => {
@@ -336,9 +446,70 @@ test("strip link for a second store surfaces the paste card; Back returns", asyn
   assert.equal(mod.getState().phase, "onboarding", "onboarding cards surfaced for paste");
   assert.equal(env.document.getElementById("gog-paste").open, true, "paste box auto-opened");
 
+  // The way back is a real footer — button plus privacy note — not a bare
+  // button stuck under the dashed keys card.
+  const foot = env.root.querySelector(".onboarding-footer");
+  assert.ok(foot, "back button sits in the onboarding footer");
+  assert.ok(foot.querySelectorAll("button").find((b) => b.dataset.action === "back"),
+    "the back button is inside the footer");
+  assert.ok(foot.querySelector(".trust-note"), "privacy note travels with it");
+
   env.root.querySelectorAll("button").find((b) => b.dataset.action === "back").dispatch("click");
   assert.equal(mod.getState().phase, "ready");
   assert.equal(env.root.querySelectorAll(".game-row").length, 3, "scan data intact");
+});
+
+test("the dashboard fills in store-by-store, not after the slowest one", async () => {
+  const env = installEnv();
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  env.localStorage.setItem("epic_access_token", "epic-tok");
+
+  // Epic holds its response open — as it does in real life, where its cursor
+  // crawl runs a minute longer than Steam's single request.
+  let releaseEpic;
+  const epicGate = new Promise((r) => { releaseEpic = r; });
+  env.fetchRoutes.push(async (url) => {
+    if (url.includes("/api/steam_games")) return { json: steamFixture };
+    if (url.includes("/api/prices")) return { json: { prices: PRICE_MAP, highs: HIGH_MAP, lows: LOW_MAP } };
+    if (url.includes("/api/epic_games")) {
+      await epicGate;
+      return { json: { games: [{ id: "Epic:1", name: "Celeste", platform: "Epic", hours: 3 }] } };
+    }
+    return null;
+  });
+  caseId += 1;
+  const mod = await import(`../../public/js/app.js?case=${caseId}`);
+  await settle();
+
+  assert.equal(mod.getState().phase, "ready", "the first store to land ends the skeleton wait");
+  assert.ok(mod.getState().rows.some((r) => r.platform === "Steam"), "Steam rows are visible while Epic pends");
+  assert.equal(mod.getState().prices["Steam:730"], 1113, "and priced already");
+  assert.ok(mod.getState().scanSteps.some((s) => s.label === "Epic" && s.status === "pending"),
+    "the stepper is still honest about Epic");
+
+  releaseEpic();
+  await settle();
+  assert.ok(mod.getState().rows.some((r) => r.platform === "Epic"), "Epic joins when it lands");
+  assert.equal(mod.getState().scanSteps, null, "the stepper clears when everything settles");
+});
+
+test("cached cover art is stamped on the cards and revealed when it loads", async () => {
+  const env = installEnv();
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  env.localStorage.setItem("view_mode", "grid");
+  env.localStorage.setItem("covers_cache", JSON.stringify({ "Steam:730": "https://cdn.example/730.png" }));
+  routeScan(env);
+  caseId += 1;
+  await import(`../../public/js/app.js?case=${caseId}`);
+  await settle();
+
+  const img = env.root.querySelectorAll(".cover-img")
+    .find((i) => i.dataset.coverId === "Steam:730");
+  assert.ok(img, "cover slot rendered");
+  assert.equal(img.getAttribute("src"), "https://cdn.example/730.png", "cached url stamped");
+  assert.ok(!img.classList.contains("is-loaded"), "still faded out until the browser decodes it");
+  img.dispatch("load");
+  assert.ok(img.classList.contains("is-loaded"), "the load event fades it in");
 });
 
 test("dedupeGames collapses duplicate entitlements, keeping max playtime", async () => {
@@ -565,3 +736,130 @@ test("clicking a pie slice filters the table to that platform", async () => {
   assert.equal(mod.getState().platform, "All");
   assert.equal(mod.getState().rows.length, 3, "back to everything");
 });
+
+test("verdict facets filter the table and expose aria-pressed", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
+  await settle();
+
+  const facet = (t) => env.root.querySelectorAll(".tier-facet")
+    .find((b) => b.dataset.tier === t);
+  assert.ok(facet("All"), "the All facet is always offered");
+  assert.equal(facet("All").getAttribute("aria-pressed"), "true");
+
+  // 1 priced+played game → no quartiles yet, so Hades reads "unknown"
+  // while the two unplayed ones are "untouched".
+  assert.equal(mod.getState().bench.samples, 1);
+  assert.equal(mod.getState().verdicts.get("Steam:730"), "unknown");
+  assert.equal(mod.getState().verdicts.get("Steam:1091500"), "untouched");
+  assert.equal(facet("untouched").getAttribute("aria-pressed"), "false");
+  assert.equal(facet("worth").hidden, true, "a tier with no members is hidden, not dead");
+
+  facet("untouched").dispatch("click");
+  await settle();
+  assert.equal(mod.getState().tier, "untouched");
+  assert.equal(mod.getState().rows.length, 2, "only the unplayed games");
+  assert.equal(facet("untouched").getAttribute("aria-pressed"), "true");
+  assert.equal(facet("All").getAttribute("aria-pressed"), "false");
+  const saved = JSON.parse(env.localStorage.getItem("ui_state"));
+  assert.equal(saved.tier, "untouched", "the facet survives a reload");
+
+  facet("All").dispatch("click");
+  await settle();
+  assert.equal(mod.getState().tier, "All");
+  assert.equal(mod.getState().rows.length, 3, "back to everything");
+});
+
+test("the hero states the spend once, with the stats that back it", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  assert.equal(env.document.getElementById("hero").id, "hero");
+  assert.equal(env.document.getElementById("hero-spend").textContent, "₹4,425.00");
+  const line = env.document.getElementById("hero-line").textContent;
+  assert.ok(line.includes("Worst buy:"), `headline reads: ${line}`);
+  assert.ok(line.includes("Hades"), "the worst buy is named");
+
+  // The old chips repeated three of the KPI cards verbatim, and as a separate
+  // row they left a dead band under the figure. The stats now live inside the
+  // hero card instead.
+  assert.equal(env.root.querySelector(".hero-chips"), null, "no duplicate chips");
+  assert.ok(env.root.querySelector(".kpi-grid"), "the stats sit inside the hero");
+  assert.ok(env.document.getElementById("kpi-library"), "library value is still reported, once");
+});
+
+test("the header offers each control exactly once, in plain words", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  const keysBtns = env.root.querySelectorAll("button")
+    .filter((b) => b.dataset.action === "show-keys");
+  assert.equal(keysBtns.length, 1, "one API-keys control, not two with two names");
+  assert.equal(keysBtns[0].textContent, "API keys");
+  assert.equal(keysBtns[0].hidden, false, "reachable from the dashboard");
+
+  const labels = env.root.querySelectorAll(".source-action")
+    .map((b) => `${b.dataset.action}:${b.textContent}`);
+  assert.ok(labels.includes("unlink:Forget"), `a linked store reads Forget: ${labels}`);
+  assert.ok(labels.includes("link:Link"), `an unlinked store reads Link: ${labels}`);
+  assert.equal(env.root.querySelector(".brand-sub").textContent,
+    "what your library actually cost");
+});
+
+test("what-if slider recomputes the rate and persists the setting", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
+  await settle();
+
+  const range = env.root.querySelector(".sim-range");
+  assert.ok(range, "the what-if slider is rendered");
+  assert.equal(range.getAttribute("aria-valuetext"), "10 hours");
+  assert.ok(env.document.getElementById("sim-out").textContent.includes("today"));
+
+  range.value = "40";
+  range.dispatch("input");
+  await settle();
+
+  assert.equal(mod.getState().simHours, 40, "state follows the drag");
+  assert.equal(JSON.parse(env.localStorage.getItem("ui_state")).simHours, 40);
+  assert.equal(range.getAttribute("aria-valuetext"), "40 hours");
+  assert.ok(env.document.getElementById("sim-out").textContent.includes("40 h"));
+});
+
+test("an over-narrow filter offers a way out instead of a dead end", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
+  await settle();
+
+  // "No data" holds only Elden Ring; the "unknown" verdict holds only Hades.
+  // Their intersection is empty — the classic dead end.
+  env.root.querySelectorAll(".tab").find((t) => t.dataset.filter === "No data").dispatch("click");
+  await settle();
+  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "unknown")
+    .dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().rows.length, 0, "filters combined to nothing");
+  const empty = env.root.querySelector(".empty-state");
+  assert.equal(empty.hidden, false, "the empty state is shown");
+  assert.ok(empty.textContent.includes("No games match these filters"));
+
+  const btn = empty.querySelector("button");
+  assert.equal(btn.dataset.action, "clear-filters", "the action matches the cause");
+  btn.dispatch("click");
+  await settle();
+  assert.equal(mod.getState().rows.length, 3, "and it gets you out");
+  assert.equal(mod.getState().tier, "All");
+  assert.equal(mod.getState().filter, "All");
+});
+
+test("the ranked insight lists name the worst and the best buy", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  const worst = env.root.querySelector(".rank-worst");
+  const best = env.root.querySelector(".rank-best");
+  assert.ok(worst && best, "both ranked lists rendered");
+  const nameOf = (list) => list.querySelectorAll(".rank-name").map((n) => n.textContent);
+  assert.deepEqual(nameOf(worst), ["Hades"], "only played+priced games qualify");
+  assert.deepEqual(nameOf(best), ["Hades"]);
+  assert.ok(worst.querySelectorAll(".rank-rate")[0].textContent.includes("/h"));
+});
+

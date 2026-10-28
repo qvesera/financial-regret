@@ -9,6 +9,29 @@ import { store } from "./store.js";
 import * as api from "./api.js";
 import { view } from "./view.js";
 import { computeRegret } from "./regret.js";
+import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
+
+/** UI state worth keeping across reloads — filters and the what-if setting.
+ *  `view_mode` stays in its own key: several tests assert it by name. */
+const UI_STATE_KEY = "ui_state";
+
+function loadUiState() {
+  try {
+    const raw = localStorage.getItem(UI_STATE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch { return {}; }
+}
+
+function saveUiState(patch) {
+  try {
+    localStorage.setItem(UI_STATE_KEY, JSON.stringify({ ...loadUiState(), ...patch }));
+  } catch { /* private mode / quota — filters just won't persist */ }
+}
+
+const savedUi = loadUiState();
+
 
 const KEY_STORES = {
   steam: ["steam_id"],
@@ -33,12 +56,23 @@ let state = {
   scanError: null,
   filter: "All",
   platform: "All",
+  tier: "All",
   viewMode: "list",
   sort: "price-desc",
   search: "",
   scanning: false,
   openId: null,
+  // derived: filled in by renderAll before anything reads them
+  bench: { samples: 0, p25: null, p50: null, p75: null, p90: null, max: null },
+  verdicts: new Map(),
+  comparators: { worst: [], best: [] },
+  simTarget: savedUi.simTarget || null,
+  simHours: Number(savedUi.simHours) || 10,
+  scanSteps: null,
+  page: 1,                 // 1-based library page; never persisted
+  tabCounts: { All: 0, Unplayed: 0, Played: 0, "No data": 0 },
 };
+
 
 function linkedAccounts() {
   return {
@@ -53,12 +87,21 @@ function anyLinked(acc = linkedAccounts()) {
   return Object.values(acc).some(Boolean);
 }
 
-function computeRows() {
+function computeRows({ skipPlayFilter = false } = {}) {
   let g = state.games;
   if (state.platform && state.platform !== "All") g = g.filter((x) => x.platform === state.platform);
-  if (state.filter === "Unplayed") g = g.filter((x) => x.hours != null && x.hours < 1);
-  else if (state.filter === "Played") g = g.filter((x) => x.hours != null && x.hours >= 1);
-  else if (state.filter === "No data") g = g.filter((x) => x.hours == null);
+  // Tier is read from the verdict map, which is built against the whole
+  // library — so narrowing by verdict never moves the goalposts.
+  if (state.tier && state.tier !== "All") {
+    g = g.filter((x) => (state.verdicts.get(x.id) || "nodata") === state.tier);
+  }
+  // skipPlayFilter: the tabs count their own options from this pool, so
+  // selecting "Unplayed" never shrinks the Unplayed badge to zero.
+  if (!skipPlayFilter) {
+    if (state.filter === "Unplayed") g = g.filter((x) => x.hours != null && x.hours < 1);
+    else if (state.filter === "Played") g = g.filter((x) => x.hours != null && x.hours >= 1);
+    else if (state.filter === "No data") g = g.filter((x) => x.hours == null);
+  }
 
   const q = state.search.trim().toLowerCase();
   if (q) g = g.filter((x) => x.name && x.name.toLowerCase().includes(q));
@@ -122,6 +165,9 @@ function applyCovers() {
     if (url) {
       img.setAttribute("src", url);
       img.dataset.loaded = "1";
+      // A memory-cache hit can be complete before any load event listener
+      // has a say — reveal it either way.
+      if (img.complete) img.classList.add("is-loaded");
     }
   }
 }
@@ -193,7 +239,24 @@ function renderAll() {
   if (state.platform && state.platform !== "All" && !state.games.some((g) => g.platform === state.platform)) {
     state.platform = "All";   // selected platform vanished (rescan / unlink)
   }
+  // Verdicts are derived from the whole library, not the filtered rows: a
+  // filter must not redefine the benchmark it filters against.
+  state.bench = benchmark(state.games);
+  state.verdicts = verdictMap(state.games, state.bench);
+  state.comparators = rankGames(state.games);
+  if (!state.comparators.worst.some((t) => t.id === state.simTarget)) {
+    state.simTarget = state.comparators.worst.length ? state.comparators.worst[0].id : null;
+  }
   state.rows = computeRows();
+  // Play-status counts for the tabs, taken from the pool the tab filter
+  // itself is excluded from — a filter must never shrink its own option.
+  const statusPool = computeRows({ skipPlayFilter: true });
+  state.tabCounts = {
+    All: statusPool.length,
+    Unplayed: statusPool.filter((x) => x.hours != null && x.hours < 1).length,
+    Played: statusPool.filter((x) => x.hours != null && x.hours >= 1).length,
+    "No data": statusPool.filter((x) => x.hours == null).length,
+  };
   state.counts = countByPlatform(state.games);
   state.metrics = computeRegret(state.rows);
   state.coverageText = coverageLine();
@@ -252,50 +315,82 @@ async function scan() {
   state.scanning = true;
   state.phase = "loading";
   state.scanError = null;
+  // One step per linked source; each flips to done/failed as its promise
+  // settles, so the list is honest about which store is slow or broken.
+  const specs = [
+    acc.steam && ["Steam", () => api.fetchSteamGames(localStorage.getItem("steam_id"))],
+    acc.gog && ["GOG", () => api.fetchGogGames()],
+    acc.epic && ["Epic", () => fetchAllEpicGames()],
+    acc.amazon && ["Amazon Luna", () => api.fetchAmazonGames()],
+  ].filter(Boolean);
+  state.scanSteps = specs.map(([label]) => ({ label, status: "pending" }));
   renderAll();
 
-  try {
-    const results = await Promise.allSettled([
-      acc.steam ? api.fetchSteamGames(localStorage.getItem("steam_id")) : [],
-      acc.gog ? api.fetchGogGames() : [],
-      acc.epic ? fetchAllEpicGames() : [],
-      acc.amazon ? api.fetchAmazonGames() : [],
-    ]);
-    const games = dedupeGames(results.flatMap((r) => (r.status === "fulfilled" ? r.value : [])));
-    const errors = results
-      .filter((r) => r.status === "rejected")
-      .map((r) => (r.reason && r.reason.message) || String(r.reason));
-    state.games = games;
-    state.scanError = errors.length ? errors.join(" · ") : null;
-    let highs = {}, lows = {};
-    try {
-      const priced = await api.fetchPrices(state.games, state.currency);
-      state.prices = priced.prices;
-      highs = priced.highs || {};
-      lows = priced.lows || {};
-      // Adopt the currency the server actually priced in so labels match numbers.
-      if (priced.currency) state.currency = priced.currency;
-    } catch {
-      state.prices = {};
-    }
-    // Prices arrive as separate id-keyed maps — bake them into the rows so
-    // the regret math and the table agree.
+  // Each store lands on its own clock — Epic's cursor crawl can run a
+  // minute longer than Steam's single request. Adopt every source the
+  // moment it settles (rows first, then its prices) so the dashboard fills
+  // in store-by-store instead of holding everything hostage to the slowest.
+  const seen = new Map();
+  let highs = {}, lows = {};
+  const bake = () => {
     state.games = state.games.map((g) => ({
       ...g,
       price: state.prices[g.id] ?? null,
       high: highs[g.id] ?? null,
       low: lows[g.id] ?? null,
     }));
+  };
+  const adopt = async (chunk) => {
+    for (const g of chunk) {
+      const prev = seen.get(g.id);
+      if (!prev || (g.hours || 0) > (prev.hours || 0)) seen.set(g.id, g);
+    }
+    state.games = dedupeGames([...seen.values()]);
+    state.phase = "ready";          // real rows beat skeletons the instant they exist
+    renderAll();
+    try {
+      const priced = await api.fetchPrices(chunk, state.currency);
+      state.prices = { ...state.prices, ...priced.prices };
+      highs = { ...highs, ...(priced.highs || {}) };
+      lows = { ...lows, ...(priced.lows || {}) };
+      if (priced.currency) state.currency = priced.currency;
+      bake();
+      renderAll();
+    } catch {
+      // This store's prices stay "—" — the rows and hours are still worth
+      // showing, and the next scan retries them.
+    }
+  };
+
+  try {
+    const results = await Promise.allSettled(specs.map(([, run], i) => Promise.resolve()
+      .then(run)
+      .then(
+        async (value) => { state.scanSteps[i].status = "done"; await adopt(value); return value; },
+        (err) => { state.scanSteps[i].status = "failed"; renderAll(); throw err; },
+      )));
+    const errors = results
+      .filter((r) => r.status === "rejected")
+      .map((r) => (r.reason && r.reason.message) || String(r.reason));
+    state.scanError = errors.length ? errors.join(" · ") : null;
     store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency });
   } catch (e) {
     state.scanError = (e && e.message) || String(e);
   } finally {
     state.scanning = false;
     state.scanProgress = null;
+    state.scanSteps = null;   // the stepper is a loading affordance, not history
     state.phase = "ready";
     state.openId = null;
+    state.page = 1;           // new data, fresh start at the top
     renderAll();
   }
+}
+
+/** After a page flip the panel's top is above the viewport — bring it back. */
+function scrollToPanel() {
+  const p = view.panel || document.querySelector(".panel");
+  if (p && typeof p.scrollIntoView === "function") p.scrollIntoView({ block: "start" });
 }
 
 /** Re-price the existing library after the display currency changes. The
@@ -486,14 +581,29 @@ function openDrawer(id) {
   const game = state.rows.find((g) => g.id === id);
   if (!game || !view.drawer) return;
   state.openId = id;
-  view.renderDrawer(view.drawerBody, game, state.prices[id]);
+  // Remember where focus came from so closing can put it back.
+  lastFocus = document.activeElement && document.activeElement.focus
+    ? document.activeElement : null;
+  view.renderDrawer(view.drawerBody, game, state.prices[id], state);
   view.drawer.classList.remove("hidden");
+  applyCovers();                                // stamp the art if its url is cached
+  if (!coversCache.has(id)) queueCovers([id]);  // else fetch it — someone wants to look at it
+  const close = document.getElementById("drawer-close");
+  if (close && typeof close.focus === "function") close.focus();
 }
 
 function closeDrawer() {
   state.openId = null;
   if (view.drawer) view.drawer.classList.add("hidden");
+  const main = document.getElementById("main");
+  if (main && typeof main.focus === "function") main.focus();
+  if (lastFocus && typeof lastFocus.focus === "function" && lastFocus.isConnected !== false) {
+    lastFocus.focus();
+  }
+  lastFocus = null;
 }
+
+let lastFocus = null;
 
 function forget() {
   store.forget();
@@ -509,6 +619,8 @@ function forget() {
   state.scanError = null;
   state.search = "";
   state.filter = "All";
+  state.tier = "All";
+  saveUiState({ tier: "All" });
   closeDrawer();
   renderAll();
 }
@@ -540,6 +652,10 @@ function onClick(e) {
   const t = closestAction(e.target);
   if (!t) {
     if (view.menu && !view.menu.classList.contains("hidden")) view.menu.classList.add("hidden");
+    // The drawer's scrim is its own ::before, so a click landing on the
+    // drawer element itself (not its content) is a click "outside".
+    if (view.drawer && e.target === view.drawer
+        && !view.drawer.classList.contains("hidden")) closeDrawer();
     return;
   }
   const platform = t.dataset.platform;
@@ -547,15 +663,47 @@ function onClick(e) {
     case "link": linkPlatform(platform); break;
     case "unlink": unlinkPlatform(platform); break;
     case "scan": scan(); break;
-    case "filter": state.filter = t.dataset.filter; renderAll(); break;
+    case "filter": state.filter = t.dataset.filter; state.page = 1; renderAll(); break;
+    case "tier":
+      state.tier = t.dataset.tier || "All";
+      state.page = 1;
+      saveUiState({ tier: state.tier });
+      renderAll();
+      break;
+    case "clear-filters":
+      state.tier = "All";
+      state.platform = "All";
+      state.filter = "All";
+      state.search = "";
+      state.page = 1;
+      saveUiState({ tier: "All" });
+      renderAll();
+      break;
     case "view":
       state.viewMode = t.dataset.view === "grid" ? "grid" : "list";
       localStorage.setItem("view_mode", state.viewMode);
+      state.page = 1;
       renderAll();
       break;
     case "filter-platform":
       state.platform = state.platform === platform ? "All" : platform;
+      state.page = 1;
       renderAll();
+      break;
+    case "page-prev":
+      state.page = Math.max(1, (state.page || 1) - 1);
+      renderAll();
+      scrollToPanel();
+      break;
+    case "page-next":
+      state.page = (state.page || 1) + 1;
+      renderAll();
+      scrollToPanel();
+      break;
+    case "page-go":
+      state.page = Number(t.dataset.page) || 1;
+      renderAll();
+      scrollToPanel();
       break;
     case "open": openDrawer(t.dataset.id); break;
     case "close-drawer": closeDrawer(); break;
@@ -588,6 +736,12 @@ function onInput(e) {
     if (err) { err.hidden = true; err.textContent = ""; }
   } else if (t.dataset.action === "search") {
     state.search = t.value;
+    state.page = 1;
+    renderAll();
+  } else if (t.dataset.action === "sim") {
+    // Range input: the view updates in place, so focus stays on the thumb.
+    state.simHours = Number(t.value) || 10;
+    saveUiState({ simHours: state.simHours });
     renderAll();
   }
 }
@@ -597,9 +751,15 @@ function onChange(e) {
   if (!t) return;
   if (t.dataset.action === "sort") {
     state.sort = t.value;
+    state.page = 1;
     renderAll();
   } else if (t.dataset.action === "platform") {
     state.platform = t.value || "All";
+    state.page = 1;
+    renderAll();
+  } else if (t.dataset.action === "sim-target") {
+    state.simTarget = t.value;
+    saveUiState({ simTarget: state.simTarget });
     renderAll();
   } else if (t.dataset.action === "currency") {
     const cur = (t.value || "").toUpperCase();
@@ -616,9 +776,23 @@ function onChange(e) {
 
 function onKeydown(e) {
   const t = closestAction(e.target);
-  if (t && t.dataset.action === "code-input" && e.key === "Enter") {
+  if (!t) return;
+  if (t.dataset.action === "code-input" && e.key === "Enter") {
     e.preventDefault();
     submitPaste(t.dataset.kind);
+    return;
+  }
+  if (e.key === "Escape") {
+    if (state.openId) closeDrawer();
+    else if (view.menu && !view.menu.classList.contains("hidden")) view.menu.classList.add("hidden");
+    return;
+  }
+  // Cards and rows carry data-action="open" but are not <button>s: give them
+  // the keyboard behaviour that role promises. tabIndex>=0 means the element
+  // is actually in the tab order.
+  if ((e.key === "Enter" || e.key === " ") && t.dataset.action === "open" && t.tabIndex >= 0) {
+    e.preventDefault();
+    openDrawer(t.dataset.id);
   }
 }
 
@@ -648,7 +822,12 @@ export async function boot() {
   view.shell(root);
   state.accounts = linkedAccounts();
   state.currency = localStorage.getItem("currency") || "INR";
-  state.viewMode = localStorage.getItem("view_mode") === "grid" ? "grid" : "list";
+  // Phones get the cover grid by default — cards suit a narrow screen far
+  // better than a table. An explicit earlier choice always wins.
+  const savedView = localStorage.getItem("view_mode");
+  state.viewMode = savedView === "grid" || (savedView == null && window.innerWidth < 700)
+    ? "grid" : "list";
+  state.tier = savedUi.tier || "All";
   loadCoversCache();
   const snap = store.getSnapshot();
   if (snap) {

@@ -1,13 +1,102 @@
 /** DOM builders. textContent only — never innerHTML with user data. */
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
+import { TIER_LABEL, coverHue, headline as buildHeadline, whatIf } from "./verdict.js";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Games per page in the table/grid. Big enough that small libraries never
+ *  see a pager, small enough that a filter keystroke re-renders 24 nodes
+ *  instead of 892. */
+export const PAGE_SIZE = 24;
+
+/** Windowed page numbers: first, last, and the neighbours of the current
+ *  page, with "…" where a run is skipped. 38 pages at page 14 reads
+ *  [1, "…", 13, 14, 15, "…", 38] — jump targets without a 38-button strip.
+ * Seven pages or fewer are all shown outright. */
+export function pageWindow(cur, pages) {
+  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
+  const out = [1];
+  const lo = Math.max(2, cur - 1);
+  const hi = Math.min(pages - 1, cur + 1);
+  if (lo > 2) out.push("…");
+  for (let p = lo; p <= hi; p += 1) out.push(p);
+  if (hi < pages - 1) out.push("…");
+  out.push(pages);
+  return out;
+}
+
+/** Inline SVG icons. No icon font (the CSP allows no external font host) and
+ *  no emoji standing in for a control; stroke:currentColor follows the theme. */
+const ICON_PATHS = {
+  close: "M6 6l12 12M18 6 6 18",
+  dots: "M12 5h.01M12 12h.01M12 19h.01",
+  list: "M4 6h16M4 12h16M4 18h16",
+  grid: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+  check: "M5 13l4 4L19 7",
+  alert: "M12 4 2 20h20L12 4ZM12 10v5M12 18h.01",
+  clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 7v5l3 2",
+};
+
+function icon(name, size = 16) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.75");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", ICON_PATHS[name] || ICON_PATHS.dots);
+  svg.appendChild(path);
+  return svg;
+}
+
+/** Verdict pill. Colour comes from the tier class, never an inline style, so
+ *  the light theme can override every one of them in CSS. */
+function tierBadge(tier) {
+  const t = tier || "nodata";
+  const b = document.createElement("span");
+  b.className = `badge badge-${t}`;
+  b.setAttribute("data-tier", t);
+  b.textContent = TIER_LABEL[t] || t;
+  return b;
+}
+
+/** Plain-language explanation of what a tier actually means — the drawer is
+ *  where the maths gets said out loud. */
+function tierNote(tier) {
+  if (tier === "worth") return "Cheaper per hour than your library's first quartile.";
+  if (tier === "fair") return "In line with what you usually pay per hour.";
+  if (tier === "regret") return "Above your library's median cost per hour.";
+  if (tier === "untouched") return "Bought but never really played.";
+  if (tier === "unknown") return "Not enough priced games yet to place this one.";
+  return "No price recorded, so there is nothing to judge.";
+}
+
+/** Two-letter placeholder for a cover that has no art (yet). */
+function coverInitials(name) {
+  const parts = String(name || "?").split(/[\s:]+/).filter(Boolean);
+  const first = (parts[0] || "?")[0];
+  const second = parts[1] ? parts[1][0] : (parts[0] || "?")[1] || "";
+  return (first + second).toUpperCase();
+}
+
 
 const PLATFORMS = [
   {
     key: "steam",
     name: "Steam",
     platform: "Steam",
-    blurb: "Playtime and current replacement price. Best data of the three.",
+    blurb: "Playtime and current replacement price. Best data of the four.",
     cta: "Connect Steam",
+    steps: [
+      "Click Connect — you'll approve access on steamcommunity.com, then land right back here.",
+      "We pull your playtime and price every game at today's cheapest price.",
+    ],
   },
   {
     key: "gog",
@@ -15,22 +104,68 @@ const PLATFORMS = [
     platform: "GOG",
     blurb: "Owned games via one-click sign-in.",
     cta: "Connect GOG",
+    steps: [
+      "Click Connect and sign in on GOG's own page.",
+      "Copy the full URL of the page you land on (embed.gog.com/…).",
+      "Paste it below — we never see your password.",
+    ],
   },
   {
     key: "epic",
     name: "Epic Games",
     platform: "Epic",
-    blurb: "Owned games. Epic needs one extra step — we walk you through it.",
+    blurb: "Owned games. Epic allows no custom redirect, so it takes one extra step.",
     cta: "Connect Epic",
+    steps: [
+      "Click Connect and sign in on Epic's own page.",
+      "Copy the full JSON of the page you land on.",
+      "Paste it below — the code is inside.",
+    ],
   },
   {
     key: "amazon",
     name: "Amazon Luna",
     platform: "Amazon",
-    blurb: "Owned Amazon Games titles from your Prime/Luna library. Amazon exposes no playtime, so they're priced but left out of per-hour ratios.",
+    blurb: "Owned Amazon Games titles from your Prime/Luna library.",
     cta: "Connect Amazon Luna",
+    steps: [
+      "Click Connect and sign in on Amazon's own page.",
+      "Copy the full URL you land on (amazon.com/…).",
+      "Paste it below. Amazon exposes no playtime, so these games are priced but left out of per-hour ratios.",
+    ],
   },
 ];
+
+
+/** Store glyphs as single-path filled SVGs, inlined from simple-icons (CC0).
+ *  A stroke icon can't draw a brand mark, so these render filled with
+ *  currentColor and inherit whatever colour their context is wearing. */
+const BRAND_PATHS = {
+  steam: "M11.979 0C5.678 0 .511 4.86.022 11.037l6.432 2.658c.545-.371 1.203-.59 1.912-.59.063 0 .125.004.188.006l2.861-4.142V8.91c0-2.495 2.028-4.524 4.524-4.524 2.494 0 4.524 2.031 4.524 4.527s-2.03 4.525-4.524 4.525h-.105l-4.076 2.911c0 .052.004.105.004.159 0 1.875-1.515 3.396-3.39 3.396-1.635 0-3.016-1.173-3.331-2.727L.436 15.27C1.862 20.307 6.486 24 11.979 24c6.627 0 11.999-5.373 11.999-12S18.605 0 11.979 0zM7.54 18.21l-1.473-.61c.262.543.714.999 1.314 1.25 1.297.539 2.793-.076 3.332-1.375.263-.63.264-1.319.005-1.949s-.75-1.121-1.377-1.383c-.624-.26-1.29-.249-1.878-.03l1.523.63c.956.4 1.409 1.5 1.009 2.455-.397.957-1.497 1.41-2.454 1.012H7.54zm11.415-9.303c0-1.662-1.353-3.015-3.015-3.015-1.665 0-3.015 1.353-3.015 3.015 0 1.665 1.35 3.015 3.015 3.015 1.663 0 3.015-1.35 3.015-3.015zm-5.273-.005c0-1.252 1.013-2.266 2.265-2.266 1.249 0 2.266 1.014 2.266 2.266 0 1.251-1.017 2.265-2.266 2.265-1.253 0-2.265-1.014-2.265-2.265z",
+  gog: "M7.15 15.24H4.36a.4.4 0 0 0-.4.4v2c0 .21.18.4.4.4h2.8v1.32h-3.5c-.56 0-1.02-.46-1.02-1.03v-3.39c0-.56.46-1.02 1.03-1.02h3.48v1.32zM8.16 11.54c0 .58-.47 1.05-1.05 1.05H2.63v-1.35h3.78a.4.4 0 0 0 .4-.4V6.39a.4.4 0 0 0-.4-.4H4.39a.4.4 0 0 0-.41.4v2.02c0 .23.18.4.4.4H6v1.35H3.68c-.58 0-1.05-.46-1.05-1.04V5.68c0-.57.47-1.04 1.05-1.04H7.1c.58 0 1.05.47 1.05 1.04v5.86zM21.36 19.36h-1.32v-4.12h-.93a.4.4 0 0 0-.4.4v3.72h-1.33v-4.12h-.93a.4.4 0 0 0-.4.4v3.72h-1.33v-4.42c0-.56.46-1.02 1.03-1.02h5.61v5.44zM21.37 11.54c0 .58-.47 1.05-1.05 1.05h-4.48v-1.35h3.78a.4.4 0 0 0 .4-.4V6.39a.4.4 0 0 0-.4-.4h-2.03a.4.4 0 0 0-.4.4v2.02c0 .23.18.4.4.4h1.62v1.35H16.9c-.58 0-1.05-.46-1.05-1.04V5.68c0-.57.47-1.04 1.05-1.04h3.43c.58 0 1.05.47 1.05 1.04v5.86zM13.72 4.64h-3.44c-.58 0-1.04.47-1.04 1.04v3.44c0 .58.46 1.04 1.04 1.04h3.44c.57 0 1.04-.46 1.04-1.04V5.68c0-.57-.47-1.04-1.04-1.04m-.3 1.75v2.02a.4.4 0 0 1-.4.4h-2.03a.4.4 0 0 1-.4-.4V6.4c0-.22.17-.4.4-.4H13c.23 0 .4.18.4.4zM12.63 13.92H9.24c-.57 0-1.03.46-1.03 1.02v3.39c0 .57.46 1.03 1.03 1.03h3.39c.57 0 1.03-.46 1.03-1.03v-3.39c0-.56-.46-1.02-1.03-1.02m-.3 1.72v2a.4.4 0 0 1-.4.4v-.01H9.94a.4.4 0 0 1-.4-.4v-1.99c0-.22.18-.4.4-.4h2c.22 0 .4.18.4.4zM23.49 1.1a1.74 1.74 0 0 0-1.24-.52H1.75A1.74 1.74 0 0 0 0 2.33v19.34a1.74 1.74 0 0 0 1.75 1.75h20.5A1.74 1.74 0 0 0 24 21.67V2.33c0-.48-.2-.92-.51-1.24m0 20.58a1.23 1.23 0 0 1-1.24 1.24H1.75A1.23 1.23 0 0 1 .5 21.67V2.33a1.23 1.23 0 0 1 1.24-1.24h20.5a1.24 1.24 0 0 1 1.24 1.24v19.34z",
+  epic: "M3.537 0C2.165 0 1.66.506 1.66 1.879V18.44a4.262 4.262 0 00.02.433c.031.3.037.59.316.92.027.033.311.245.311.245.153.075.258.13.43.2l8.335 3.491c.433.199.614.276.928.27h.002c.314.006.495-.071.928-.27l8.335-3.492c.172-.07.277-.124.43-.2 0 0 .284-.211.311-.243.28-.33.285-.621.316-.92a4.261 4.261 0 00.02-.434V1.879c0-1.373-.506-1.88-1.878-1.88zm13.366 3.11h.68c1.138 0 1.688.553 1.688 1.696v1.88h-1.374v-1.8c0-.369-.17-.54-.523-.54h-.235c-.367 0-.537.17-.537.539v5.81c0 .369.17.54.537.54h.262c.353 0 .523-.171.523-.54V8.619h1.373v2.143c0 1.144-.562 1.71-1.7 1.71h-.694c-1.138 0-1.7-.566-1.7-1.71V4.82c0-1.144.562-1.709 1.7-1.709zm-12.186.08h3.114v1.274H6.117v2.603h1.648v1.275H6.117v2.774h1.74v1.275h-3.14zm3.816 0h2.198c1.138 0 1.7.564 1.7 1.708v2.445c0 1.144-.562 1.71-1.7 1.71h-.799v3.338h-1.4zm4.53 0h1.4v9.201h-1.4zm-3.13 1.235v3.392h.575c.354 0 .523-.171.523-.54V4.965c0-.368-.17-.54-.523-.54zm-3.74 10.147a1.708 1.708 0 01.591.108 1.745 1.745 0 01.49.299l-.452.546a1.247 1.247 0 00-.308-.195.91.91 0 00-.363-.068.658.658 0 00-.28.06.703.703 0 00-.224.163.783.783 0 00-.151.243.799.799 0 00-.056.299v.008a.852.852 0 00.056.31.7.7 0 00.157.245.736.736 0 00.238.16.774.774 0 00.303.058.79.79 0 00.445-.116v-.339h-.548v-.565H7.37v1.255a2.019 2.019 0 01-.524.307 1.789 1.789 0 01-.683.123 1.642 1.642 0 01-.602-.107 1.46 1.46 0 01-.478-.3 1.371 1.371 0 01-.318-.455 1.438 1.438 0 01-.115-.58v-.008a1.426 1.426 0 01.113-.57 1.449 1.449 0 01.312-.46 1.418 1.418 0 01.474-.309 1.58 1.58 0 01.598-.111 1.708 1.708 0 01.045 0zm11.963.008a2.006 2.006 0 01.612.094 1.61 1.61 0 01.507.277l-.386.546a1.562 1.562 0 00-.39-.205 1.178 1.178 0 00-.388-.07.347.347 0 00-.208.052.154.154 0 00-.07.127v.008a.158.158 0 00.022.084.198.198 0 00.076.066.831.831 0 00.147.06c.062.02.14.04.236.061a3.389 3.389 0 01.43.122 1.292 1.292 0 01.328.17.678.678 0 01.207.24.739.739 0 01.071.337v.008a.865.865 0 01-.081.382.82.82 0 01-.229.285 1.032 1.032 0 01-.353.18 1.606 1.606 0 01-.46.061 2.16 2.16 0 01-.71-.116 1.718 1.718 0 01-.593-.346l.43-.514c.277.223.578.335.9.335a.457.457 0 00.236-.05.157.157 0 00.082-.142v-.008a.15.15 0 00-.02-.077.204.204 0 00-.073-.066.753.753 0 00-.143-.062 2.45 2.45 0 00-.233-.062 5.036 5.036 0 01-.413-.113 1.26 1.26 0 01-.331-.16.72.72 0 01-.222-.243.73.73 0 01-.082-.36v-.008a.863.863 0 01.074-.359.794.794 0 01.214-.283 1.007 1.007 0 01.34-.185 1.423 1.423 0 01.448-.066 2.006 2.006 0 01.025 0zm-9.358.025h.742l1.183 2.81h-.825l-.203-.499H8.623l-.198.498h-.81zm2.197.02h.814l.663 1.08.663-1.08h.814v2.79h-.766v-1.602l-.711 1.091h-.016l-.707-1.083v1.593h-.754zm3.469 0h2.235v.658h-1.473v.422h1.334v.61h-1.334v.442h1.493v.658h-2.255zm-5.3.897l-.315.793h.624zm-1.145 5.19h8.014l-4.09 1.348z",
+  amazon: "M21.757 15.4031a4.5796 4.5796 0 0 0-.8157-.3675h-.0038c-.0431-.015-.0863-.0244-.1294-.0375-.5081-.1556-2.4-.8494-3.4782-2.8126v.002l-1.9256-3.334c-.81-1.4212-.6732-3.6844-.585-4.5413a4.519 4.519 0 0 0 .0393-.3244.2659.2659 0 0 0 .0038-.0206h-.0019c.0056-.077.0113-.152.0113-.2307-.002-1.9388-1.5732-3.512-3.512-3.512s-3.512 1.5732-3.512 3.512c0 .0769.0075.1538.0113.2307h-.0038s.0019.0168.0056.045c.0075.09.0188.1762.032.2643.09.8363.2455 3.1876-.6057 4.624h.0018l-2.7582 4.7757v-.0037l-.0318.0581-.2588.45c-.0206.0375-.0356.0769-.0562.1144-.285.4931-.72 1.2057-1.1982 1.8507-.3994.54-1.0238 1.0725-1.637 1.4325l.0076.002c-.0563.028-.1144.0524-.1688.0862a2.3952 2.3952 0 0 0-.8625.8737c-.6694 1.1588-.2719 2.642.8869 3.3114.6056.3506 1.2975.4012 1.9182.2119l-.0038.0056c1.0688-.3732 2.237-.7014 2.8351-.8382 1.0032-.2288 2.4882-.285 3.332-.2963h.96c4.2845.0412 6.4558 1.8582 6.4558 1.8582l.0038-.0038c.1744.1387.3544.27.5531.3844 2.1451 1.2394 4.8902.5043 6.1277-1.6426 1.245-2.145.51-4.8901-1.637-6.1277zm-5.0308 2.267c-.4482.7743-1.0857 1.1568-2.1432 1.2375-1.0575.0806-1.2863.1425-3.2232.1425-1.937 0-2.2295-.06-3.2232-.1425-.992-.0825-1.695-.4632-2.1432-1.2376-.4482-.7744-.4107-1.6594 0-2.475.4106-.8157.6731-1.4457 1.4363-2.7676.7631-1.322 1.0669-1.8226 1.785-2.8145.72-.9919 1.2488-1.2375 2.1432-1.2375.8944 0 1.4644.3319 2.1432 1.2375.6788.9057.8719 1.2563 1.7138 2.7151s1.0556 1.952 1.5075 2.867c.4557.915.45 1.7006.0038 2.475z",
+};
+
+/** Display name ("Epic", "GOG", "Amazon") → PLATFORMS key, or null. */
+const BRAND_KEY = new Map(PLATFORMS.map((p) => [p.platform.toLowerCase(), p.key]));
+
+function brandIcon(platform, size = 14) {
+  const key = BRAND_KEY.get(String(platform || "").toLowerCase()) || platform;
+  const d = BRAND_PATHS[key];
+  if (!d) return null;
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("fill", "currentColor");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("d", d);
+  svg.appendChild(path);
+  return svg;
+}
 
 /** SVG arc path for a pie slice spanning angles a0→a1 (radians; -π/2 = top). */
 function pieSlice(cx, cy, r, a0, a1) {
@@ -59,25 +194,49 @@ export const view = {
   /** Build the static frame once. `root` is #app. */
   shell(root) {
     const main = this.el("main", "app");
+    main.id = "main";        // skip-link target and post-drawer focus restorer
+    main.tabIndex = -1;
 
     const topbar = this.el("header", "topbar");
-    const brand = this.el("div", "brand");
-    brand.appendChild(this.el("span", "brand-mark", "₹"));
-    brand.appendChild(this.el("h1", null, "regret"));
 
+    // Brand: the wordmark doubles as the pitch — a rupee sign stands in for
+    // the r of "regret", so the name says what the app does before the
+    // tagline has to.
+    const brand = this.el("div", "brand");
+    const brandText = this.el("div", "brand-text");
+    const wordmark = this.el("h1");
+    wordmark.appendChild(this.el("span", "brand-mark", "₹"));
+    wordmark.appendChild(this.el("span", null, "egret"));
+    brandText.appendChild(wordmark);
+    brandText.appendChild(this.el("p", "brand-sub", "what your library actually cost"));
+    brand.appendChild(brandText);
+
+    // Right cluster: which stores are connected, then the two global
+    // controls. API keys used to be reachable from two different buttons
+    // with two different names ("Keys" and "keys"); there is now one.
+    const right = this.el("div", "topbar-right");
     const sources = this.el("div", "sources");
     const actions = this.el("div", "topbar-actions");
+
     const scanBtn = this.el("button", "button primary", "Scan library");
     scanBtn.dataset.action = "scan";
-    const menuBtn = this.el("button", "button ghost icon", "⋮");
+    const keysBtn = this.el("button", "button ghost", "API keys");
+    keysBtn.type = "button";
+    keysBtn.dataset.action = "show-keys";
+    const menuBtn = this.el("button", "button ghost icon");
+    menuBtn.type = "button";
     menuBtn.dataset.action = "toggle-menu";
     menuBtn.setAttribute("aria-label", "Menu");
+    menuBtn.setAttribute("aria-haspopup", "true");
+    menuBtn.appendChild(icon("dots", 18));
     actions.appendChild(scanBtn);
+    actions.appendChild(keysBtn);
     actions.appendChild(menuBtn);
 
+    right.appendChild(sources);
+    right.appendChild(actions);
     topbar.appendChild(brand);
-    topbar.appendChild(sources);
-    topbar.appendChild(actions);
+    topbar.appendChild(right);
 
     const phaseEl = this.el("div", "phase");
 
@@ -90,11 +249,19 @@ export const view = {
     menu.appendChild(closeMenu);
 
     const drawer = this.el("aside", "drawer hidden");
+    drawer.setAttribute("role", "dialog");
+    drawer.setAttribute("aria-modal", "true");
+    drawer.setAttribute("aria-labelledby", "drawer-title");
     const drawerHeader = this.el("div", "drawer-header");
-    drawerHeader.appendChild(this.el("h3", null, "Game details"));
-    const closeDrawerBtn = this.el("button", "button ghost icon", "✕");
+    const drawerTitle = this.el("h3", null, "Game details");
+    drawerTitle.id = "drawer-title";
+    drawerHeader.appendChild(drawerTitle);
+    const closeDrawerBtn = this.el("button", "button ghost icon");
+    closeDrawerBtn.id = "drawer-close";
+    closeDrawerBtn.type = "button";
     closeDrawerBtn.dataset.action = "close-drawer";
     closeDrawerBtn.setAttribute("aria-label", "Close");
+    closeDrawerBtn.appendChild(icon("close", 16));
     drawerHeader.appendChild(closeDrawerBtn);
     const drawerBody = this.el("div", "drawer-body");
     drawer.appendChild(drawerHeader);
@@ -111,7 +278,7 @@ export const view = {
     main.appendChild(drawer);
     root.appendChild(main);
 
-    Object.assign(this, { main, topbar, sources, scanBtn, menuBtn, menu, phaseEl, drawer, drawerBody, footer });
+    Object.assign(this, { main, topbar, sources, scanBtn, keysBtn, menuBtn, menu, phaseEl, drawer, drawerBody, footer });
     this._builtPhase = null;
     return this;
   },
@@ -125,7 +292,9 @@ export const view = {
       const linked = Boolean(state.accounts[p.key]);
       const chip = this.el("span", `source${linked ? " linked" : ""}`);
 
-      chip.appendChild(this.el("span", "dot"));
+      const mark = brandIcon(p.key, 14);
+      if (mark) { mark.classList.add("source-mark"); chip.appendChild(mark); }
+      else chip.appendChild(this.el("span", "dot"));
       chip.appendChild(this.el("span", "source-name", p.name));
 
       if (linked) {
@@ -133,32 +302,36 @@ export const view = {
         chip.appendChild(this.el("span", "source-count", n == null ? "—" : String(n)));
       }
 
-      const btn = this.el("button", "source-action", linked ? "unlink" : "link");
+      // Plain words on the button: it used to read "link"/"unlink", which
+      // said nothing about what would actually happen.
+      const btn = this.el("button", "source-action", linked ? "Forget" : "Link");
       btn.dataset.action = linked ? "unlink" : "link";
       btn.dataset.platform = p.key;
+      btn.setAttribute("aria-label", `${linked ? "Forget" : "Link"} ${p.name}`);
       chip.appendChild(btn);
 
       box.appendChild(chip);
     }
-
-    // Always-reachable shortcut to the API-keys card on the onboarding screen.
-    const keysBtn = this.el("button", "source-action keys-btn", "keys");
-    keysBtn.dataset.action = "show-keys";
-    box.appendChild(keysBtn);
   },
 
-  /** One bring-your-own-API-key row: masked input + Save. */
+  /** One bring-your-own-API-key row: visible label + masked input + Save.
+   *  The label used to live only in the placeholder, which left the input
+   *  unlabelled for screen readers and vanished the moment you typed. */
   keyField(kind, label, hint) {
     const field = this.el("div", "key-field");
+    const lab = this.el("label", "key-label", label);
+    lab.htmlFor = `${kind}-key`;
+    field.appendChild(lab);
     const row = this.el("div", "key-row");
     const input = this.el("input", null);
     input.type = "password";
     input.autocomplete = "off";
-    input.placeholder = localStorage.getItem(`${kind}_api_key`) ? "••••••••  (saved — type to replace)" : label;
+    const saved = localStorage.getItem(`${kind}_api_key`);
+    input.placeholder = saved ? "Saved — type to replace" : "";
     input.id = `${kind}-key`;
     input.dataset.action = "key-input";
     input.dataset.kind = kind;
-    const btn = this.el("button", "button small", "Save");
+    const btn = this.el("button", "button small ghost", "Save");
     btn.dataset.action = "save-key";
     btn.dataset.kind = kind;
     row.appendChild(input);
@@ -192,6 +365,7 @@ export const view = {
   pasteBlock(kind, label, placeholder) {
     const d = this.el("details", "paste");
     d.id = `${kind}-paste`;
+    d.open = true;   // the steps say "paste it below" — below must be visible
     d.appendChild(this.el("summary", null, label));
     const input = this.el("input", null);
     input.type = "text";
@@ -219,14 +393,26 @@ export const view = {
 
     const cards = this.el("div", "platform-cards");
     for (const p of PLATFORMS) {
-      const card = this.el("article", "platform-card");
+      const card = this.el("article", `platform-card${p.key === "steam" ? " featured" : ""}`);
       card.dataset.platform = p.key;
 
       const head = this.el("div", "pc-head");
-      head.appendChild(this.el("span", `dot ${p.key}`));
+      const pmark = this.el("span", `pc-mark ${p.key}`);
+      const plogo = brandIcon(p.key, 20);
+      if (plogo) pmark.appendChild(plogo);
+      else pmark.appendChild(this.el("span", "dot"));
+      head.appendChild(pmark);
       head.appendChild(this.el("h2", null, p.name));
+      if (p.key === "steam") head.appendChild(this.el("span", "pc-tag", "best data"));
       card.appendChild(head);
       card.appendChild(this.el("p", "pc-blurb", p.blurb));
+
+      // What actually happens, in order. The old cards jumped straight to a
+      // button and a collapsed <details> telling you to "paste it below" with
+      // nothing below it.
+      const steps = this.el("ol", "pc-steps");
+      for (const s of p.steps) steps.appendChild(this.el("li", null, s));
+      card.appendChild(steps);
 
       const linked = Boolean(state.accounts && state.accounts[p.key]);
       if (linked) card.appendChild(this.el("p", "pc-status linked", "✓ Linked"));
@@ -237,20 +423,14 @@ export const view = {
       card.appendChild(cta);
 
       if (p.key === "gog") {
-        card.appendChild(this.el("p", "pc-hint",
-          "After signing in, GOG lands you on embed.gog.com — copy that page's full URL and paste it below."));
-        card.appendChild(this.pasteBlock("gog", "Paste the redirect URL",
+        card.appendChild(this.pasteBlock("gog", "Paste the URL you landed on",
           "https://embed.gog.com/on_login_success?origin=client&code=…"));
       }
       if (p.key === "epic") {
-        card.appendChild(this.el("p", "pc-hint",
-          "Epic only allows its own redirect. Log in, then copy the whole JSON page it lands on and paste it below."));
         card.appendChild(this.pasteBlock("epic", "Paste the JSON page", "authorizationCode or the whole JSON blob"));
       }
       if (p.key === "amazon") {
-        card.appendChild(this.el("p", "pc-hint",
-          "Sign in on Amazon's own page, then copy the amazon.com URL you land on and paste it below."));
-        card.appendChild(this.pasteBlock("amazon", "Paste the redirect URL",
+        card.appendChild(this.pasteBlock("amazon", "Paste the URL you landed on",
           "https://www.amazon.com/?openid.oa2.authorization_code=…"));
       }
       cards.appendChild(card);
@@ -260,37 +440,111 @@ export const view = {
     // Bring-your-own-API-keys card: each user can supply their own
     // IsThereAnyDeal / Steam keys so they use their own rate-limit quota
     // instead of the shared server key (matters when self-hosted for a group).
+    // Deliberately out of the store grid — it is optional, not a fourth store.
     const keysCard = this.el("article", "platform-card api-keys");
     const kh = this.el("div", "pc-head");
+    kh.appendChild(this.el("span", "dot keys"));
     kh.appendChild(this.el("h2", null, "Your API keys"));
+    kh.appendChild(this.el("span", "pc-tag", "optional"));
     keysCard.appendChild(kh);
     keysCard.appendChild(this.el("p", "pc-blurb",
-      "Optional. Bring your own keys to use your own rate-limit quota instead of the shared server key. Stored only in this browser and sent only with your own requests."));
-    keysCard.appendChild(this.keyField("itad", "IsThereAnyDeal API key", "used for game pricing"));
-    keysCard.appendChild(this.keyField("steam", "Steam Web API key", "optional — Steam library"));
-    keysCard.appendChild(this.keyField("sgdb", "SteamGridDB API key", "optional — cover art in grid view"));
+      "Bring your own keys to use your own rate-limit quota instead of the shared server key. Stored only in this browser and sent only with your own requests."));
+    // Three labelled groups, not one flat row of input+button pairs: which
+    // key does what is the whole question this card has to answer.
+    const fields = this.el("div", "api-keys-fields");
+
+    const pricing = this.el("div", "key-group");
+    pricing.appendChild(this.el("h3", "key-group-title", "Pricing"));
+    pricing.appendChild(this.keyField("itad", "IsThereAnyDeal API key",
+      "the one that matters — every price on the dashboard comes from it"));
+    fields.appendChild(pricing);
+
+    const extras = this.el("div", "key-group");
+    extras.appendChild(this.el("h3", "key-group-title", "Optional extras"));
+    extras.appendChild(this.keyField("steam", "Steam Web API key",
+      "only if the shared Steam key is rate-limited"));
+    extras.appendChild(this.keyField("sgdb", "SteamGridDB API key",
+      "cover art in the grid view"));
+    fields.appendChild(extras);
+
+    const display = this.el("div", "key-group");
+    display.appendChild(this.el("h3", "key-group-title", "Display"));
     const cwrap = this.el("div", "currency-field");
-    cwrap.appendChild(this.el("label", null, "Display currency"));
-    cwrap.appendChild(this.buildCurrencySelect(state.currency));
-    keysCard.appendChild(cwrap);
+    const clabel = this.el("label", "key-label", "Currency");
+    clabel.htmlFor = "onboarding-currency";
+    cwrap.appendChild(clabel);
+    const csel = this.buildCurrencySelect(state.currency);
+    csel.id = "onboarding-currency";
+    cwrap.appendChild(csel);
+    display.appendChild(cwrap);
+    display.appendChild(this.el("p", "key-hint",
+      "prices are re-fetched from IsThereAnyDeal in this currency's store region"));
+    fields.appendChild(display);
+
+    keysCard.appendChild(fields);
     wrap.appendChild(keysCard);
 
+    // The back button and the trust note are the screen's footer; stacked
+    // bare under the dashed card they read as if they belonged to it.
+    const trust = "Tokens stay in this browser's localStorage. Only game IDs are sent to this server for pricing — nothing about you is stored.";
     if (Object.values(state.accounts || {}).some(Boolean)) {
-      const back = this.el("button", "button ghost small", "← Back to dashboard");
+      const foot = this.el("div", "onboarding-footer");
+      const back = this.el("button", "button ghost", "← Back to dashboard");
       back.dataset.action = "back";
-      wrap.appendChild(back);
+      foot.appendChild(back);
+      foot.appendChild(this.el("p", "trust-note", trust));
+      wrap.appendChild(foot);
+    } else {
+      wrap.appendChild(this.el("p", "trust-note", trust));
     }
-    wrap.appendChild(this.el("p", "trust-note",
-      "Tokens stay in this browser's localStorage. Only game IDs are sent to this server for pricing — nothing about you is stored."));
     return wrap;
+  },
+
+  /** One pager strip: prev, windowed page numbers, range read-out, next.
+   *  Built twice — above and below the results — because at 38 pages the
+   *  bottom strip is a long way from the top. Only the top copy carries
+   *  role="status": two live regions announcing the same move is noise. */
+  buildPager(announce) {
+    const nav = this.el("nav", "pager hidden");
+    nav.setAttribute("aria-label", "Library pages");
+    const prev = this.el("button", "button ghost small", "← Prev");
+    prev.type = "button";
+    prev.dataset.action = "page-prev";
+    const numbers = this.el("div", "page-numbers");
+    const status = this.el("span", "pager-status");
+    if (announce) status.setAttribute("role", "status");
+    const next = this.el("button", "button ghost small", "Next →");
+    next.type = "button";
+    next.dataset.action = "page-next";
+    nav.appendChild(prev);
+    nav.appendChild(numbers);
+    nav.appendChild(status);
+    nav.appendChild(next);
+    return { nav, prev, next, status, numbers };
   },
 
   /** Results frame: KPI row, table + sidebar. */
   buildReady() {
     const wrap = this.el("section", "ready");
 
-    const kpi = this.el("div", "kpi-row");
+    // ---- hero: the one loud moment on the page ----
+    // The six stats live INSIDE this card: as a separate row below, the card
+    // hugged its text and left a dead band between it and the KPIs — and the
+    // three chips that used to sit under the figure repeated three of those
+    // same stats verbatim.
+    const hero = this.el("section", "hero");
+    hero.id = "hero";
+    hero.appendChild(this.el("p", "micro", "Lifetime spend"));
+    const figure = this.el("p", "hero-figure", "—");
+    figure.id = "hero-spend";
+    hero.appendChild(figure);
+    const line = this.el("p", "hero-line", "");
+    line.id = "hero-line";
+    hero.appendChild(line);
+
+    const kpi = this.el("div", "kpi-grid");
     let ringSvg = null;
+    let regretCard = null;
     [
       ["kpi-library", "Library value", "est. re-buy cost"],
       ["kpi-high", "Highest ever value", "all-time high"],
@@ -318,43 +572,97 @@ export const view = {
         gauge.appendChild(ringSvg);
         gauge.appendChild(v);
         card.appendChild(gauge);
+        // Pulled out of the row: regret gets a panel of its own, with the
+        // distribution it is read against and the what-if toy beside it.
+        regretCard = card;
       } else {
         card.appendChild(v);
+        kpi.appendChild(card);
       }
-      kpi.appendChild(card);
     });
-    wrap.appendChild(kpi);
+    hero.appendChild(kpi);
+
+    const summary = this.el("div", "dash-grid");
+    summary.appendChild(hero);
+
+    const regretPanel = this.el("section", "chart-card regret-card");
+    if (regretCard) regretPanel.appendChild(regretCard);
+    const dist = this.el("div");
+    dist.id = "dist";
+    regretPanel.appendChild(dist);
+    regretPanel.appendChild(this.buildSim());
+    summary.appendChild(regretPanel);
+
+    // `kpi` is the scope renderKpis queries: it must reach #kpi-regret now
+    // that the regret card has moved out of the row.
+    wrap.appendChild(summary);
+    this.heroBits = { figure, line };
+    this.distBox = dist;
+
+    // ---- the two ranked lists: worst buys and best value ----
+    const insights = this.el("div", "insights");
+    const worstCard = this.rankCard("Hall of shame", "worst");
+    const bestCard = this.rankCard("Best value", "best");
+    insights.appendChild(worstCard.card);
+    insights.appendChild(bestCard.card);
+    wrap.appendChild(insights);
+    this.rankLists = { worst: worstCard.list, best: bestCard.list };
+    this.rankCards = { worst: worstCard.card, best: bestCard.card };
+
 
     const bodyEl = this.el("div", "dashboard-body");
     const panel = this.el("section", "panel");
 
     const filterBar = this.el("div", "filter-bar");
+    // Two deliberate rows. One wrapped flex row put a lone "Currency" select
+    // beside the view switch at mid widths and let the search box swallow all
+    // the slack; splitting primary from secondary gives each a stable home.
+    const filterMain = this.el("div", "filter-main");
+    const filterSub = this.el("div", "filter-sub");
+    // Tabs carry their counts and one clearer name: "No data" here means the
+    // playtime is unknown, which used to collide head-on with the verdict
+    // facet of the same name (that one is now "Unpriced").
+    const TAB_LABEL = { All: "All", Unplayed: "Unplayed", Played: "Played", "No data": "Unknown hours" };
     const tabs = [];
     for (const f of ["All", "Unplayed", "Played", "No data"]) {
-      const b = this.el("button", `tab${f === "All" ? " active" : ""}`, f);
+      const b = this.el("button", `tab${f === "All" ? " active" : ""}`);
+      b.type = "button";
       b.dataset.action = "filter";
       b.dataset.filter = f;
+      b.setAttribute("aria-pressed", String(f === "All"));
+      b.appendChild(this.el("span", "tab-label", TAB_LABEL[f]));
+      b.appendChild(this.el("span", "tab-count", "0"));
       tabs.push(b);
-      filterBar.appendChild(b);
+      filterMain.appendChild(b);
     }
     const search = this.el("input", "search");
     search.type = "search";
     search.placeholder = "Search games…";
+    search.setAttribute("aria-label", "Search games");
     search.dataset.action = "search";
     const sort = this.el("select", "sort");
     sort.dataset.action = "sort";
-    [["price-desc", "price ↓"], ["price-asc", "price ↑"], ["name-asc", "name ↑"], ["hours-desc", "hours ↓"]]
+    [["price-desc", "Price: high → low"], ["price-asc", "Price: low → high"],
+      ["name-asc", "Name: A → Z"], ["hours-desc", "Hours: most → least"]]
       .forEach(([value, label]) => {
         const o = this.el("option", null, label);
         o.value = value;
         sort.appendChild(o);
       });
-    filterBar.appendChild(search);
-    filterBar.appendChild(sort);
-    const currencySelect = this.buildCurrencySelect(this.currency);
-    filterBar.appendChild(currencySelect);
+    filterMain.appendChild(search);
+    // Every select gets a visible mini-label — bare selects read as random
+    // words ("price ↓", "All platforms") rather than as choices.
+    const control = (labelText, el) => {
+      const c = this.el("label", "control");
+      c.appendChild(this.el("span", "control-label", labelText));
+      c.appendChild(el);
+      return c;
+    };
+    filterSub.appendChild(control("Sort", sort));
     const platformSelect = this.buildPlatformSelect();
-    filterBar.appendChild(platformSelect);
+    filterSub.appendChild(control("Store", platformSelect));
+    const currencySelect = this.buildCurrencySelect(this.currency);
+    filterSub.appendChild(control("Currency", currencySelect));
     const viewToggle = this.el("div", "view-toggle");
     [["list", "List"], ["grid", "Grid"]].forEach(([mode, label]) => {
       const b = this.el("button", `view-btn${mode === "list" ? " active" : ""}`, label);
@@ -362,14 +670,55 @@ export const view = {
       b.dataset.view = mode;
       viewToggle.appendChild(b);
     });
-    filterBar.appendChild(viewToggle);
+    filterMain.appendChild(viewToggle);
+
+    const count = this.el("span", "result-count", "");
+    count.id = "result-count";
+    count.setAttribute("role", "status");
+    filterSub.appendChild(count);
+    filterBar.appendChild(filterMain);
+    filterBar.appendChild(filterSub);
     panel.appendChild(filterBar);
+
+    // Verdict facets: one toggle per tier, counts recomputed from the whole
+    // library so a filter never shrinks its own options out from under you.
+    const facetRow = this.el("div", "facet-row");
+    facetRow.appendChild(this.el("span", "facet-label", "Verdict"));
+    const tierFacets = this.el("div", "tier-facets");
+    for (const t of ["All", "regret", "untouched", "fair", "worth", "nodata", "unknown"]) {
+      const b = this.el("button", "tier-facet");
+      b.type = "button";
+      b.dataset.action = "tier";
+      b.dataset.tier = t;
+      b.setAttribute("aria-pressed", String(t === "All"));
+      b.appendChild(this.el("span", `tier-dot tier-dot-${t}`));
+      b.appendChild(this.el("span", "tier-name", t === "All" ? "All verdicts" : (TIER_LABEL[t] || t)));
+      b.appendChild(this.el("span", "tier-count", "0"));
+      tierFacets.appendChild(b);
+    }
+    facetRow.appendChild(tierFacets);
+    panel.appendChild(facetRow);
+
+    // Scan stepper — filled in only while a scan is running.
+    const stepper = this.el("ol", "scan-steps hidden");
+    stepper.id = "scan-steps";
+    panel.appendChild(stepper);
+    this.tierFacets = tierFacets;
+    this.stepper = stepper;
+    this.resultCount = count;
+
+
+    // Pagination: one page of rows at a time — 892 <tr>/<article> nodes made
+    // every filter keystroke re-render the whole library. A second copy goes
+    // at the bottom, so a long list never strands you at either end.
+    const topPager = this.buildPager(true);
+    panel.appendChild(topPager.nav);
 
     const tableWrap = this.el("div", "table-wrap");
     const table = this.el("table");
     const thead = this.el("thead");
     const hrow = this.el("tr");
-    const headerCells = ["Game", "Platform", "Price", "Hours", `${symbol(this.currency)} / hour`]
+    const headerCells = ["Game", "Platform", "Price", "Hours", `${symbol(this.currency)} / hour`, "Verdict"]
       .map((h) => { const th = this.el("th", null, h); hrow.appendChild(th); return th; });
     thead.appendChild(hrow);
     table.appendChild(thead);
@@ -382,11 +731,24 @@ export const view = {
     gridWrap.hidden = true;
     panel.appendChild(gridWrap);
 
-    const empty = this.el("p", "empty-state",
+    // Pagination, bottom copy (see topPager above the results).
+    const bottomPager = this.buildPager(false);
+    panel.appendChild(bottomPager.nav);
+
+    const empty = this.el("div", "empty-state");
+    const emptyMsg = this.el("p", null,
       "Nothing scanned yet — hit “Scan library” to pull your games and today's prices.");
+    const emptyBtn = this.el("button", "button small", "Scan library");
+    emptyBtn.type = "button";
+    emptyBtn.dataset.action = "scan";
+    empty.appendChild(emptyMsg);
+    empty.appendChild(emptyBtn);
     panel.appendChild(empty);
+    this.emptyMsg = emptyMsg;
+    this.emptyBtn = emptyBtn;
 
     const coverage = this.el("p", "coverage");
+    coverage.setAttribute("role", "status");   // scan progress is announced
     panel.appendChild(coverage);
 
     const sidebar = this.el("aside", "sidebar");
@@ -400,7 +762,9 @@ export const view = {
     bodyEl.appendChild(sidebar);
     wrap.appendChild(bodyEl);
 
-    return { wrap, kpi, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, filterBar, search, sort, currencySelect, platformSelect, headerCells };
+    // `kpi` is the scope renderKpis queries: it must reach #kpi-regret now
+    // that the regret card has moved out of the row.
+    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, filterBar, search, sort, currencySelect, platformSelect, headerCells, pagers: [topPager, bottomPager], panel };
   },
 
   /** Called on every state change. Rebuilds the phase only when it changes. */
@@ -410,6 +774,9 @@ export const view = {
     const showChrome = state.phase !== "onboarding";
     this.sources.hidden = !showChrome;
     this.scanBtn.hidden = !showChrome;
+    // On onboarding the keys card is already on screen — a second shortcut
+    // to it in the header would just be noise.
+    if (this.keysBtn) this.keysBtn.hidden = !showChrome;
 
     if (state.phase === "onboarding") {
       if (this._builtPhase !== "onboarding") {
@@ -429,6 +796,7 @@ export const view = {
         emptyState: r.empty, coverage: r.coverage, ringSvg: r.ringSvg,
         platformList: r.platformList, filterBar: r.filterBar, search: r.search, sort: r.sort,
         currencySelect: r.currencySelect, platformSelect: r.platformSelect, headerCells: r.headerCells,
+        pagers: r.pagers, panel: r.panel,
       });
       this.phaseEl.appendChild(r.wrap);
       this._builtPhase = "ready";
@@ -441,9 +809,49 @@ export const view = {
     this.renderKpis(this.kpi, metrics);
     this.renderRegretRing(this.ringSvg, metrics.regretScore);
     this.renderPlatforms(this.platformList, state.games, state.prices, state.platform);
+    this.updateHero(state);
+    if (this.distBox) this.renderDistribution(state);
+    this.updateSim(state);
+    this.updateInsights(state);
     const gridMode = state.viewMode === "grid";
-    if (gridMode) this.renderGrid(this.gridWrap, rows, state.prices, scanning);
-    else this.renderTable(this.tbody, rows, state.prices, scanning);
+    // One page at a time. The pager is a rendering-cost decision as much as a
+    // layout one: 892 table rows or cards rebuilt on every keystroke is what
+    // made filtering a big library feel heavy.
+    const page = Math.max(1, state.page || 1);
+    const pages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+    const cur = Math.min(page, pages);          // clamp after a filter shrinks the set
+    const start = (cur - 1) * PAGE_SIZE;
+    const pageRows = rows.slice(start, start + PAGE_SIZE);
+    if (gridMode) this.renderGrid(this.gridWrap, pageRows, state.prices, scanning, state.verdicts);
+    else this.renderTable(this.tbody, pageRows, state.prices, scanning, state.verdicts);
+    if (this.pagers) {
+      const many = rows.length > PAGE_SIZE;      // one page? no pager clutter
+      for (const p of this.pagers) {
+        p.nav.classList.toggle("hidden", !many);
+        p.prev.disabled = cur <= 1;
+        p.next.disabled = cur >= pages;
+        p.status.textContent = many
+          ? `Showing ${start + 1}–${Math.min(start + PAGE_SIZE, rows.length)} of ${rows.length} · page ${cur} of ${pages}`
+          : "";
+        // Direct jump targets: first, last, and the current page's
+        // neighbours — never one button per page (38 of them is a wall).
+        p.numbers.textContent = "";
+        if (!many) continue;
+        for (const item of pageWindow(cur, pages)) {
+          if (item === "…") {
+            p.numbers.appendChild(this.el("span", "page-gap", "…"));
+            continue;
+          }
+          const b = this.el("button", `page-num${item === cur ? " active" : ""}`, String(item));
+          b.type = "button";
+          b.dataset.action = "page-go";
+          b.dataset.page = String(item);
+          if (item === cur) b.setAttribute("aria-current", "page");
+          p.numbers.appendChild(b);
+        }
+      }
+    }
+
 
     const nothing = !scanning && rows.length === 0;
     this.tableWrap.hidden = gridMode || nothing;
@@ -454,12 +862,28 @@ export const view = {
       }
     }
     this.emptyState.hidden = scanning || rows.length > 0;
+    // Two very different "nothing here" states: an empty library needs a
+    // scan, a filtered-out library needs its filters cleared.
+    if (this.emptyMsg && this.emptyBtn) {
+      const filteredOut = !scanning && rows.length === 0 && (state.games || []).length > 0;
+      this.emptyMsg.textContent = filteredOut
+        ? "No games match these filters."
+        : "Nothing scanned yet — hit “Scan library” to pull your games and today's prices.";
+      this.emptyBtn.textContent = filteredOut ? "Clear filters" : "Scan library";
+      this.emptyBtn.dataset.action = filteredOut ? "clear-filters" : "scan";
+    }
     this.coverage.textContent = state.coverageText;
     this.phaseEl.classList.toggle("is-scanning", Boolean(scanning));
     this.phaseEl.setAttribute("aria-busy", scanning ? "true" : "false");
 
     if (this.tabs) {
-      for (const b of this.tabs) b.classList.toggle("active", b.dataset.filter === state.filter);
+      for (const b of this.tabs) {
+        const on = b.dataset.filter === state.filter;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-pressed", String(on));
+        const c = b.querySelector(".tab-count");
+        if (c) c.textContent = String((state.tabCounts || {})[b.dataset.filter] ?? 0);
+      }
     }
     if (this.sort) this.sort.value = state.sort;
     if (this.currencySelect) this.currencySelect.value = this.currency;
@@ -478,7 +902,231 @@ export const view = {
       }
       this.platformSelect.value = state.platform || "All";
     }
+
+    this.updateTierFacets(state);
+    this.updateCount(state);
+    this.renderStepper(state);
   },
+
+  // ---------- hero / distribution / what-if ----------
+
+  updateHero(state) {
+    if (!this.heroBits) return;
+    const m = state.metrics || {};
+    const cur = this.currency;
+    this.heroBits.figure.textContent = money(m.libraryValue ?? 0, cur);
+    const worst = state.comparators && state.comparators.worst[0];
+    this.heroBits.line.textContent = buildHeadline({
+      total: (state.games || []).length,
+      played: m.knownCount ?? 0,
+      worstName: worst ? worst.name : null,
+      worstRate: worst ? money(worst.rate, cur) : null,
+    });
+  },
+
+  /** Box plot of cost-per-hour: p25→p75 box, median tick, p90 whisker and a
+   *  dot for the worst buy. Four shapes, so it costs O(1) at any library size
+   *  — a scatter would not, and would say nothing the quartiles don't. */
+  renderDistribution(state) {
+    const box = this.distBox;
+    if (!box) return;
+    box.textContent = "";
+    const b = state.bench;
+    if (!b || b.p25 == null) {
+      box.appendChild(this.el("p", "dist-note", "Price a few more games to draw a benchmark."));
+      return;
+    }
+    const cur = this.currency;
+    const W = 300, H = 40, pad = 14;
+    const top = Math.max(b.p90 || b.p75, b.p75) * 1.08 || 1;
+    const x = (v) => pad + (Math.min(v, top) / top) * (W - pad * 2);
+
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("class", "dist-plot");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label",
+      `Cost per hour across ${b.samples} priced games: p25 ${money(b.p25, cur)}, ` +
+      `median ${money(b.p50, cur)}, p75 ${money(b.p75, cur)}.`);
+    const mk = (tag, attrs) => {
+      const n = document.createElementNS(SVG_NS, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+      return n;
+    };
+    svg.appendChild(mk("line", { class: "dist-axis", x1: pad, y1: 26, x2: W - pad, y2: 26 }));
+    svg.appendChild(mk("rect", {
+      class: "dist-box", x: x(b.p25), y: 12,
+      width: Math.max(2, x(b.p75) - x(b.p25)), height: 14, rx: 3,
+    }));
+    svg.appendChild(mk("line", { class: "dist-median", x1: x(b.p50), y1: 8, x2: x(b.p50), y2: 30 }));
+    svg.appendChild(mk("line", { class: "dist-whisk", x1: x(b.p90), y1: 16, x2: x(b.p90), y2: 22 }));
+    const worst = state.comparators && state.comparators.worst[0];
+    if (worst && Number.isFinite(worst.rate)) {
+      svg.appendChild(mk("circle", { class: "dist-marker", cx: x(worst.rate), cy: 19, r: 4 }));
+    }
+    box.appendChild(svg);
+
+    const summary = this.el("p", "dist-summary",
+      `p25 ${money(b.p25, cur)} · median ${money(b.p50, cur)} · p75 ${money(b.p75, cur)}`);
+    // No "worst:" suffix here — the hero headline and the hall of shame both
+    // name that game already; this line is about the shape of the spread.
+    box.appendChild(summary);
+  },
+
+  /** Built once so dragging the slider never rebuilds (and blurs) the input. */
+  buildSim() {
+    const sim = this.el("div", "sim");
+    sim.appendChild(this.el("p", "micro", "What if…"));
+
+    const sel = this.el("select", "sim-select");
+    sel.dataset.action = "sim-target";
+    sel.setAttribute("aria-label", "Game to replay");
+
+    const range = this.el("input", "sim-range");
+    range.type = "range";
+    range.min = "1";
+    range.max = "60";
+    range.step = "1";
+    range.value = "10";
+    range.dataset.action = "sim";
+    range.setAttribute("aria-label", "Hours played");
+    range.setAttribute("aria-valuetext", "10 hours");
+
+    const out = this.el("p", "sim-out", "");
+    out.id = "sim-out";
+
+    sim.appendChild(sel);
+    sim.appendChild(range);
+    sim.appendChild(out);
+    this.simSelect = sel;
+    this.simRange = range;
+    this.simOut = out;
+    return sim;
+  },
+
+  /** Refresh the what-if controls. The <select> keeps its value across
+   *  renders (only its options are refreshed) and the range is left alone
+   *  while it is being dragged, so focus never moves out of the thumb. */
+  updateSim(state) {
+    const sel = this.simSelect;
+    if (!sel || !this.simRange) return;
+    const targets = (state.comparators && state.comparators.worst) || [];
+    const sig = targets.map((t) => t.id).join(" ");
+    if (sel.dataset.sig !== sig) {
+      sel.textContent = "";
+      for (const t of targets) {
+        const o = this.el("option", null, t.name);
+        o.value = t.id;
+        sel.appendChild(o);
+      }
+      sel.dataset.sig = sig;
+    }
+    if (!targets.length) { this.simOut.textContent = ""; return; }
+    const id = targets.some((t) => t.id === state.simTarget) ? state.simTarget : targets[0].id;
+    sel.value = id;
+    const wanted = String(state.simHours || 10);
+    if (this.simRange.value !== wanted) this.simRange.value = wanted;
+    this.simRange.setAttribute("aria-valuetext", `${this.simRange.value} hours`);
+
+    const game = (state.games || []).find((g) => g.id === id);
+    if (!game) { this.simOut.textContent = ""; return; }
+    const r = whatIf(game, state.bench, this.simRange.value);
+    const now = r.nowRate == null ? "∞/h" : perHour(r.nowRate, this.currency);
+    const then = r.rate == null ? "∞/h" : perHour(r.rate, this.currency);
+    this.simOut.textContent = r.rate == null
+      ? `${now} today — drag to see a rate.`
+      : `${now} today → ${then} at ${this.simRange.value} h · ${TIER_LABEL[r.tier]}` +
+        (r.changed ? ` (was ${TIER_LABEL[r.nowTier]})` : " (unchanged)");
+  },
+
+  /** Shell for one ranked list; the rows are refilled on every update. */
+  rankCard(title, kind) {
+    const card = this.el("section", "chart-card rank-card");
+    card.appendChild(this.el("h3", null, title));
+    const list = this.el("ol", `rank rank-${kind}`);
+    card.appendChild(list);
+    return { card, list };
+  },
+
+  updateInsights(state) {
+    if (!this.rankLists) return;
+    const cur = this.currency;
+    for (const kind of ["worst", "best"]) {
+      const list = this.rankLists[kind];
+      if (!list) continue;
+      list.textContent = "";
+      const items = (state.comparators && state.comparators[kind]) || [];
+      if (!items.length) {
+        list.appendChild(this.el("li", "rank-empty",
+          "No game has both an hour of play and a price yet."));
+        continue;
+      }
+      for (const item of items) {
+        const li = this.el("li", "rank-item");
+        li.dataset.action = "open";
+        li.dataset.id = item.id;
+        li.tabIndex = 0;
+        li.setAttribute("role", "button");
+        li.appendChild(this.el("span", "rank-name", item.name));
+        li.appendChild(this.el("span", "rank-rate", perHour(item.rate, cur)));
+        li.appendChild(this.el("span", "rank-hours", hours(item.hours)));
+        list.appendChild(li);
+      }
+    }
+  },
+
+  updateTierFacets(state) {
+    if (!this.tierFacets) return;
+    const v = state.verdicts || new Map();
+    const counts = new Map();
+    for (const g of state.games || []) {
+      const t = v.get(g.id) || "nodata";
+      counts.set(t, (counts.get(t) || 0) + 1);
+    }
+    for (const b of this.tierFacets.children) {
+      const t = b.dataset.tier;
+      const n = t === "All" ? (state.games || []).length : (counts.get(t) || 0);
+      const countEl = b.querySelector(".tier-count");
+      if (countEl) countEl.textContent = String(n);
+      b.hidden = t !== "All" && n === 0;          // no dead facets, no rebuild
+      b.setAttribute("aria-pressed", String((state.tier || "All") === t));
+    }
+  },
+
+  updateCount(state) {
+    if (!this.resultCount) return;
+    const rows = state.rows || [];
+    const priced = rows.reduce((sum, g) => sum + (typeof g.price === "number" ? g.price : 0), 0);
+    this.resultCount.textContent =
+      `${rows.length} of ${(state.games || []).length} games · ${money(priced, this.currency)}`;
+  },
+
+  /** One row per source, filled only while a scan runs. A single progressbar
+   *  announces the whole list so a screen reader hears one status, not five. */
+  renderStepper(state) {
+    const box = this.stepper;
+    if (!box) return;
+    const steps = state.scanSteps || [];
+    box.textContent = "";
+    box.classList.toggle("hidden", !steps.length);
+    if (!steps.length) return;
+    box.setAttribute("role", "progressbar");
+    box.setAttribute("aria-valuemin", "0");
+    box.setAttribute("aria-valuemax", String(steps.length));
+    box.setAttribute("aria-valuenow", String(steps.filter((x) => x.status !== "pending").length));
+    box.setAttribute("aria-label", "Scan progress");
+    for (const step of steps) {
+      const li = this.el("li", `scan-step is-${step.status}`);
+      li.appendChild(step.status === "done" ? icon("check", 16)
+        : step.status === "failed" ? icon("alert", 16) : icon("clock", 16));
+      li.appendChild(this.el("span", "scan-source", step.label));
+      li.appendChild(this.el("span", "scan-state", step.status));
+      box.appendChild(li);
+    }
+  },
+
+
+
 
   renderError(err) {
     const box = this.el("div", "error-box");
@@ -506,14 +1154,14 @@ export const view = {
     if (vlab) vlab.textContent = `${symbol(cur)} / hour`;
   },
 
-  renderTable(tbody, rows, prices, skeleton = false) {
+  renderTable(tbody, rows, prices, skeleton = false, verdicts = null) {
     if (!tbody) return;
     tbody.textContent = "";
 
     if (skeleton) {
       for (let i = 0; i < 6; i += 1) {
         const tr = this.el("tr", "skeleton-row");
-        for (let c = 0; c < 5; c += 1) {
+        for (let c = 0; c < 6; c += 1) {
           const td = this.el("td");
           td.appendChild(this.el("span", "skeleton"));
           tr.appendChild(td);
@@ -528,6 +1176,7 @@ export const view = {
       const tr = this.el("tr", "game-row");
       tr.dataset.action = "open";
       tr.dataset.id = game.id;
+      tr.tabIndex = 0;   // rows are focusable so Enter can open them too
       if (game.hours != null && game.hours < 1) tr.classList.add("unplayed");
 
       const rate = pricePerHour(price, game.hours);
@@ -539,15 +1188,28 @@ export const view = {
         rate == null ? "—" : perHour(rate, this.currency),
       ];
       cells.forEach((text, i) => {
-        tr.appendChild(this.el("td", i === 0 ? "cell-name" : null, text));
+        if (i !== 1) {
+          tr.appendChild(this.el("td", i === 0 ? "cell-name" : null, text));
+          return;
+        }
+        // Platform cell: the store's mark, then its name — the eye finds the
+        // column by glyph long before it reads the word.
+        const td = this.el("td", "cell-platform");
+        const pmark = brandIcon(text, 13);
+        if (pmark) { pmark.classList.add("platform-mark"); td.appendChild(pmark); }
+        td.appendChild(this.el("span", null, text || ""));
+        tr.appendChild(td);
       });
+      // Verdict is the last column: the money columns keep their positions.
+      const vcell = this.el("td", "verdict-cell");
+      vcell.appendChild(tierBadge(verdicts ? verdicts.get(game.id) : null));
+      tr.appendChild(vcell);
       tbody.appendChild(tr);
     }
   },
 
-  /** Grid of cover cards — the alternative to the table. Placeholders until a
-   *  SteamGridDB key resolves art (the loader fills .cover-img in app.js). */
-  renderGrid(wrap, rows, prices, skeleton = false) {
+  /** Grid of cover cards — the alternative to the table. */
+  renderGrid(wrap, rows, prices, skeleton = false, verdicts = null) {
     if (!wrap) return;
     wrap.textContent = "";
     if (skeleton) {
@@ -560,18 +1222,58 @@ export const view = {
       const card = this.el("article", "game-card");
       card.dataset.action = "open";
       card.dataset.id = game.id;
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+      card.setAttribute("aria-label", `${game.name}, ${game.platform || "unknown platform"}`);
 
       const art = this.el("div", "cover");
+      // Deterministic per-id hue: the same game always wears the same colour,
+      // so the grid stays recognisable while art loads (or forever, without a
+      // key) instead of showing an empty grey box.
+      const hue = coverHue(game.id);
+      art.style.background =
+        `linear-gradient(160deg, hsl(${hue} 42% 24%), hsl(${(hue + 45) % 360} 42% 13%))`;
+      const init = this.el("span", "cover-fallback", coverInitials(game.name));
+      init.setAttribute("aria-hidden", "true");
+      art.appendChild(init);
+
       const img = this.el("img", "cover-img");
       img.alt = "";
+      img.decoding = "async";
       img.dataset.coverId = game.id;
+      // The card fades the art in on load; without this listener the image
+      // downloads fine and then sits at opacity 0 forever.
+      img.addEventListener("load", () => img.classList.add("is-loaded"));
+      // A 404 from the cover host falls back to the gradient, not a broken icon.
+      img.addEventListener("error", () => { img.style.opacity = "0"; });
       art.appendChild(img);
+
+      const badge = tierBadge(verdicts ? verdicts.get(game.id) : null);
+      badge.classList.add("card-badge");
+      art.appendChild(badge);
+
+      if (game.hours != null && game.hours >= 1) {
+        art.appendChild(this.el("span", "card-hours", hours(game.hours)));
+      }
       card.appendChild(art);
 
       const meta = this.el("div", "card-meta");
       meta.appendChild(this.el("p", "card-title", game.name));
-      meta.appendChild(this.el("p", "card-sub",
-        `${game.platform} · ${typeof price === "number" ? money(price, this.currency) : "—"}`));
+      // The band reads today's price against its own history, so it sits
+      // directly under the name — above the row it explains.
+      const band = this.priceBand(game, price);
+      if (band) meta.appendChild(band);
+      // Bottom line: amount on the left, store on the right — money first,
+      // provenance after.
+      const sub = this.el("p", "card-sub");
+      sub.appendChild(this.el("span", "card-price",
+        typeof price === "number" ? money(price, this.currency) : "—"));
+      const store = this.el("span", "card-store");
+      const cmark = brandIcon(game.platform, 12);
+      if (cmark) { cmark.classList.add("card-mark"); store.appendChild(cmark); }
+      store.appendChild(this.el("span", null, game.platform || "—"));
+      sub.appendChild(store);
+      meta.appendChild(sub);
       card.appendChild(meta);
 
       if (game.hours != null && game.hours < 1) card.classList.add("unplayed");
@@ -583,15 +1285,67 @@ export const view = {
     }
   },
 
-  renderDrawer(drawerBody, game, price) {
+  /** Track showing where today's price sits between the all-time low and high.
+   *  Decorative here — the drawer repeats the same fact as text. */
+  priceBand(game, price) {
+    const high = game.high, low = game.low;
+    if (typeof price !== "number" || typeof high !== "number" || typeof low !== "number") return null;
+    if (!(high > low)) return null;
+    const pct = Math.max(0, Math.min(100, ((price - low) / (high - low)) * 100));
+    const band = this.el("div", "price-band");
+    band.setAttribute("aria-hidden", "true");
+    const track = this.el("span", "band-track");
+    const fill = this.el("span", "band-fill");
+    fill.style.width = `${pct}%`;
+    const marker = this.el("span", "band-marker");
+    marker.style.left = `${pct}%`;
+    track.appendChild(fill);
+    track.appendChild(marker);
+    band.appendChild(track);
+    return band;
+  },
+
+  renderDrawer(drawerBody, game, price, state) {
     if (!drawerBody) return;
     drawerBody.textContent = "";
-    drawerBody.appendChild(this.el("h3", null, game.name));
-    drawerBody.appendChild(this.el("p", "muted", game.platform));
+    const cur = (state && state.currency) || this.currency;
+    const verdicts = state && state.verdicts;
+    const tier = verdicts ? verdicts.get(game.id) : null;
+
+    // Cover + title together at the top: the same layered fallback the grid
+    // cards use (gradient + initials), with the art stamped in when known.
+    const head = this.el("div", "drawer-head");
+    const art = this.el("div", "cover drawer-cover");
+    const hue = coverHue(game.id);
+    art.style.background =
+      `linear-gradient(160deg, hsl(${hue} 42% 24%), hsl(${(hue + 45) % 360} 42% 13%))`;
+    const init = this.el("span", "cover-fallback", coverInitials(game.name));
+    init.setAttribute("aria-hidden", "true");
+    art.appendChild(init);
+    const img = this.el("img", "cover-img");
+    img.alt = "";
+    img.decoding = "async";
+    img.dataset.coverId = game.id;
+    img.addEventListener("load", () => img.classList.add("is-loaded"));
+    img.addEventListener("error", () => { img.style.opacity = "0"; });
+    art.appendChild(img);
+    head.appendChild(art);
+
+    const titles = this.el("div", "drawer-titles");
+    titles.appendChild(this.el("h3", "drawer-game-title", game.name));
+    titles.appendChild(this.el("p", "muted", game.platform));
+    head.appendChild(titles);
+    drawerBody.appendChild(head);
+
+    // Verdict first: it is the answer to the question the drawer exists for.
+    const verdictRow = this.el("div", "drawer-row verdict-row");
+    verdictRow.appendChild(this.el("span", null, "Verdict"));
+    verdictRow.appendChild(tierBadge(tier));
+    drawerBody.appendChild(verdictRow);
 
     const priceRow = this.el("div", "drawer-row");
     priceRow.appendChild(this.el("span", null, "Current price"));
-    priceRow.appendChild(this.el("strong", null, typeof price === "number" ? money(price, this.currency) : "—"));
+    priceRow.appendChild(this.el("strong", null, typeof price === "number" ? money(price, cur) : "—"));
     drawerBody.appendChild(priceRow);
 
     const hoursRow = this.el("div", "drawer-row");
@@ -600,10 +1354,31 @@ export const view = {
     drawerBody.appendChild(hoursRow);
 
     const vphRow = this.el("div", "drawer-row");
-    vphRow.appendChild(this.el("span", null, `${symbol(this.currency)} / hour`));
+    vphRow.appendChild(this.el("span", null, `${symbol(cur)} / hour`));
     vphRow.appendChild(this.el("strong", null,
-      perHour(pricePerHour(price, game.hours), this.currency)));
+      perHour(pricePerHour(price, game.hours), cur)));
     drawerBody.appendChild(vphRow);
+
+    // Where today's price sits between the all-time low and high — as words,
+    // because a bar you can only see on hover is not information.
+    if (typeof price === "number" && typeof game.high === "number" && typeof game.low === "number"
+        && game.high > game.low) {
+      const band = this.el("div", "drawer-row");
+      band.appendChild(this.el("span", null, "All-time range"));
+      band.appendChild(this.el("strong", null,
+        `${money(game.low, cur)} – ${money(game.high, cur)}`));
+      drawerBody.appendChild(band);
+
+      const gap = game.high - price;
+      const pos = this.el("div", "drawer-row");
+      pos.appendChild(this.el("span", null, "Position"));
+      pos.appendChild(this.el("strong", null, gap >= 0
+        ? `${money(gap, cur)} below its all-time high`
+        : `${money(-gap, cur)} above its all-time high`));
+      drawerBody.appendChild(pos);
+    }
+
+    drawerBody.appendChild(this.el("p", "muted drawer-note", tierNote(tier)));
   },
 
 
@@ -700,6 +1475,8 @@ export const view = {
       const swatch = this.el("span", "platform-swatch");
       swatch.style.background = colorFor(i);
       row.appendChild(swatch);
+      const lmark = brandIcon(platform, 13);
+      if (lmark) { lmark.classList.add("platform-mark"); row.appendChild(lmark); }
       row.appendChild(this.el("span", "platform-name", platform));
       row.appendChild(this.el("span", "platform-value", money(data.value, this.currency)));
       legend.appendChild(row);

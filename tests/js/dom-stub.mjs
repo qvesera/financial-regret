@@ -178,7 +178,9 @@ export function installEnv() {
     for (const route of env.fetchRoutes) {
       const r = route(String(url), opts);
       if (r) {
-        const body = typeof r === "function" ? r() : r;
+        // Routes may return a promise so a test can hold one source open
+        // while asserting that the others already rendered.
+        const body = await (typeof r === "function" ? r() : r);
         return { ok: body.ok !== false, status: body.status || 200, json: async () => body.json || {} };
       }
     }
