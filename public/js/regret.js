@@ -3,10 +3,20 @@
 /**
  * Compute regret KPIs from a normalised game list.
  *
- * @param {Array<{id:string, name:string, platform:string, price:number|null, high:number|null, low:number|null, hours:number|null}>} games
- * @returns {{libraryValue:number, highestEver:number, lowestEver:number, backlogValue:number, regretScore:number|null, valuePerHour:number|null, totalHours:number, coverage:number|null, knownCount:number, unknownCount:number}}
+ * Add-ons (kind === "dlc") are pulled out first and reported separately as
+ * dlcValue / dlcCount. They have no independent playtime — you play them inside
+ * the base game — so folding them in would read as money spent on never-opened
+ * titles and drag the backlog, regret score and quartile benchmark the wrong
+ * way. Games drive every verdict figure; DLC is its own line.
+ *
+ * @param {Array<{id:string, name:string, platform:string, price:number|null, high:number|null, low:number|null, hours:number|null, kind?:string}>} games
+ * @returns {{libraryValue:number, highestEver:number, lowestEver:number, backlogValue:number, regretScore:number|null, valuePerHour:number|null, totalHours:number, coverage:number|null, knownCount:number, unknownCount:number, dlcValue:number, dlcCount:number}}
  */
 export function computeRegret(games) {
+  // Add-ons are excluded from every game metric below and tallied on their own.
+  const dlc = games.filter((g) => g.kind === "dlc");
+  games = games.filter((g) => g.kind !== "dlc");
+
   const known = games.filter((g) => g.hours != null);
   const unknown = games.filter((g) => g.hours == null);
 
@@ -32,6 +42,11 @@ export function computeRegret(games) {
   const valuePerHour = playedHours ? playedCost / playedHours : null;
   const coverage = libraryValue ? knownValue / libraryValue : null;
 
+  // Add-on spend, kept apart from the figures above: what the DLC shelf cost
+  // (re-buy basis, same as every other price here) and how many add-ons there
+  // are. Null-ish sum renders as 0 when a library simply has no DLC.
+  const dlcValue = dlc.reduce((sum, g) => sum + (g.price || 0), 0);
+
   return {
     libraryValue,
     highestEver,
@@ -43,6 +58,8 @@ export function computeRegret(games) {
     coverage,
     knownCount: known.length,
     unknownCount: unknown.length,
+    dlcValue,
+    dlcCount: dlc.length,
   };
 }
 

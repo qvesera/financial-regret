@@ -1395,6 +1395,24 @@ td.cell-platform { white-space: nowrap; }
 
 .verdict-cell { width: 1%; white-space: nowrap; }
 
+/* Add-on marker. Deliberately muted and separate from the verdict badges —
+   "DLC" is a kind of thing, not a grade, so it never borrows a tier colour. */
+.dlc-chip {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* ---- cards: cover fallback, badges, hours, price band ---- */
 
 .cover {

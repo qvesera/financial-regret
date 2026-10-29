@@ -11,6 +11,7 @@ reported as null (never 0) so the regret metric can exclude it.
 """
 import json
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler
 
@@ -27,6 +28,33 @@ GOG_CLIENT_SECRET = os.environ.get(
 )
 MAX_PAGES = 100          # safety cap on paginated library fetch
 MAX_WORKERS = 8          # concurrent playtime probes
+
+
+def _is_dlc(product: dict) -> bool:
+    """Best-effort DLC flag for one GOG product.
+
+    getFilteredProducts does not cleanly separate base games from add-ons, and
+    the exact fields shift between endpoint versions, so this reads the handful
+    of shapes GOG has been seen to use and defaults to "not DLC" whenever the
+    record is ambiguous. A false negative just leaves an add-on counted as a
+    game (harmless); a false positive would subtract a real game, so the checks
+    are deliberately conservative.
+    """
+    # Explicit boolean/type markers, when present, are authoritative.
+    if product.get("isDLC") is True:
+        return True
+    ptype = str(product.get("productType") or product.get("type") or "").lower()
+    if ptype in {"dlc", "expansion", "addon", "add-on", "pack", "season-pass"}:
+        return True
+    # A non-empty mainGameParentId / parentId points at the base game.
+    if product.get("mainGameParentId") or product.get("parentId"):
+        return True
+    # Last resort: a title that literally reads as an add-on.
+    title = str(product.get("title") or "")
+    return bool(_DLC_TITLE_RE.search(title))
+
+
+_DLC_TITLE_RE = re.compile(r"\bdlc\b|\bseason pass\b|\bexpansion\b", re.IGNORECASE)
 
 
 def refresh_access_token(refresh_token: str) -> dict | None:
@@ -128,13 +156,20 @@ class handler(BaseHTTPRequestHandler):
         for p in products:
             gid = p.get("id")
             title = p.get("title") or f"GOG Game {gid}"
-            games.append({
+            game = {
                 "id": f"GOG:{gid}",
                 "name": title,
                 "appid": gid,
                 "platform": "GOG",
                 "hours": None,
-            })
+            }
+            # getFilteredProducts mixes DLC in with games. The flags GOG ships
+            # vary by endpoint version, so read them defensively and only tag
+            # when one explicitly says "not a base game" — default stays a game
+            # so a field-name drift can never mislabel a whole library as DLC.
+            if _is_dlc(p):
+                game["kind"] = "dlc"
+            games.append(game)
 
         # best-effort playtime probes (concurrent, capped)
         probe_headers = {"Authorization": f"Bearer {access_token}", "X-GOG-User-Id": user_id}

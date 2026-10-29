@@ -7,9 +7,12 @@ Big libraries previously hung inside a single request (serial cursor
 pagination with a 15s upstream timeout per page); now every request stays
 short and the client shows live progress between pages.
 
-Non-game assets (Unreal Engine / Marketplace content) are filtered out and
-playtime is attached from the playtime endpoint. Unknown playtime is
-reported as null (never 0) so the regret metric can exclude it.
+Non-game assets (Unreal Engine / Marketplace content, demos) are filtered
+out and playtime is attached from the playtime endpoint. Unknown playtime is
+reported as null (never 0) so the regret metric can exclude it. DLC/addons
+are the exception: they are kept and tagged ``kind: "dlc"`` (with the base
+game's appName under ``baseAppId``) so their spend can be tracked separately
+rather than folded into the game metrics.
 """
 import json
 import os
@@ -174,8 +177,10 @@ def classify(record: dict) -> str | None:
     """Return a short reason string if this library record is NOT a game, else None.
 
     Excludes Unreal Engine builds and store-bought UE content (Fab/UE
-    marketplace plugins, Megascans packages, projects), DLC/addons, and
-    demos. Signals verified against real library records: namespace,
+    marketplace plugins, Megascans packages, projects), and demos. DLC/addons
+    are named too — they return the distinct reason "dlc" — but the handler
+    treats that reason as *keep-and-tag* rather than drop, since add-on spend
+    is real. Signals verified against real library records: namespace,
     app-name prefixes, the DLC base-game pointer, catalog category paths,
     UE-only release compatibility, and the AUDIENCE entitlement type used
     by marketplace listings (see legendary-gl/legendary#696 and
@@ -402,6 +407,12 @@ class handler(BaseHTTPRequestHandler):
                         debug_records.append(_debug_entry(r, "duplicate", full=debug_full))
                 continue
             reason = classify(r)
+            # DLC that cleared every junk filter: the only mark against it is
+            # the mainGameAppName pointer, so it is real paid content on the
+            # account. Keep it (tagged) rather than dropping -- but only when
+            # classify named it "dlc" specifically; a raw mainGameAppName on a
+            # record that failed a namespace/sandbox/name filter is still junk.
+            is_dlc = reason == "dlc"
             cat = cat_titles.get((r.get("namespace"), r.get("catalogItemId")))
             cat_title = ""
             if isinstance(cat, dict):
@@ -413,17 +424,17 @@ class handler(BaseHTTPRequestHandler):
                         # heuristics (e.g. the "Live" junk bucket) dropped it.
                         reason = None
                     elif reason is None:
-                        # Catalog says non-game (DLC/plugins/demos) though the
+                        # Catalog says non-game (plugins/demos) though the
                         # heuristics let it through.
                         reason = "catalog:non-game"
-            if reason:
+            if reason and not is_dlc:
                 filtered_count += 1
                 if debug:
                     debug_records.append(_debug_entry(r, reason, full=debug_full))
                 continue
             seen.add(app_name)
             if debug:
-                debug_records.append(_debug_entry(r, None, full=debug_full))
+                debug_records.append(_debug_entry(r, None if is_dlc else reason, full=debug_full))
             metadata = r.get("metadata") or {}
             # The catalog's title is the real commercial name; sandboxName is a
             # fallback (it is a codename like "MtWilliamson" when the catalog
@@ -431,13 +442,19 @@ class handler(BaseHTTPRequestHandler):
             sandbox_name = (r.get("sandboxName") or "").strip()
             title = cat_title or sandbox_name or metadata.get("title") or app_name
             gid = app_name
-            games.append({
+            game = {
                 "id": f"Epic:{gid}",
                 "name": title,
                 "appid": gid,
                 "platform": "Epic",
                 "hours": playtime.get(gid),
-            })
+            }
+            if is_dlc:
+                game["kind"] = "dlc"
+                # The base game's appName, so the client can group the add-on
+                # under the title it extends.
+                game["baseAppId"] = r.get("mainGameAppName") or None
+            games.append(game)
 
         result = {"games": games, "filtered_count": filtered_count, "next_cursor": next_cursor}
         if debug:

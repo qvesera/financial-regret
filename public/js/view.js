@@ -149,6 +149,10 @@ const METRIC_TIPS = {
     + "neither cost nor time.",
   "kpi-hours": "Every hour the connected stores have recorded, summed. Titles "
     + "with unknown playtime add nothing — they are never counted as zero-played.",
+  "kpi-dlc": "What the add-ons and expansions you own would cost at today's "
+    + "cheapest price. Kept out of the other figures on purpose: DLC has no "
+    + "playtime of its own (you play it inside its base game), so counting it "
+    + "would make unopened base games look like the problem.",
   "rank-worst": "Your most expensive hour, ranked by price ÷ hours, highest "
     + "first. Only games with an hour or more of play qualify: a ten-minute "
     + "session proves nothing.",
@@ -807,6 +811,7 @@ export const view = {
     const kpi = this.el("div", "kpi-grid");
     let ringSvg = null;
     let regretCard = null;
+    let dlcCard = null;
     [
       ["kpi-library", "Library value", "est. re-buy cost"],
       ["kpi-high", "Highest ever value", "all-time high"],
@@ -815,6 +820,7 @@ export const view = {
       ["kpi-regret", "Regret score", "of known value"],
       ["kpi-vph", "₹ / hour", "played games only"],
       ["kpi-hours", "Total hours", "on record"],
+      ["kpi-dlc", "Add-on value", "DLC, not counted above"],
     ].forEach(([id, label, sub]) => {
       const card = this.el("article", "kpi-card");
       const lab = this.el("p", "kpi-label",
@@ -846,10 +852,14 @@ export const view = {
         regretCard = card;
       } else {
         card.appendChild(v);
+        // The add-on card is captured by reference so renderKpis can show/hide
+        // it without a DOM walk (the test stub has no .closest()).
+        if (id === "kpi-dlc") dlcCard = card;
         kpi.appendChild(card);
       }
     });
     hero.appendChild(kpi);
+    this.dlcCard = dlcCard;
 
     const summary = this.el("div", "dash-grid");
     summary.appendChild(hero);
@@ -1652,6 +1662,13 @@ export const view = {
     fmt("kpi-regret", metrics.regretScore == null ? "—" : `${(metrics.regretScore * 100).toFixed(1)} %`);
     fmt("kpi-vph", metrics.valuePerHour == null ? "—" : perHour(metrics.valuePerHour, cur));
     fmt("kpi-hours", hours(metrics.totalHours ?? 0));
+    // Add-on spend is its own line (see computeRegret); the card only shows
+    // when the library actually owns DLC, so a game-only shelf stays a clean
+    // six-tile grid instead of a zeroed seventh.
+    if (this.dlcCard) {
+      this.dlcCard.hidden = !metrics.dlcCount;
+      fmt("kpi-dlc", money(metrics.dlcValue ?? 0, cur));
+    }
     const vlab = container.querySelector("#kpi-vph-label");
     if (vlab) vlab.textContent = `${symbol(cur)} / hour`;
   },
@@ -1691,7 +1708,10 @@ export const view = {
       ];
       cells.forEach((text, i) => {
         if (i !== 1) {
-          tr.appendChild(this.el("td", i === 0 ? "cell-name" : null, text));
+          const td = this.el("td", i === 0 ? "cell-name" : null, text);
+          // Add-on rows carry a small chip so DLC is legible in the list.
+          if (i === 0 && game.kind === "dlc") td.appendChild(this.el("span", "dlc-chip", "DLC"));
+          tr.appendChild(td);
           return;
         }
         // Platform cell: the store's mark, then its name — the eye finds the
@@ -1760,7 +1780,10 @@ export const view = {
       card.appendChild(art);
 
       const meta = this.el("div", "card-meta");
-      meta.appendChild(this.el("p", "card-title", game.name));
+      const titleRow = this.el("p", "card-title", game.name);
+      // Same add-on chip as the list, so a cover card reads as DLC too.
+      if (game.kind === "dlc") titleRow.appendChild(this.el("span", "dlc-chip", "DLC"));
+      meta.appendChild(titleRow);
       // The band reads today's price against its own history, so it sits
       // directly under the name — above the row it explains.
       const band = this.priceBand(game, price);

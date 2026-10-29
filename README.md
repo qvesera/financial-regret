@@ -15,7 +15,8 @@ A browser-based dashboard that shows how much you have spent on games versus how
 - **Selectable currency** — one display-currency picker in the header (INR, USD, EUR, …), defaulted from your region when the edge reports it; prices are re-fetched from IsThereAnyDeal in that currency's store region and re-labelled
 - **Card sharing** — Wrapped-style PNG cards in the arcade skin: a summary deck, the ranked lists, one card per verdict, or whatever your current filters show. Download them, share the image directly, or copy a link that opens the exact card for whoever receives it — the card carries the wordmark and the project's home, nothing more
 - **Big libraries** — Epic's catalog is fetched page by page with live progress, so huge accounts never hang a single request
-- **Non-game filtering** — DLC, soundtracks, Unreal Engine builds, and Epic store content for UE (Fab/marketplace plugins, Megascans, projects) are excluded — only real games are listed
+- **Non-game filtering** — soundtracks, Unreal Engine builds, and Epic store content for UE (Fab/marketplace plugins, Megascans, projects) are excluded — only real games are listed
+- **Add-on (DLC) tracking** — add-ons and expansions are kept and badged, then tallied in their own **Add-on value** figure rather than mixed into library value or the regret score (DLC has no playtime of its own — you play it inside its base game — so counting it would make unopened base games look like the problem). Reachable today on **Epic** (base-game pointer) and **Amazon** (title match), best-effort on **GOG**. **Steam**'s public API exposes no owned-DLC list and **PlayStation** has no DLC price source, so those stores contribute no add-on rows
 - **In-browser only** — tokens stay in your browser localStorage; no server-side user data
 - **Privacy** — "Forget my data" clears everything instantly
 

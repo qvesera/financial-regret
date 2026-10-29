@@ -7,8 +7,10 @@ and Nile make (there is no public Amazon library API). Pagination follows
 ``nextToken``; each entitlement carries ``product.id`` + ``product.title``.
 
 Amazon ships DLC in the same list with no isDLC flag, so obvious add-ons are
-dropped by title. Amazon exposes no playtime, so ``hours`` is always null and
-the regret math excludes these rows from per-hour ratios by design.
+tagged by title and returned as ``kind: "dlc"`` (kept, not dropped — their
+spend is real and tracked separately). Amazon exposes no playtime, so
+``hours`` is always null and the regret math excludes these rows from
+per-hour ratios by design.
 
 Response: {"games": [{"id", "name", "platform", "hours", "appid"}, ...]}
 """
@@ -105,15 +107,22 @@ class handler(BaseHTTPRequestHandler):
                     product = entry.get("product") or {}
                     pid = product.get("id")
                     title = (product.get("title") or "").strip()
-                    if not pid or not title or _DLC_RE.search(title):
+                    if not pid or not title:
                         continue
-                    games_by_id[pid] = {
+                    game = {
                         "id": f"Amazon:{pid}",
                         "name": title,
                         "platform": "Amazon",
                         "hours": None,
                         "appid": None,
                     }
+                    # Amazon ships DLC in the same list with no isDLC flag, so a
+                    # title match is the only signal. Keep it (tagged) rather
+                    # than dropping: it is real paid content. No base-game
+                    # pointer exists here, so baseAppId stays unset.
+                    if _DLC_RE.search(title):
+                        game["kind"] = "dlc"
+                    games_by_id[pid] = game
                 next_token = data.get("nextToken") if isinstance(data, dict) else None
                 pages += 1
                 if not next_token:

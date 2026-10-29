@@ -270,14 +270,18 @@ function renderAll() {
   // Verdicts are derived from the whole library, not the filtered rows: a
   // filter must not redefine the benchmark it filters against. That holds
   // however the table is filtered — what varies is *which* games get ranked,
-  // which is a selection question rather than a scoring one.
-  state.bench = benchmark(state.games);
-  state.verdicts = verdictMap(state.games, state.bench);
+  // which is a selection question rather than a scoring one. Add-ons are the
+  // exception: they carry no independent playtime, so they are kept out of the
+  // quartile basis, the verdict map and the ranked lists entirely — their
+  // spend is read from the Add-on value KPI instead (see computeRegret).
+  const scored = state.games.filter((g) => g.kind !== "dlc");
+  state.bench = benchmark(scored);
+  state.verdicts = verdictMap(scored, state.bench);
   state.rows = computeRows();
   // Ranked from the visible rows, so the hall of shame and best value follow
   // the filters: hide a store and its games leave the lists with it. Rates and
   // verdicts are untouched — they were computed above against the whole library.
-  state.comparators = rankGames(state.rows);
+  state.comparators = rankGames(state.rows.filter((g) => g.kind !== "dlc"));
   if (!state.comparators.worst.some((t) => t.id === state.simTarget)) {
     state.simTarget = state.comparators.worst.length ? state.comparators.worst[0].id : null;
   }
@@ -328,12 +332,13 @@ async function fetchAllEpicGames() {
 /** Collapse duplicate entitlements of the same game. Epic returns the base
  *  title plus each DLC/expansion as separate records that share a sandbox, so
  *  they all surface under one display name; keep the copy with the most
- *  playtime (the base game) and drop the rest. */
+ *  playtime (the base game) and drop the rest. `kind` joins the key so an
+ *  add-on never collapses into the base game it shares a name with. */
 export function dedupeGames(games) {
   const best = new Map();
   for (const g of games) {
     // alnum-fold the name so symbol/case variants of one title collapse too
-    const key = `${g.platform}\u0000${(g.name || "").toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+    const key = `${g.platform}\u0000${g.kind || "game"}\u0000${(g.name || "").toLowerCase().replace(/[^a-z0-9]/g, "")}`;
     const prev = best.get(key);
     if (!prev || (g.hours || 0) > (prev.hours || 0)) best.set(key, g);
   }

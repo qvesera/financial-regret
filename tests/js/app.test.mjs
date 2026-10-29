@@ -592,6 +592,38 @@ test("dedupeGames collapses duplicate entitlements, keeping max playtime", async
   assert.equal(out.find((g) => g.name.startsWith("Rocket")).id, "Epic:RL1", "symbol variants collapse");
 });
 
+test("dedupeGames keeps a tagged add-on distinct from its base game", async () => {
+  const { mod } = await boot();
+  // An add-on that shares its base game's exact name must not be folded away:
+  // `kind` is part of the dedupe key, so the two are separate rows.
+  const games = [
+    { id: "Epic:CivBase", name: "Sid Meier's Civilization VI", platform: "Epic", hours: 50 },
+    { id: "Epic:CivDLC", name: "Sid Meier's Civilization VI", platform: "Epic", hours: 0, kind: "dlc" },
+    { id: "Epic:CivDLC2", name: "Sid Meier's Civilization VI", platform: "Epic", hours: null, kind: "dlc" },
+  ];
+  const out = mod.dedupeGames(games);
+  assert.equal(out.length, 2, "base game + one surviving add-on");
+  assert.equal(out.filter((g) => g.kind === "dlc").length, 1, "the two add-ons collapse to one");
+  assert.ok(out.some((g) => g.id === "Epic:CivBase"), "the base game survives");
+});
+
+test("add-on spend is tallied apart and never skews the game metrics", async () => {
+  // computeRegret is not re-exported from app; exercise it through the module
+  // that owns it so the exclusion is pinned at the source.
+  const { computeRegret } = await import("../../public/js/regret.js");
+  const out = computeRegret([
+    { id: "Steam:1", name: "Played", platform: "Steam", hours: 10, price: 100 },
+    { id: "Steam:2", name: "Backlog", platform: "Steam", hours: 0, price: 300 },
+    { id: "Epic:DLC", name: "Big Add-on", platform: "Epic", hours: null, price: 500, kind: "dlc" },
+  ]);
+  // Games only: library 400, backlog 300, regret 300/400 = 75%.
+  assert.equal(out.libraryValue, 400, "the add-on's 500 is excluded from library value");
+  assert.equal(out.backlogValue, 300, "the add-on is not backlog");
+  assert.ok(Math.abs(out.regretScore - 0.75) < 1e-9, "regret is computed from games only");
+  assert.equal(out.dlcValue, 500, "add-on spend is its own figure");
+  assert.equal(out.dlcCount, 1, "one add-on counted");
+});
+
 test("changing display currency re-prices the library in that currency", async () => {
   const { env, mod } = await boot({ seed: withSteam });
   await settle();
@@ -1232,11 +1264,12 @@ test("every dashboard metric carries a wired explanation chip", async () => {
   await settle();
 
   const chips = env.root.querySelectorAll(".info");
-  // 7 KPI cards + the hero label + the headline + all three ranked cards.
+  // 8 KPI cards (incl. the add-on card, which is present-but-hidden without DLC)
+  // + the hero label + the headline + all three ranked cards.
   // Root-scoped on purpose: it counts attached nodes only, which is what makes
   // it a real guard against a chip being detached from the page while its id
   // stays reachable — exactly what happened with the ₹/hour label.
-  assert.equal(chips.length, 12,
+  assert.equal(chips.length, 13,
     chips.map((c) => c.getAttribute("aria-describedby")).join(", "));
 
   for (const chip of chips) {
