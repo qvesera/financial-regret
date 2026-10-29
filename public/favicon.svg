@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- ₹egret favicon: the mark the wordmark already uses, in the accent green.
+       Deliberately NOT Press Start 2P — that face's Latin subset has no U+20B9
+       (it carries U+20AC but not the rupee), so the pixel font would draw a
+       tofu box. A system sans stack has the glyph everywhere this app runs. -->
+  <rect width="64" height="64" rx="14" fill="#14161a"/>
+  <rect x="3" y="3" width="58" height="58" rx="11" fill="none"
+        stroke="#6ee7b7" stroke-width="3"/>
+  <text x="32" y="46" fill="#6ee7b7" font-size="40" font-weight="700"
+        text-anchor="middle"
+        font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', 'Noto Sans Devanagari', sans-serif">₹</text>
+</svg>
