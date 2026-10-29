@@ -444,12 +444,21 @@ button { cursor: pointer; font-family: inherit; }
 .kpi-sub { font-size: 0.7rem; color: var(--muted); margin: 0 0 0.5rem; }
 .kpi-value { font-size: 1.5rem; font-weight: 700; margin: 0; font-variant-numeric: tabular-nums; }
 
+/* One page gutter for every dashboard band — the summary row, the rank cards,
+   and the table + rail below. Previously only .dashboard-body was inset, so the
+   table row sat inboard of the flush hero above it and the seams never lined up. */
+.ready { padding: 0 1.5rem 1.5rem; }
+/* The table + right rail snap to the same 12-column grid and 16px gutter as the
+   summary row (.dash-grid): panel on cols 1–8, rail on cols 9–12. Matching the
+   column count, gutter and width is what pulls the rail's left edge flush under
+   the regret card — the bento seam the old flex 2fr/1fr + 24px gap could not hit. */
 .dashboard-body {
-  display: flex;
-  gap: 1.5rem;
-  padding: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
 }
-.panel { flex: 2; min-width: 0; }
+.panel { grid-column: span 8; min-width: 0; }
 .filter-bar {
   display: flex;
   flex-direction: column;
@@ -657,7 +666,7 @@ tr.game-row:hover { background: var(--surface-2); }
 }
 .page-gap { color: var(--muted); padding: 0 0.25rem; user-select: none; }
 
-.sidebar { flex: 1; }
+.sidebar { grid-column: span 4; }
 .chart-card {
   padding: 1rem;
   background: var(--surface);
@@ -985,7 +994,7 @@ td.cell-platform { white-space: nowrap; }
 /* ---------- responsive ---------- */
 
 @media (max-width: 900px) {
-  .dashboard-body { flex-direction: column; }
+  .panel, .sidebar { grid-column: 1 / -1; }
   .panel-side { width: 100%; }
   .topbar { flex-wrap: wrap; }
 }
@@ -1531,7 +1540,8 @@ td.cell-platform { white-space: nowrap; }
 
 @media (max-width: 600px) {
   /* chrome gives its padding back to content */
-  .dashboard-body { padding: 1rem; gap: 1rem; }
+  .ready { padding: 0 1rem 1rem; }
+  .dashboard-body { gap: 1rem; }
   .chart-card { padding: 0.85rem; }
   .empty-state { padding: 1.75rem 1rem; }
 
