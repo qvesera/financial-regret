@@ -542,19 +542,13 @@ export function drawCard(ctx, spec, tokens = CARD_TOKENS, w = CARD_W, h = CARD_H
   ctx.font = `18px ${MONO}`;
   ctx.fillText(spec.footnote || "", PAD, h - 84);
 
-  // Watermark: the wordmark in the pixel font plus where to get it, one
-  // quiet muted line — brand without shouting over the stats. The ₹ is the
-  // hand-drawn glyph again: the pixel face has no rupee.
+  // Watermark: where to get it, one quiet muted line. No wordmark here —
+  // the ₹egret mark reads as noise at this size, and the URL already names
+  // the project, so the card carries the link rather than the logo.
   ctx.textAlign = "right";
   ctx.fillStyle = tokens.muted;
   ctx.font = `18px ${MONO}`;
-  const site = SITE;
-  const siteW = ctx.measureText ? ctx.measureText(site).width : site.length * 11;
-  ctx.fillText(site, w - PAD, h - 84);
-  ctx.font = `16px ${DISP}`;
-  const markW = ctx.measureText ? ctx.measureText("egret").width : 5 * 16;
-  ctx.fillText("egret", w - PAD - siteW - 20, h - 84);
-  drawRupee(ctx, w - PAD - siteW - 20 - markW - 10, h - 84, 16, tokens.muted);
+  ctx.fillText(SITE, w - PAD, h - 84);
   ctx.textAlign = "left";
 }
 

@@ -167,18 +167,15 @@ test("the painter draws the arcade card, scanlines and watermark and all", () =>
 
   assert.ok(ctx.texts.includes("HALL OF SHAME"));
   assert.ok(ctx.texts.some((t) => t.includes("Hades")), "the rows are drawn");
-  assert.ok(ctx.texts.includes("egret"),
-    "the watermark wears the wordmark, in the pixel font");
-  const markFont = ctx.fonts.find(([t]) => t === "egret");
-  assert.ok(markFont && markFont[1].includes("Press Start 2P"),
-    `drawn in the pixel font, not mono: ${markFont && markFont[1]}`);
   assert.ok(!ctx.texts.includes("₹"),
     "the rupee is drawn, never typed — no font fallback anywhere");
   const rupeeFills = ctx.fills.filter(([, rule]) => rule === "evenodd");
-  assert.equal(rupeeFills.length, 2,
-    "the ₹ is drawn twice: the stat figure ('₹56/h') and the watermark");
+  assert.equal(rupeeFills.length, 1,
+    "the ₹ is drawn once — the stat figure ('₹56/h'); the watermark is just the URL");
   assert.ok(ctx.texts.includes("financial-regret.vercel.app"),
-    "and names where to get it — the project home, not this hostname");
+    "the watermark names where to get it — the project home, not this hostname");
+  assert.ok(!ctx.texts.some((t) => t.trim() === "egret"),
+    "no wordmark on the card — the ₹egret mark reads as noise at watermark size");
   const scanlines = ctx.rects.filter((r) => r[3] === 1);
   assert.equal(scanlines.length, Math.floor(CARD_H / 3),
     "one transparent pixel every three, the toy-screen skin");
