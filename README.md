@@ -119,6 +119,8 @@ node --test public/js/*.test.mjs tests/js/*.test.mjs   # or: npm test
 
 Built by [qvesera](https://github.com/qvesera). Source: [github.com/qvesera/financial-regret](https://github.com/qvesera/financial-regret).
 
+Also contributed: [void-a11y](https://github.com/void-a11y).
+
 This project stands with Palestine. Free Palestine.
 
 ## License

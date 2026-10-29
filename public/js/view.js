@@ -469,6 +469,17 @@ export const view = {
     links.appendChild(repo);
     footer.appendChild(links);
 
+    // A second contributor, credited by their GitHub handle. The handle is the
+    // only name the git history carries for them.
+    const credit = this.el("p", "disclaimer-links");
+    credit.appendChild(this.el("span", null, "Also contributed: "));
+    const contrib = this.el("a", null, "void-a11y");
+    contrib.href = "https://github.com/void-a11y";
+    contrib.target = "_blank";
+    contrib.rel = "noopener noreferrer";
+    credit.appendChild(contrib);
+    footer.appendChild(credit);
+
     // A statement of solidarity, kept as its own line so it stands apart from
     // the fine print above it.
     footer.appendChild(this.el("p", "disclaimer-stand", "This project stands with Palestine. Free Palestine."));
