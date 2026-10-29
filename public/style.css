@@ -386,7 +386,9 @@ button { cursor: pointer; font-family: inherit; }
   display: inline-block;
   height: 0.625em;            /* cap-height fallback until JS measures */
   aspect-ratio: 51.46 / 44.57;
-  vertical-align: baseline;
+  /* Nudged up off the baseline — the glyph reads as sitting low against the
+     pixel letters when bottom-aligned, so it rides ~0.12em proud of it. */
+  vertical-align: 0.12em;
   margin-right: 0.1em;
 }
 .topbar-right {
