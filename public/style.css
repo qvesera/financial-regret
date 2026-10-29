@@ -1215,6 +1215,11 @@ td.cell-platform { white-space: nowrap; }
 }
 .rank-rate { font-size: 0.875rem; font-weight: 600; }
 .rank-hours { font-size: 0.78rem; color: var(--muted); }
+/* The rate and hours columns are numeric: right-align on tabular figures so the
+   digits stack down each column and the gap to the next stays constant. Left
+   alignment in an auto-width column let shorter values ("ZAR 8/h") drift, so
+   their /h and the hours beside them never lined up. */
+.rank-rate, .rank-hours { text-align: right; font-variant-numeric: tabular-nums; }
 .rank-empty {
   list-style: none;
   margin: 0;
