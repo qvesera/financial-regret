@@ -1269,11 +1269,16 @@ export const view = {
     for (const [node, key] of [[iqr, "box"], [med, "median"], [whisk, "p90"], [marker, "worst"]]) {
       if (!node) continue;
       node.setAttribute("data-stat", key);
-      node.addEventListener("pointerenter", () => {
+      // mouseover/mouseout rather than pointerenter/pointerleave: the derived
+      // enter/leave pair has a history of not firing on children of an <svg>
+      // while the CSS :hover highlight — the identical hit test — works, which
+      // is exactly how this first shipped: it lit up and said nothing. Shapes
+      // are leaf nodes, so the usual relatedTarget guard would buy nothing.
+      node.addEventListener("mouseover", () => {
         tip.textContent = say[key];
         tip.classList.add("on");
       });
-      node.addEventListener("pointerleave", () => { tip.classList.remove("on"); });
+      node.addEventListener("mouseout", () => { tip.classList.remove("on"); });
     }
   },
 

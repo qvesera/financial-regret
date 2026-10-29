@@ -1255,16 +1255,16 @@ test("the cost-per-hour chart names itself and explains each piece on hover", as
   assert.ok(marker, "worst-buy dot drawn");
   assert.equal(marker.getAttribute("data-stat"), "worst",
     "the shapes declare which statistic they carry");
-  marker.dispatch("pointerenter");
+  marker.dispatch("mouseover");
   assert.equal(tip.classList.contains("on"), true, "hovering the dot shows the tip");
   assert.ok(tip.textContent.includes("Worst buy: Alpha"), `tip reads: ${tip.textContent}`);
   assert.ok(tip.textContent.includes("per hour"), "and states the rate with its unit");
 
   const median = dist.querySelector(".dist-median");
-  median.dispatch("pointerenter");
+  median.dispatch("mouseover");
   assert.ok(tip.textContent.includes("Median:"), "moving to another piece rewrites the tip");
 
-  median.dispatch("pointerleave");
+  median.dispatch("mouseout");
   assert.equal(tip.classList.contains("on"), false, "leaving hides it again");
 });
 

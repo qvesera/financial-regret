@@ -1166,9 +1166,12 @@ td.cell-platform { white-space: nowrap; }
 .dist-marker:hover { stroke: var(--accent); transform: scale(1.35); }
 
 /* The chart's own copy of the .tip skin: centred under the whole chart,
-   shown by the hovered shape's class rather than by :hover on a chip. */
-.dist-tip { left: 50%; transform: translateX(-50%); top: calc(100% + 6px); }
-.dist-tip.on { opacity: 1; }
+   shown by the hovered shape's class rather than by :hover on a chip.
+   Two classes deep on purpose — the shared .tip rule sits much later in this
+   file and wins every single-class tie on left/top, which anchored this panel
+   to the wrong edge when it first shipped. */
+.dist .dist-tip { left: 50%; transform: translateX(-50%); top: calc(100% + 6px); }
+.dist .dist-tip.on { opacity: 1; }
 .dist-summary,
 .dist-note {
   margin: var(--space-2) 0 0;
