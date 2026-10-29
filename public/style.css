@@ -803,6 +803,26 @@ tr.game-row:hover { background: var(--surface-2); }
   opacity: 0.85;
 }
 
+/* Attribution: who built it and where the source lives. */
+.disclaimer-links {
+  margin-top: 0.8rem;
+  font-size: 0.78rem;
+}
+.disclaimer-links a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.disclaimer-links a:hover { text-decoration: underline; }
+
+/* A statement of solidarity, set apart from the fine print so it reads as a
+   position rather than another disclaimer. */
+.disclaimer-stand {
+  margin-top: 0.9rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
 /* ---------- results extras ---------- */
 
 .panel-head {

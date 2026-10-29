@@ -452,6 +452,27 @@ export const view = {
     psnNote.hidden = true;
     footer.appendChild(psnNote);
 
+    // Attribution: who built this and where to find it. Both links come from the
+    // repo's own remote, so they are never guessed.
+    const links = this.el("p", "disclaimer-links");
+    links.appendChild(this.el("span", null, "Built by "));
+    const profile = this.el("a", null, "qvesera");
+    profile.href = "https://github.com/qvesera";
+    profile.target = "_blank";
+    profile.rel = "noopener noreferrer";
+    links.appendChild(profile);
+    links.appendChild(this.el("span", null, " · "));
+    const repo = this.el("a", null, "Source on GitHub ↗");
+    repo.href = "https://github.com/qvesera/financial-regret";
+    repo.target = "_blank";
+    repo.rel = "noopener noreferrer";
+    links.appendChild(repo);
+    footer.appendChild(links);
+
+    // A statement of solidarity, kept as its own line so it stands apart from
+    // the fine print above it.
+    footer.appendChild(this.el("p", "disclaimer-stand", "This project stands with Palestine. Free Palestine."));
+
     main.appendChild(topbar);
     main.appendChild(phaseEl);
     main.appendChild(footer);

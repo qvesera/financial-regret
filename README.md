@@ -115,6 +115,12 @@ python -m unittest discover -s tests
 node --test public/js/*.test.mjs tests/js/*.test.mjs   # or: npm test
 ```
 
+## Author
+
+Built by [qvesera](https://github.com/qvesera). Source: [github.com/qvesera/financial-regret](https://github.com/qvesera/financial-regret).
+
+This project stands with Palestine. Free Palestine.
+
 ## License
 
 MIT
