@@ -896,8 +896,6 @@ td.cell-platform { white-space: nowrap; }
   display: inline-block;
 }
 
-.dot.linked { background: var(--accent); }
-
 .row-title { font-weight: 500; }
 .row-meta { color: var(--muted); font-size: 0.78rem; }
 
@@ -1470,7 +1468,7 @@ td.cell-platform { white-space: nowrap; }
 }
 
 /* ============================================================
-   ATTRACT MODE — arcade skin, landing page only.
+   THE VERDICT TOY — arcade skin, landing page only.
    Scoped to .onboarding so the dashboard keeps its calm chrome.
 
    Three rules govern everything below:
@@ -1581,21 +1579,10 @@ td.cell-platform { white-space: nowrap; }
               border-color var(--dur) var(--ease);
 }
 
-/* Power LED. Decorative: it carries no state, so nothing is lost when the
-   reduced-motion block or a forced-colours mode flattens it. Square and
-   unlit-glow: one skin, no halos. */
-.onboarding .platform-card::before {
-  content: "";
-  position: absolute;
-  top: 0.9rem;
-  right: 0.95rem;
-  width: 8px;
-  height: 8px;
-  background: var(--tier-untouched);
-}
-.onboarding .platform-card.featured::before {
-  background: var(--accent);
-}
+/* No power LED: the corner dot was read as linkage state and dressed the
+   cards up as status displays. Connected-ness is the "✓ Linked" line, which
+   is information rather than decoration. Connector teeth below still mark
+   the cartridge. */
 
 /* Connector teeth along the bottom edge — the cart is always drawn seated. */
 .onboarding .platform-card::after {
@@ -1615,8 +1602,6 @@ td.cell-platform { white-space: nowrap; }
   transform: translateY(-4px);
   box-shadow: 0 9px 0 -3px var(--border);
 }
-.onboarding .platform-card.planned { border-top-color: var(--border); }
-.onboarding .platform-card.planned::before { box-shadow: none; opacity: 0.55; }
 
 /* ---------- the attract-mode verdict toy ---------- */
 
@@ -1635,14 +1620,6 @@ td.cell-platform { white-space: nowrap; }
   overflow: hidden;
   background: var(--surface);
   box-shadow: var(--shadow);
-}
-
-.toy-kicker {
-  font-family: "Press Start 2P", ui-monospace, monospace;
-  font-size: 0.62rem;
-  letter-spacing: 0.2em;
-  color: var(--accent);
-  margin: 0 0 var(--space-3);
 }
 
 .toy-head {

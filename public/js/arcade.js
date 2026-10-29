@@ -84,7 +84,6 @@ export function renderVerdictToy() {
   section.setAttribute("aria-label", "Verdict demo");
 
   const screen = el("div", "toy-screen");
-  screen.appendChild(el("p", "toy-kicker", "ATTRACT MODE"));
 
   const head = el("div", "toy-head");
   // The cover is decorative: the heading beside it already carries the name.

@@ -33,6 +33,10 @@ test("renders a playable slider wired to the delegated input handler", () => {
   installEnv();
   const toy = renderVerdictToy();
 
+  // No ATTRACT MODE banner: the arcade term read as an error message, and
+  // the toy explains itself in the copy below the slider instead.
+  assert.equal(toy.querySelector(".toy-kicker"), null);
+
   const range = toy.querySelector("#toy-hours");
   assert.ok(range, "slider present");
   assert.equal(range.type, "range");
