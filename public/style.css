@@ -1145,7 +1145,11 @@ td.cell-platform { white-space: nowrap; }
   display: flex;
   flex-direction: column;
 }
-.kpi-grid .kpi-value { font-size: 1.375rem; margin-top: auto; }
+/* No margin-top:auto on the value. Pushing it to the cell floor opened a gap   between a stat and its own label, so a value sat closer to the NEXT row's
+   label than its own — the six stats read as six loose pairs you had to trace.
+   Clustering label → sub → value keeps each stat bound to its own caption;
+   the 1fr row's slack falls below the cluster instead, separating rows. */
+.kpi-grid .kpi-value { font-size: 1.375rem; }
 
 /* regret panel: the gauge, the distribution and the what-if toy together.
    Sits a step roomier than the hero beside it (space-6 vs space-5): the toy
