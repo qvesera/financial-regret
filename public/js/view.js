@@ -335,12 +335,18 @@ export const view = {
 
     // Brand: the wordmark doubles as the pitch — a rupee sign stands in for
     // the r of "regret", so the name says what the app does before the
-    // tagline has to.
+    // tagline has to. It is also the way home: clicking it returns to the
+    // landing page (store links + API keys) from wherever you are.
     const brand = this.el("div", "brand");
     const brandText = this.el("div", "brand-text");
     const wordmark = this.el("h1");
-    wordmark.appendChild(this.el("span", "brand-mark", "₹"));
-    wordmark.appendChild(this.el("span", null, "egret"));
+    const homeBtn = this.el("button", "brand-home");
+    homeBtn.type = "button";
+    homeBtn.dataset.action = "home";
+    homeBtn.setAttribute("aria-label", "Back to the landing page");
+    homeBtn.appendChild(this.el("span", "brand-mark", "₹"));
+    homeBtn.appendChild(this.el("span", null, "egret"));
+    wordmark.appendChild(homeBtn);
     brandText.appendChild(wordmark);
     brand.appendChild(brandText);
 

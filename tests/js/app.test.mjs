@@ -1536,3 +1536,26 @@ test("a shared card link shows the snapshot, not a signup wall", async () => {
     "Make your own returns to the landing page, hash or not");
   assert.equal(env.root.querySelector(".shared-card"), null, "the shared card leaves");
 });
+
+test("the wordmark takes you back to the landing page", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
+  await settle();
+  assert.equal(mod.getState().phase, "ready");
+
+  const home = env.root.querySelector(".brand-home");
+  assert.ok(home, "the wordmark is a button");
+  assert.equal(home.dataset.action, "home");
+  home.dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().phase, "onboarding",
+    "the landing page — store links and API keys — is one click away");
+  assert.ok(env.root.querySelector(".api-keys"), "the keys card is there");
+  assert.equal(env.root.querySelector(".sources").hidden, true,
+    "the dashboard chrome stands down");
+
+  home.dispatch("click");          // same node: the shell never rebuilds
+  await settle();
+  assert.equal(mod.getState().phase, "onboarding",
+    "already home — clicking again does nothing dramatic");
+});

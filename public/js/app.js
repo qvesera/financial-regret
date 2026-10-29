@@ -907,6 +907,15 @@ function onClick(e) {
       state.phase = "onboarding";
       renderAll();
       break;
+    case "home":
+      // The wordmark is the way back to the landing page — store links and
+      // API keys — from wherever the app sits. Already there: nothing to do.
+      if (state.phase !== "onboarding") {
+        closeDrawer();
+        state.phase = "onboarding";
+        renderAll();
+      }
+      break;
     case "back":
       state.phase = "ready";
       renderAll();
