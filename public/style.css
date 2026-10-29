@@ -1255,11 +1255,13 @@ td.cell-platform { white-space: nowrap; }
 /* In-flow by design: two floating panels each failed in a different layer
    (event delivery to SVG children, then cascade order re-anchoring the box).
    A line that already sits here cannot be clipped, stacked over, or pulled
-   off-screen — it only changes text. Two lines are reserved so the numbers
-   below never jump when the copy arrives. */
+   off-screen — it only changes text. THREE lines are reserved to fit the
+   longest message (the box copy wraps to three): reserving two let the third
+   line grow the card on hover, and since dash-grid stretches both cards
+   together, the hero grew with it. The numbers below never jump. */
 .dist-say {
   margin: var(--space-2) 0 0;
-  min-height: 2.6em;
+  min-height: 4.35em;   /* 3 lines × 1.45 line-height */
   font-size: 0.78rem;
   line-height: 1.45;
   color: var(--muted);
