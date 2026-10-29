@@ -19,13 +19,17 @@ function quantile(sorted, q) {
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
 }
 
-/** Finite price-per-hour figures for every priced, played game, ascending.
- *  Unplayed (∞) and unpriced games are not observations of value. */
+/** Finite, non-zero price-per-hour figures for every priced, played game,
+ *  ascending. Unplayed (∞), unpriced games and free games are not
+ *  observations of value: a zero rate cannot lose in a lower-is-better
+ *  ratio, and enough of them pin the first quartile to exactly zero — at
+ *  which point "Worth it" (rate ≤ p25) degenerates into "is it free" and no
+ *  paid game can ever reach the top band. */
 export function rateSamples(rows) {
   const out = [];
   for (const g of rows || []) {
     const r = pricePerHour(g.price, g.hours);
-    if (r != null && Number.isFinite(r) && r >= 0) out.push(r);
+    if (r != null && Number.isFinite(r) && r > 0) out.push(r);
   }
   return out.sort((a, b) => a - b);
 }
@@ -46,13 +50,17 @@ export function benchmark(rows) {
 }
 
 /** Tier order, cheapest verdict first. */
-export const TIERS = ["worth", "fair", "regret", "untouched", "nodata"];
+export const TIERS = ["worth", "fair", "regret", "untouched", "free", "nodata"];
 
 export const TIER_LABEL = {
   worth: "Worth it",
   fair: "Fair",
   regret: "Regret",
   untouched: "Untouched",
+  // Outside the graded scale: nothing was paid, so nothing can be a bargain
+  // or a regret. The colour for it shipped in :root long before this tier
+  // existed — the token was waiting for its verdict.
+  free: "Free",
   // Not "No data": the play-status tab already owns that phrase (it means
   // hours unknown there). Here the gap is specifically the price.
   nodata: "Unpriced",
@@ -62,10 +70,16 @@ export const TIER_LABEL = {
 /** How one game sits against the benchmark.
  *  nodata    — no purchase price known, so nothing to judge
  *  untouched — never played (or under an hour): money spent, nothing earned
+ *  free      — priced at zero: outside the scale, because a zero rate beats
+ *              every other rate by construction — grading it against p25 would
+ *              make Worth it mean "is it free"
  *  unknown   — fewer than 3 priced games in the library to compare against   */
 export function verdictOf(game, bench) {
   if (!game || game.price == null) return "nodata";
   if (game.hours == null || game.hours < 1) return "untouched";
+  // Playtime is checked first on purpose: a free game never opened is still
+  // Untouched — the play truth comes before the money truth.
+  if (game.price === 0) return "free";
   const rate = pricePerHour(game.price, game.hours);
   if (rate == null || !Number.isFinite(rate)) return "untouched";
   if (!bench || bench.p25 == null) return "unknown";
@@ -124,10 +138,13 @@ export function headline({ total = 0, played = 0, worstName = null, worstRate = 
 }
 
 /** Ranked extremes for the insight cards. Games need at least an hour of play
- *  to be evidence about value — a 10-minute session proves nothing. */
+ *  to be evidence about value — a 10-minute session proves nothing — and a
+ *  price above zero, because a free game tops Best value by definition and
+ *  would colonise the list while proving nothing about what a purchase was
+ *  worth. */
 export function comparators(rows, limit = 5) {
   const scored = (rows || [])
-    .filter((x) => x.price != null && x.hours != null && x.hours >= 1)
+    .filter((x) => x.price != null && x.price > 0 && x.hours != null && x.hours >= 1)
     .map((x) => ({
       id: x.id,
       name: x.name,

@@ -74,6 +74,7 @@ function tierNote(tier) {
   if (tier === "fair") return "In line with what you usually pay per hour.";
   if (tier === "regret") return "Above your library's median cost per hour.";
   if (tier === "untouched") return "Bought but never really played.";
+  if (tier === "free") return "Cost nothing — no spend to weigh, so no bargain and no regret.";
   if (tier === "unknown") return "Not enough priced games yet to place this one.";
   return "No price recorded, so there is nothing to judge.";
 }
@@ -931,7 +932,7 @@ export const view = {
     const facetRow = this.el("div", "facet-row");
     facetRow.appendChild(this.el("span", "facet-label", "Verdict"));
     const tierFacets = this.el("div", "tier-facets");
-    for (const t of ["All", "regret", "untouched", "fair", "worth", "nodata", "unknown"]) {
+    for (const t of ["All", "regret", "untouched", "fair", "worth", "free", "nodata", "unknown"]) {
       const b = this.el("button", "tier-facet");
       b.type = "button";
       b.dataset.action = "tier";

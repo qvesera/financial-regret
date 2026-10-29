@@ -34,6 +34,7 @@
   --tier-untouched-tint: rgba(154, 161, 172, 0.10);
   --tier-nodata-tint: rgba(122, 162, 247, 0.10);
   --tier-unknown-tint: rgba(139, 144, 154, 0.10);
+  --tier-free-tint: rgba(56, 189, 248, 0.10);
 
   /* 8px rhythm */
   --space-1: 4px;
@@ -119,6 +120,7 @@ body::after {
     --tier-untouched-tint: rgba(75, 85, 99, 0.10);
     --tier-nodata-tint: rgba(29, 78, 216, 0.10);
     --tier-unknown-tint: rgba(92, 98, 106, 0.10);
+    --tier-free-tint: rgba(3, 105, 161, 0.10);
 
     --shadow: 0 2px 8px -2px rgba(0,0,0,0.1);
     --scrim: rgba(15, 23, 42, 0.35);
@@ -1271,6 +1273,7 @@ td.cell-platform { white-space: nowrap; }
 .tier-dot-regret { background: var(--tier-regret); }
 .tier-dot-untouched { background: var(--tier-untouched); }
 .tier-dot-nodata { background: var(--tier-nodata); }
+.tier-dot-free { background: var(--tier-free); }
 .tier-dot-unknown { background: var(--muted); }
 .tier-dot-All { background: var(--text); }
 .tier-count { font-variant-numeric: tabular-nums; color: var(--muted); }
@@ -1295,6 +1298,7 @@ td.cell-platform { white-space: nowrap; }
 .badge-regret { color: var(--tier-regret); background: var(--tier-regret-tint); }
 .badge-untouched { color: var(--tier-untouched); background: var(--tier-untouched-tint); }
 .badge-nodata { color: var(--tier-nodata); background: var(--tier-nodata-tint); }
+.badge-free { color: var(--tier-free); background: var(--tier-free-tint); }
 .badge-unknown { color: var(--muted); background: var(--tier-unknown-tint); }
 
 .verdict-cell { width: 1%; white-space: nowrap; }

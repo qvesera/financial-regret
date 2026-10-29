@@ -19,8 +19,10 @@ const LIB = [
   g("h", "H", 12, null),  // unpriced → not an observation
 ];
 
-test("rateSamples only counts priced, played games with a finite rate", () => {
+test("rateSamples counts priced, played, paid games with a finite rate", () => {
   assert.deepEqual(rateSamples(LIB), [10, 20, 40, 80]);
+  assert.deepEqual(rateSamples([...LIB, g("fp", "FP", 30, 0)]), [10, 20, 40, 80],
+    "free games are not observations of value — a zero rate cannot lose");
 });
 
 test("benchmark reports quartiles of the library", () => {
@@ -56,9 +58,29 @@ test("verdictOf treats a missing price and missing playtime differently", () => 
   assert.equal(verdictOf(null, b), "nodata");
 });
 
-test("a free played game is always worth it", () => {
-  const b = benchmark(LIB);
-  assert.equal(verdictOf(g("free", "Free", 3, 0), b), "worth");
+// The old rule here read "a free played game is always worth it" — literally
+// true and worth nothing: price zero makes rate zero, unbeatable in a
+// lower-is-better ratio. Worse, once free rows were a quarter of the
+// benchmark they pinned p25 to exactly zero, so "Worth it" degenerated into
+// "is it free" and no paid game could ever reach the top band. Free now sits
+// outside the scale, and the scale ignores it.
+test("free games sit outside the scale instead of owning its top", () => {
+  const freeHeavy = [...LIB,
+    g("fp", "FP", 30, 0), g("fq", "FQ", 60, 0), g("fr", "FR", 90, 0)];
+  const b = benchmark(freeHeavy);
+  assert.equal(b.p25, 17.5,
+    "three zero rates do not move the paid scale at all");
+  assert.equal(verdictOf(g("free", "Free", 3, 0), b), "free",
+    "its own verdict: no spend, no bargain, no regret");
+  assert.equal(verdictOf(g("fu", "FU", 0.5, 0), b), "untouched",
+    "a free game never opened stays Untouched — playtime is checked first");
+  assert.equal(verdictOf(g("x", "X", 40, 400), b), "worth",
+    "a paid game still earns Worth it in a free-heavy library");
+
+  const { best } = comparators(freeHeavy);
+  assert.ok(best.length > 0 && best.every((x) => x.price > 0),
+    "Best value lists paid bargains only — free games would win it by definition");
+  assert.ok(!best.some((x) => x.name === "FP"));
 });
 
 test("verdictMap keys every game in the library", () => {

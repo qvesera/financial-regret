@@ -322,10 +322,13 @@ test("the filter tabs explain themselves: counts, clear names, no self-shrinking
   assert.equal(count("Unplayed"), "1", "and its own count survives the selection");
 
   // The verdict facet that used to share the name "No data" is now
-  // "Unpriced" — the phrase means exactly one thing in the UI.
+  // "Unpriced" — the phrase means exactly one thing in the UI. And Free
+  // deserves its own facet: it left the graded bands entirely, so it must be
+  // findable like the others.
   const facetNames = env.root.querySelectorAll(".tier-facet")
     .map((b) => b.querySelector(".tier-name").textContent);
   assert.ok(facetNames.includes("Unpriced"), `verdict facets read: ${facetNames}`);
+  assert.ok(facetNames.includes("Free"), `verdict facets read: ${facetNames}`);
 });
 
 test("regret gauge lives in its KPI card, not a second sidebar card", async () => {
