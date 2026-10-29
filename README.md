@@ -61,7 +61,11 @@ browser ──► Vercel   public/ (html, js, css)
    └─ /api/* ──► api/index.py ──► backend/   (one Python function)
 ```
 
-**Deploy** — connect the repo in the Vercel dashboard, or run the CLI:
+**Deploy** — only when asked. Deploys consume the build budget, so nothing
+ships as a side effect of a push: Render's `autoDeploy` is off in the
+blueprint, Vercel's Git integration should be switched off in its dashboard,
+and releases run by hand — connect the repo in the Vercel dashboard, or run
+the CLI:
 
 ```bash
 vercel deploy --prod

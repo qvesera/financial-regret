@@ -1124,8 +1124,60 @@ test("the Free facet ranks Best value by hours and drops Hall of shame", async (
     ["Marathon F2P", "Mid F2P", "Quick F2P"], "most hours first");
   assert.equal(best.querySelector(".rank-rate").textContent, "₹0/h",
     "the rate column stays honest about what free costs per hour");
-  assert.ok(find(".rank-untouched").textContent.includes("Nothing in this view"),
-    "no unpriced rows to rank there, and it says so");
+  assert.equal(find(".rank-untouched").hidden, true,
+    "no unopened paid games can exist in free, so the card leaves rather "
+    + "than explaining its own absence forever");
+});
+
+test("the Untouched facet swaps in the untouched list and drops the rate cards", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  const cards = () => env.root.querySelectorAll(".rank-card");
+  const find = (cls) => cards().find((c) => c.querySelector(cls));
+  assert.ok(cards().every((c) => !c.hidden),
+    "all three lists start under All verdicts");
+
+  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "untouched")
+    .dispatch("click");
+  await settle();
+
+  assert.equal(find(".rank-worst").hidden, true,
+    "an unopened game has no rate, so Hall of shame cannot speak here");
+  assert.equal(find(".rank-best").hidden, true, "nor can Best value");
+  const untouched = find(".rank-untouched");
+  assert.ok(untouched && !untouched.hidden,
+    "the untouched list takes their place — the only ranking this facet has");
+  assert.deepEqual(untouched.querySelectorAll(".rank-name").map((n) => n.textContent),
+    ["Cyberpunk 2077", "Elden Ring"], "dearest unopened first, from this view");
+  assert.equal(env.root.querySelector(".insights").hidden, false,
+    "a survivor on the page means the row stays");
+
+  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "All")
+    .dispatch("click");
+  await settle();
+  assert.ok(cards().every((c) => !c.hidden), "clearing the facet restores all three");
+});
+
+test("a facet nothing can rank takes the whole insights row away", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  // Unpriced = no price on any row, and every list needs money of some kind.
+  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "nodata")
+    .dispatch("click");
+  await settle();
+
+  const cards = env.root.querySelectorAll(".rank-card");
+  assert.ok(cards.every((c) => c.hidden), "no card can speak without a price");
+  assert.equal(env.root.querySelector(".insights").hidden, true,
+    "three empty cards in a row of gaps beats nothing; the row leaves instead");
+
+  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "All")
+    .dispatch("click");
+  await settle();
+  assert.equal(env.root.querySelector(".insights").hidden, false,
+    "and returns the moment something can rank again");
 });
 
 test("every dashboard metric carries a wired explanation chip", async () => {

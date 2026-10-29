@@ -1091,9 +1091,12 @@ td.cell-platform { white-space: nowrap; }
 
 /* ---- insights: ranked extremes ---- */
 
+/* Cards hide individually (facet + row shape), so the row is auto-fit: one
+   card fills the width, two share it, three fill it. A fixed three-column
+   grid left a lone survivor parked in the left third. */
 .insights {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: var(--space-4);
   margin-top: var(--space-4);
 }

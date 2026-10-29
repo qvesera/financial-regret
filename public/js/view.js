@@ -851,7 +851,7 @@ export const view = {
     this.heroBits = { figure, line, lineText };
     this.distBox = dist;
 
-    // ---- the two ranked lists: worst buys and best value ----
+    // ---- ranked lists: what can rank depends on the verdict facet ----
     const insights = this.el("div", "insights");
     const worstCard = this.rankCard("Hall of shame", "worst");
     const bestCard = this.rankCard("Best value", "best");
@@ -860,6 +860,7 @@ export const view = {
     insights.appendChild(bestCard.card);
     insights.appendChild(untouchedCard.card);
     wrap.appendChild(insights);
+    this.insightsBox = insights;
     this.rankLists = { worst: worstCard.list, best: bestCard.list, untouched: untouchedCard.list };
     this.rankCards = { worst: worstCard.card, best: bestCard.card, untouched: untouchedCard.card };
 
@@ -1383,12 +1384,24 @@ export const view = {
     // — hiding the card beats an empty one that implies a bad buy exists
     // somewhere. Best value keeps speaking: for free rows its value is hours.
     const allFree = rows.length > 0 && rows.every((r) => r.price === 0);
+    // Each facet gets the lists whose metric it actually has. Rate lists need
+    // price ÷ hours, which an unopened game can never have: the Untouched
+    // facet holds only those, and Unpriced holds no prices at all, so neither
+    // rate list could ever fill there. The untouched list is the flip side —
+    // its rows exist only under "All verdicts" and the Untouched facet.
+    const tier = state.tier || "All";
+    const noRates = tier === "untouched" || tier === "nodata";
+    const noIdle = tier !== "All" && tier !== "untouched";
     for (const kind of ["worst", "best", "untouched"]) {
       const card = this.rankCards && this.rankCards[kind];
       if (card) {
         card.hidden = kind === "worst"
-          ? allFree || noHoursAnywhere
-          : kind !== "untouched" && noHoursAnywhere;
+          ? noRates || allFree || noHoursAnywhere
+          : kind === "best"
+            ? noRates || noHoursAnywhere
+            // Untouched ranks by price, so a no-playtime store is exempt —
+            // that is exactly where it earns its keep.
+            : noIdle || allFree;
       }
       const list = this.rankLists[kind];
       if (!list) continue;
@@ -1429,6 +1442,13 @@ export const view = {
         li.appendChild(this.el("span", "rank-hours", hours(item.hours)));
         list.appendChild(li);
       }
+    }
+    // With every card gone (the Unpriced facet can hold nothing any list
+    // ranks) the row's margin would sit above nothing — take the whole box
+    // off the page rather than leave a gap where it used to be.
+    if (this.insightsBox) {
+      this.insightsBox.hidden = ["worst", "best", "untouched"]
+        .every((k) => !this.rankCards[k] || this.rankCards[k].hidden);
     }
   },
 

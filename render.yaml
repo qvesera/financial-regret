@@ -20,7 +20,10 @@ services:
     # Render has no India region; Singapore is the closest of the five.
     region: singapore
     healthCheckPath: /api/health
-    autoDeploy: true
+    autoDeploy: false
+    # Deploy only when asked: pushes go up for review, not to production.
+    # (Vercel's Git integration must be switched off in its dashboard — no
+    # file in this repo controls it.)
     envVars:
       # server.py defaults HOST to localhost, which would refuse every external
       # request, so bind explicitly. PORT is deliberately absent: Render manages
