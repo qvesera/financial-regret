@@ -39,6 +39,13 @@ describe("perHour", () => {
     assert.equal(perHour(55.65, "INR"), "₹56/h");
   });
 
+  it("spaces a multi-letter ISO code but keeps a glyph tight", () => {
+    // ZAR has no distinct symbol, so symbol() falls back to the ISO code;
+    // jammed against the number it reads as one token.
+    assert.equal(perHour(15, "ZAR"), "ZAR 15/h");
+    assert.equal(perHour(500, "INR"), "₹500/h", "a real glyph stays tight");
+  });
+
   it("renders an infinite rate symbolically", () => {
     assert.equal(perHour(Infinity, "INR"), "∞/h");
   });

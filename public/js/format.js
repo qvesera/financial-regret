@@ -78,11 +78,18 @@ export function symbol(currency = "INR") {
   } catch { return currency; }
 }
 
-/** "<symbol><whole>/h" figure for the per-hour column/labels. */
+/** "<symbol><whole>/h" figure for the per-hour column/labels.
+ *  Currencies with a real glyph (₹, $) stay tight: "₹500/h". Some codes have
+ *  no distinct symbol, so symbol() falls back to the ISO code (ZAR) — jamming
+ *  it against the number ("ZAR15/h") reads as one token, so a multi-letter
+ *  code gets a space after it ("ZAR 15/h"). */
 export function perHour(rate, currency = "INR") {
   if (rate == null) return "—";
   if (!Number.isFinite(rate)) return "∞/h";   // never played
-  return `${symbol(currency)}${Number(rate).toFixed(0)}/h`;
+  const cur = symbol(currency);
+  // A lone glyph is a symbol; two+ letters means we fell back to the ISO code.
+  const sep = /^[A-Za-z]{2,}$/.test(cur) ? " " : "";
+  return `${cur}${sep}${Number(rate).toFixed(0)}/h`;
 }
 
 /** Cost per hour of play, capped so it never exceeds what you paid.
