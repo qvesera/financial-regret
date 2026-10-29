@@ -1148,8 +1148,17 @@ td.cell-platform { white-space: nowrap; }
 .kpi-grid .kpi-value { font-size: 1.375rem; margin-top: auto; }
 
 /* regret panel: the gauge, the distribution and the what-if toy together.
-   Sits a step roomier than the hero beside it (space-6 vs space-5): the toy   and the box plot need the extra inset to breathe against the card edge. */
-.regret-card { padding: var(--space-6); }
+   Sits a step roomier than the hero beside it (space-6 vs space-5): the toy
+   and the box plot need the extra inset to breathe against the card edge.
+   A flex column like the hero: the grid stretches this card to the hero's
+   height, so the last child (.sim) is pinned to the floor with margin-top:auto
+   — otherwise the content top-aligns and leaves a dead band above the bottom
+   edge, and the 32px padding never reads as a clean boundary. */
+.regret-card {
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+}
 .regret-card > .kpi-card {
   border: 0;
   padding: 0;
@@ -1262,8 +1271,10 @@ td.cell-platform { white-space: nowrap; }
 
 /* ---- what-if slider ---- */
 
+/* margin-top:auto pins the toy to the card floor when the grid stretches the
+   panel taller than its content; a plain space-4 would leave the dead band. */
 .sim {
-  margin-top: var(--space-4);
+  margin-top: auto;
   padding-top: var(--space-3);
   border-top: 1px solid var(--border);
 }
