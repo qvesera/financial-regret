@@ -1156,6 +1156,9 @@ td.cell-platform { white-space: nowrap; }
    edge, and the 32px padding never reads as a clean boundary. */
 .regret-card {
   padding: var(--space-6);
+  /* .chart-card sets margin-bottom:1rem; with align-items:stretch that margin
+     keeps the card from reaching the row floor — the hero sits 16px lower. */
+  margin-bottom: 0;
   display: flex;
   flex-direction: column;
 }
