@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- ₹egret favicon: the hand-made rupee mark (public/rupee glyph.svg) in the
+       accent green. Deliberately NOT a typed ₹ — Press Start 2P's Latin subset
+       has no U+20B9, and this mark is the brand glyph the wordmark carries. -->
+  <rect width="64" height="64" rx="14" fill="#14161a"/>
+  <rect x="3" y="3" width="58" height="58" rx="11" fill="none"
+        stroke="#6ee7b7" stroke-width="3"/>
+  <g transform="translate(8.91,12) scale(0.89747)">
+    <g transform="translate(-10.981945,-126.31401)" fill="#6ee7b7">
+      <path fill-rule="evenodd"
+            d="m 20.851027,126.43373 h 25.385958 v 6.35 h 6.35 v 19.05 h -12.7 v 6.35 h 6.35 v 6.35 h 6.35 v 6.35 h -19.05 v -6.35 h -6.35 v -6.35 h -6.349999 z m -0.01404,25.4 h 12.699999 v -6.35 h 6.35 v -12.7 h -19.05 z"/>
+      <rect x="10.981946" y="126.314" width="51.460079" height="6.9927154"/>
+      <rect x="10.981946" y="138.5856" width="51.460079" height="6.9927154"/>
+    </g>
+  </g>
+</svg>

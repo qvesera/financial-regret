@@ -6,13 +6,12 @@ environment variables (set in a local .env file) -- this is the
 only place the key ever exists; it never reaches the browser.
 """
 
-import os
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 import requests
 
-from _common import send_json, handle_options
+from _common import send_json, handle_options, user_key
 
 STEAM_API_BASE = "https://api.steampowered.com"
 
@@ -29,9 +28,11 @@ class handler(BaseHTTPRequestHandler):
             send_json(self, 400, {"error": "Missing steamid parameter"})
             return
 
-        api_key = os.environ.get("STEAM_API_KEY")
+        # Prefer the caller's own key (X-Steam-Key); fall back to the server
+        # key unless this deployment is public and REQUIRE_USER_KEYS=1.
+        api_key = user_key(self, "X-Steam-Key", "STEAM_API_KEY")
         if not api_key:
-            send_json(self, 500, {"error": "STEAM_API_KEY not configured on the server"})
+            send_json(self, 500, {"error": "No Steam key: add your own under API keys"})
             return
 
         try:
@@ -62,11 +63,32 @@ class handler(BaseHTTPRequestHandler):
             })
             return
 
+        # Canonical game row consumed by the client: {id, name, platform, hours, appid}
         games = [{
+            "id": f"Steam:{g.get('appid')}",
             "name": g.get("name", f"Unknown (App {g.get('appid')})"),
             "appid": g.get("appid"),
-            "playtime_hours": round(g.get("playtime_forever", 0) / 60, 1),
+            "hours": round(g.get("playtime_forever", 0) / 60, 1),
             "platform": "Steam",
         } for g in data["games"]]
 
-        send_json(self, 200, {"games": games})
+        # The account's display name rides along: the shared-card caption
+        # signs the sharer's persona rather than a hostname. Best-effort —
+        # a summaries hiccup must never cost the library.
+        persona = None
+        try:
+            s = requests.get(
+                f"{STEAM_API_BASE}/ISteamUser/GetPlayerSummaries/v2/",
+                params={"key": api_key, "steamids": steam_id},
+                timeout=10,
+            )
+            if s.status_code == 200:
+                players = s.json().get("response", {}).get("players") or []
+                name = players[0].get("personaname") if players else None
+                # str() guard: a test double (or a mangled upstream) must not
+                # reach the JSON body as anything else.
+                persona = name if isinstance(name, str) and name.strip() else None
+        except (requests.RequestException, ValueError):
+            pass
+
+        send_json(self, 200, {"games": games, "persona": persona})

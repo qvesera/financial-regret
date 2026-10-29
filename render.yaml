@@ -1,0 +1,41 @@
+# Optional long-running backend. Vercel serves the site and /api by default;
+# this runs server.py from the Dockerfile at the repo root instead, for scans
+# that outgrow Vercel's 300-second function cap.
+#
+# Render's free tier creates services with no payment information on file --
+# its FAQ is written for that case: with no payment method on file, a service
+# that would incur charges is disabled for the billing period instead of being
+# billed.
+#
+# Free-tier costs to expect: the instance spins down after 15 idle minutes and
+# takes about a minute to come back, and Render may restart it at any time.
+# Nothing here depends on surviving a restart: server.py keeps no state on disk.
+
+services:
+  - type: web
+    name: financial-regret-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    # Render has no India region; Singapore is the closest of the five.
+    region: singapore
+    healthCheckPath: /api/health
+    autoDeploy: false
+    # Deploy only when asked: pushes go up for review, not to production.
+    # (Vercel's Git integration must be switched off in its dashboard — no
+    # file in this repo controls it.)
+    envVars:
+      # server.py defaults HOST to localhost, which would refuse every external
+      # request, so bind explicitly. PORT is deliberately absent: Render manages
+      # it (default 10000) and server.py already reads $PORT.
+      - key: HOST
+        value: "0.0.0.0"
+      # Without this every visitor spends the operator's API keys. See SECURITY.md.
+      - key: REQUIRE_USER_KEYS
+        value: "1"
+      - key: RATE_LIMIT_PER_MIN
+        value: "120"
+      # The deployed site, should the frontend be pointed here via API_BASE.
+      # Without it every cross-origin call is refused.
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://financial-regret.vercel.app"

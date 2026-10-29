@@ -1,89 +1,128 @@
-# Library Aggregator (runs entirely locally)
+# financial-regret
 
-Aggregates a game library across Steam, GOG, and Epic Games, showing
-total value in ₹ via IsThereAnyDeal pricing. Runs entirely on your own
-machine — no cloud account, no hosting platform, no login of any kind.
-No history/database — each scan is a live snapshot.
+A browser-based dashboard that shows how much you have spent on games versus how much you have actually played them — a "regret" metric, in any currency you choose (INR by default).
 
-## Running it
+**No setup required.** Runs entirely in the browser after connecting your store accounts.
 
-1. Install dependencies:
-   ```
-   pip install -r api/requirements.txt -r requirements-dev.txt
-   ```
-2. Create a `.env` file in the project root:
-   ```
-   STEAM_API_KEY=your_key_here
-   ITAD_API_KEY=your_key_here
-   ```
-   - Steam key: https://steamcommunity.com/dev/apikey
-   - ITAD key: https://isthereanydeal.com/apps/my/
-   - No GOG or Epic key needed — their public client credentials are
-     already in the code (see `api/gog_exchange.py` and
-     `api/epic_exchange.py` for the source), overridable via
-     `GOG_CLIENT_ID`/`GOG_CLIENT_SECRET` and
-     `EPIC_CLIENT_ID`/`EPIC_CLIENT_SECRET` if ever needed.
-3. Run:
-   ```
-   python dev_server.py
-   ```
-4. Open http://localhost:3000
+## Features
 
-This only runs while `dev_server.py` is active in a terminal — it's a
-tool you start when you want to check your library, not an always-on
-website. If you ever want it reachable without manually starting it
-each time, that's a separate step (running it as a background service)
-and not something this setup does out of the box.
+- **Steam, GOG, Epic Games, Amazon Luna** — Steam auto-redirects (OpenID); GOG, Epic and Amazon land you on the provider's own domain (none allow a custom redirect URI for their public/device client), so the code is collected by paste. Amazon has no public library API, so it registers a virtual Games-launcher device (undocumented / alpha) and, having no playtime API, its rows are priced but excluded from per-hour ratios
+- **PlayStation** — owned-and-played titles via the community gamelist endpoint (Sony offers no official library API, so sign-in comes first). Prices come from **PlatPrices**, joined on the PSN title id rather than the title text. They only appear when a `PLATPRICES_API_KEY` is set — without one the rows still count toward playtime, they simply render as Unpriced
+- **Real regret metric** — library value, backlog value (unplayed), regret score, and coverage, all shown in your chosen currency
+- **Verdict engine** — every game is judged against *your own* library's price-per-hour quartiles (worth it / fair / regret / untouched), so the thresholds follow how you spend rather than a hardcoded number. It surfaces as a box plot of the distribution, a badge on every row and card, and a plain-language explanation in the game inspector
+- **What-if slider** — replay any regrettable purchase at 1–60 hours and watch its rate and verdict change
+- **Faceted browsing** — filter by play status, platform or verdict, sort, and switch between the list and the cover-art grid; your filters survive a reload
+- **Selectable currency** — one display-currency picker in the header (INR, USD, EUR, …), defaulted from your region when the edge reports it; prices are re-fetched from IsThereAnyDeal in that currency's store region and re-labelled
+- **Card sharing** — Wrapped-style PNG cards in the arcade skin: a summary deck, the ranked lists, one card per verdict, or whatever your current filters show. Download them, share the image directly, or copy a link that opens the exact card for whoever receives it — the card carries the wordmark and the project's home, nothing more
+- **Big libraries** — Epic's catalog is fetched page by page with live progress, so huge accounts never hang a single request
+- **Non-game filtering** — soundtracks, Unreal Engine builds, and Epic store content for UE (Fab/marketplace plugins, Megascans, projects) are excluded — only real games are listed
+- **Add-on (DLC) tracking** — add-ons and expansions are kept and badged, then tallied in their own **Add-on value** figure rather than mixed into library value or the regret score (DLC has no playtime of its own — you play it inside its base game — so counting it would make unopened base games look like the problem). Reachable today on **Epic** (base-game pointer) and **Amazon** (title match), best-effort on **GOG**. **Steam**'s public API exposes no owned-DLC list and **PlayStation** has no DLC price source, so those stores contribute no add-on rows
+- **In-browser only** — tokens stay in your browser localStorage; no server-side user data
+- **Privacy** — "Forget my data" clears everything instantly
 
-## How linking works
+## Quick start
 
-- **Steam**: click "link account" → real Steam login page → redirected
-  back automatically with a verified SteamID. No key ever touches the
-  browser.
-- **GOG**: click "link account" → GOG's real login page opens in a new
-  tab → after logging in, GOG redirects to a page whose URL contains
-  `?code=...` → copy that code and paste it into the form on our page.
-- **Epic Games**: click "link account" → Epic's real login page opens in
-  a new tab → after logging in, you land on a page showing raw JSON
-  containing `"authorizationCode"` → copy that value and paste it into
-  the form on our page.
+### Local dev
 
-<!-- Both GOG and Epic's manual-paste step is unavoidable: neither service's
-redirect target is something we control, so there's no way to
-auto-capture the code from a plain website the way Steam's OpenID flow
-allows. -->
+```bash
+pip install -r backend/requirements.txt -r requirements-dev.txt
+./run.sh            # http://localhost:8089  (or ./run.sh <port>)
+```
 
-Linked account identifiers/tokens are stored in the browser's
-`localStorage` only — nothing is persisted server-side, consistent with
-there being no database.
+### Docker
 
-<!-- ## Why Ubisoft Connect isn't included
+```bash
+docker build -t financial-regret .
+docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
+```
 
-Ubisoft has no OAuth surface at all. The only paths other tools use
-involve session-cookie capture or hitting a private API with credentials
-directly — a meaningfully bigger security responsibility than the app
-should take on. Steam, GOG, and Epic all have some form of real or
-community-documented OAuth-style flow; Ubisoft has neither. -->
+## Environment variables
 
-<!-- ## Known limitations
+| Variable | Required | Description |
+|---|---|---|
+| `ITAD_API_KEY` | No | IsThereAnyDeal API key for price lookups. Without it, prices fall back to Steam public API. |
+| `PLATPRICES_API_KEY` | No | PlatPrices key for PlayStation Store prices. Free and Indie plans cap at 2 regions and 1,000 requests/month. Without it PSN rows are unpriced (playtime is unaffected); a browser-supplied key takes precedence, sent per-request as `X-Platprices-Key`. The free plans require crediting PlatPrices wherever the data is shown. **A key may only query the store regions it has been configured for** — free allows 2, reconfigured at most once a day via `PUT /account/regions` — so a library priced in INR needs `in` on that list or it returns nothing at all. |
+| `SGDB_API_KEY` | No | SteamGridDB key used as the fallback for cover art. A browser-supplied key (dashboard → API keys → SteamGridDB) takes precedence and is sent per-request as `X-SGDB-Key`; without either, the covers endpoint returns no art. |
+| `GOG_CLIENT_ID` | No | GOG OAuth client ID. Defaults to public PKCE client. |
+| `EPIC_CLIENT_ID` | No | Epic OAuth client ID. Defaults to public PKCE client. |
+| `PORT` | No | Port to listen on (default 3000; `run.sh` passes 8089). |
+| `HOST` | No | Host to bind (default 0.0.0.0). |
+| `CORS_ALLOWED_ORIGINS` | No | Comma-separated origins allowed to call this API cross-origin, e.g. `https://your-app.vercel.app`. Empty — the default — means same-origin only. Wildcards are discarded rather than honoured. |
+| `REQUIRE_USER_KEYS` | No | `1` to ignore the server's `STEAM_API_KEY` / `ITAD_API_KEY` / `PLATPRICES_API_KEY` / `SGDB_API_KEY` and require every visitor to bring their own. Set this on any public deployment. |
+| `TRUST_PROXY` | No | `1` to read the client IP from `X-Forwarded-For`. Only behind a reverse proxy you control — otherwise the per-IP rate limit is trivially bypassed. |
+| `RATE_LIMIT_PER_MIN` | No | Per-IP requests per minute (default 120). |
+| `PUBLIC_BASE_URL` | No | The URL the app is reached on. OAuth redirect URIs (GOG, Epic) must match what those providers have registered. |
 
-- **GOG game count is capped at 40 per scan** (`MAX_GAMES` in
-  `api/gog_games.py`) to stay within a serverless function's execution
-  time limit, since each game needs a separate name-lookup call. Response
-  includes `"truncated": true` if the library is bigger.
-- **Epic library fetch is capped at 5 pages** (`MAX_PAGES` in
-  `api/epic_games.py`) for the same reason. Epic game names come from
-  each item's metadata when present; items without metadata fall back to
-  their internal app name (less readable) rather than an extra lookup
-  call per game.
-- **Price lookups are batched at 25 titles per call** to the same
-  timeout constraint (`MAX_TITLES` in `api/prices.py`); the frontend
-  calls `/api/prices` in batches automatically.
-- **Price matching is by title string** — unusual titles may not match
-  well in ITAD's lookup.
-- The GOG and Epic client IDs/secrets are publicly known constants baked
-  into every real GOG Galaxy / Epic Games Launcher install (documented at
-  https://github.com/Yepoleb/gogapidocs and used by the open-source
-  `legendary` project respectively), not something either company issued
-  to this app specifically — both integrations are unofficial and could
-  break if either service changes their auth flow. -->
+## Going public
+
+One deployment serves everything: Vercel runs the static site and the API
+from the same origin.
+
+```
+browser ──► Vercel   public/ (html, js, css)
+   └─ /api/* ──► api/index.py ──► backend/   (one Python function)
+```
+
+**Deploy** — only when asked. Deploys consume the build budget, so nothing
+ships as a side effect of a push: Render's `autoDeploy` is off in the
+blueprint, Vercel's Git integration should be switched off in its dashboard,
+and releases run by hand — connect the repo in the Vercel dashboard, or run
+the CLI:
+
+```bash
+vercel deploy --prod
+```
+
+`vercel.json` declares the rest: `outputDirectory` is `public/`, `/api/*`
+rewrites to the single Python function (300-second budget — a cold price scan
+fits), and the security headers (`nosniff`, `Referrer-Policy`, frame denial,
+strict CSP) ship on every response. Same origin by construction: no CORS
+surface, no `BACKEND_URL` to configure, and the per-IP rate limit sees real
+client IPs instead of an edge proxy's.
+
+The display currency starts from the visitor's region: the edge's country
+header (Vercel's `x-vercel-ip-country`, Cloudflare's `cf-ipcountry`) rides on
+`/api/config` and is mapped to a currency the picker offers. A self-hosted
+`server.py` reports none and keeps the INR default, and a currency the visitor
+picked is never overridden. The landing-page demo converts its INR figures as
+a fallback, but anchors them on the hero game's real regional price whenever
+the instance can price it — regional pricing is not an exchange rate.
+
+**Optional long-running backend** — `render.yaml` plus the root `Dockerfile`
+run `server.py` as a persistent service, for libraries so large that a scan
+outgrows Vercel's function cap. Push the repo, then connect it to Render
+(New → Blueprint); it reads `HOST`, `REQUIRE_USER_KEYS` and
+`CORS_ALLOWED_ORIGINS` from the blueprint and health-checks `/api/health`.
+Free-tier caveat: the instance spins down after 15 idle minutes and takes
+about a minute to wake, and Render may restart it at any time — nothing
+depends on surviving a restart, the server keeps no state on disk. To point
+the frontend at it, set `API_BASE` in `public/js/env.js` to that
+`*.onrender.com` origin and name the same origin in `CORS_ALLOWED_ORIGINS`.
+
+Set `PLATPRICES_API_KEY` and friends as env vars only if you want a shared
+server-side key. With `REQUIRE_USER_KEYS=1` they are a fallback, and
+bring-your-own-key is the intended public posture.
+
+Before inviting anyone, read **[SECURITY.md](SECURITY.md)**. Two things
+especially: `REQUIRE_USER_KEYS=1` is what stops every visitor spending your API
+quota, and PlayStation support means users paste a PSN session token into
+your site.
+
+## Tests
+
+```bash
+python -m unittest discover -s tests
+node --test public/js/*.test.mjs tests/js/*.test.mjs   # or: npm test
+```
+
+## Author
+
+Built by [qvesera](https://github.com/qvesera). Source: [github.com/qvesera/financial-regret](https://github.com/qvesera/financial-regret).
+
+Also contributed: [void-a11y](https://github.com/void-a11y).
+
+This project stands with Palestine. Free Palestine.
+
+## License
+
+MIT
