@@ -367,6 +367,17 @@ export const view = {
     actions.appendChild(menuBtn);
 
     right.appendChild(sources);
+    // One currency picker for the whole app, living in the header: the
+    // landing page and the dashboard filter bar used to carry their own
+    // copies, and a currency in the chrome is reachable from every screen —
+    // before anything is linked, and after a geo default lands. Its value is
+    // repainted in render(), because the shell outlives the phase rebuilds.
+    const currencySelect = this.buildCurrencySelect(null);
+    currencySelect.classList.add("header-currency");
+    currencySelect.setAttribute("aria-label", "Display currency");
+    currencySelect.title =
+      "prices are re-fetched from IsThereAnyDeal in this currency's store region";
+    right.appendChild(currencySelect);
     right.appendChild(actions);
     topbar.appendChild(brand);
     topbar.appendChild(right);
@@ -424,7 +435,7 @@ export const view = {
     main.appendChild(drawer);
     root.appendChild(main);
 
-    Object.assign(this, { main, topbar, sources, scanBtn, keysBtn, menuBtn, menu, phaseEl, drawer, drawerBody, footer, attribution, psnNote });
+    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, menuBtn, menu, phaseEl, drawer, drawerBody, footer, attribution, psnNote });
     this._builtPhase = null;
     return this;
   },
@@ -671,41 +682,26 @@ export const view = {
     // could be read without one, which only holds while the server shares its
     // own — the hint says which world this instance is in. Only cover art is
     // genuinely optional.
+    // Four fields in a 2×2 grid. The card's own heading says what they are;
+    // the old KEYS/DISPLAY column split left with the currency picker, which
+    // now lives in the header on every screen.
     const fields = this.el("div", "api-keys-fields");
 
-    const keysGroup = this.el("div", "key-group");
-    keysGroup.appendChild(this.el("h3", "key-group-title", "Keys"));
-    keysGroup.appendChild(this.keyField("itad", "IsThereAnyDeal API key",
+    fields.appendChild(this.keyField("itad", "IsThereAnyDeal API key",
       "the one that matters — every price on the dashboard comes from it",
       "https://isthereanydeal.com/apps/"));
     const steamField = this.keyField("steam", "Steam Web API key", copy.steamHint,
       "https://steamcommunity.com/dev/apikey");
-    keysGroup.appendChild(steamField);
+    fields.appendChild(steamField);
     // The backend already honours a user-supplied PlatPrices key (psn_prices
-    // reads X-Platprices-Key before the server's own), so its field sits here
-    // with the other functional keys rather than only in the PlayStation copy.
-    keysGroup.appendChild(this.keyField("platprices", "PlatPrices API key",
+    // reads X-Platprices-Key before the server's own), so its field sits with
+    // the other functional keys rather than only in the PlayStation copy.
+    fields.appendChild(this.keyField("platprices", "PlatPrices API key",
       "PlayStation prices when the shared server key is missing",
       "https://platprices.com/api-request"));
-    keysGroup.appendChild(this.keyField("sgdb", "SteamGridDB API key",
+    fields.appendChild(this.keyField("sgdb", "SteamGridDB API key",
       "cover art in the grid view — cosmetic, no number depends on it",
       "https://steamgriddb.com/profile/preferences/api"));
-    fields.appendChild(keysGroup);
-
-    const display = this.el("div", "key-group");
-    display.appendChild(this.el("h3", "key-group-title", "Display"));
-    const cwrap = this.el("div", "currency-field");
-    const clabel = this.el("label", "key-label", "Currency");
-    clabel.htmlFor = "onboarding-currency";
-    cwrap.appendChild(clabel);
-    const csel = this.buildCurrencySelect(state.currency);
-    csel.id = "onboarding-currency";
-    this.onboardCurrency = csel;   // repainted in place when a geo default lands
-    cwrap.appendChild(csel);
-    display.appendChild(cwrap);
-    display.appendChild(this.el("p", "key-hint",
-      "prices are re-fetched from IsThereAnyDeal in this currency's store region"));
-    fields.appendChild(display);
 
     keysCard.appendChild(fields);
     // Live refs: /api/config arrives after this build and repaints in place.
@@ -917,8 +913,8 @@ export const view = {
     filterSub.appendChild(control("Sort", sort));
     const platformSelect = this.buildPlatformSelect();
     filterSub.appendChild(control("Store", platformSelect));
-    const currencySelect = this.buildCurrencySelect(this.currency);
-    filterSub.appendChild(control("Currency", currencySelect));
+    // No currency control here: it lives in the header now, once for every
+    // screen. Two pickers for one value was two things to keep in sync.
     const viewToggle = this.el("div", "view-toggle");
     [["list", "List"], ["grid", "Grid"]].forEach(([mode, label]) => {
       const b = this.el("button", `view-btn${mode === "list" ? " active" : ""}`, label);
@@ -1020,12 +1016,16 @@ export const view = {
 
     // `kpi` is the scope renderKpis queries: it must reach #kpi-regret now
     // that the regret card has moved out of the row.
-    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, filterBar, search, sort, currencySelect, platformSelect, headerCells, pagers: [topPager, bottomPager], panel };
+    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, filterBar, search, sort, platformSelect, headerCells, pagers: [topPager, bottomPager], panel };
   },
 
   /** Called on every state change. Rebuilds the phase only when it changes. */
   render(state) {
     this.currency = state.currency || "INR";
+    // The header's currency picker is the one control that outlives the
+    // phase rebuilds, so it is repainted here rather than in each phase —
+    // this is how a geo-detected default reaches a page already built.
+    if (this.currencySelect) this.currencySelect.value = this.currency;
     this.renderSources(state);
     const showChrome = state.phase !== "onboarding";
     this.sources.hidden = !showChrome;
@@ -1045,11 +1045,9 @@ export const view = {
         this.phaseEl.appendChild(this.renderOnboarding(state));
         this._builtPhase = "onboarding";
       }
-      // One-shot build, so anything the currency knows after it lands (the
-      // visitor's own picker choice, or the region default from /api/config)
-      // repaints the picker and the toy in place — a rebuild would discard
+      // One-shot build, so a currency that lands after it (the geo default
+      // from /api/config) repaints the toy in place — a rebuild would discard
       // half-typed paste fields and pull the slider out from under a thumb.
-      if (this.onboardCurrency) this.onboardCurrency.value = state.currency || "INR";
       repaintVerdictToy(state.currency);
       return;
     }
@@ -1062,7 +1060,7 @@ export const view = {
         gridWrap: r.gridWrap, viewToggle: r.viewToggle,
         emptyState: r.empty, coverage: r.coverage, ringSvg: r.ringSvg,
         platformList: r.platformList, filterBar: r.filterBar, search: r.search, sort: r.sort,
-        currencySelect: r.currencySelect, platformSelect: r.platformSelect, headerCells: r.headerCells,
+        platformSelect: r.platformSelect, headerCells: r.headerCells,
         pagers: r.pagers, panel: r.panel,
       });
       this.phaseEl.appendChild(r.wrap);
@@ -1153,7 +1151,6 @@ export const view = {
       }
     }
     if (this.sort) this.sort.value = state.sort;
-    if (this.currencySelect) this.currencySelect.value = this.currency;
     if (this.headerCells && this.headerCells[4]) this.headerCells[4].textContent = `${symbol(this.currency)} / hour`;
     if (this.platformSelect) {
       const plats = [...new Set((state.games || []).map((g) => g.platform))].sort();

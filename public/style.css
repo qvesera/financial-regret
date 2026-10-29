@@ -375,6 +375,9 @@ button { cursor: pointer; font-family: inherit; }
   margin-left: auto;
 }
 .topbar-actions { display: flex; gap: 0.5rem; }
+/* The one currency picker, in the header on every screen. Capped so a wide
+   symbol-code label ("CA$ CAD") never shoves the actions off the row. */
+.header-currency { max-width: 9.5rem; }
 .button {
   display: inline-block;
   padding: 0.55rem 1.1rem;
@@ -927,24 +930,12 @@ td.cell-platform { white-space: nowrap; }
 }
 .api-keys-fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  /* Exactly two columns: with a third the four fields fell 3-then-1 and the
+     orphan lost its neighbour. Collapses to one column on phones. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-5);
   align-items: start;
   margin-top: var(--space-3);
-}
-.key-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-width: 0;
-}
-.key-group-title {
-  margin: 0;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
 }
 .key-field { margin: 0; display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
 .key-label { font-size: 0.85rem; font-weight: 600; }
@@ -981,14 +972,6 @@ td.cell-platform { white-space: nowrap; }
   text-underline-offset: 3px;
 }
 .key-link:hover { color: var(--text); }
-
-/* Display-currency picker (keys card): label stacked above the select. */
-.currency-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-.currency-field select { width: 100%; }
 
 /* ============================================================
    Overhaul: hero, verdict engine, what-if, facets, stepper
@@ -1494,6 +1477,10 @@ td.cell-platform { white-space: nowrap; }
 
   /* header: brand keeps row one; stores and controls wrap beneath it */
   .topbar-right { width: 100%; margin-left: 0; justify-content: space-between; }
+
+  /* key fields go single-column: two 440px-tall fields side by side at this
+     width leaves every hint broken across three lines */
+  .api-keys-fields { grid-template-columns: minmax(0, 1fr); }
 
   .drawer-cover { width: 84px; }
   .kpi-grid { column-gap: var(--space-4); }

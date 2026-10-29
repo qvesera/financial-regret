@@ -136,11 +136,12 @@ test("cold start shows onboarding, hides metrics chrome", async () => {
     const lab = env.root.querySelectorAll("label").find((l) => l.htmlFor === `${kind}-key`);
     assert.ok(lab && lab.textContent.length > 3, `${kind} key has a real <label for>`);
   }
-  // Two groups since Steam and PlatPrices moved out of "extras": pricing,
-  // playtime and PSN prices are all functional, so purpose splits
-  // functional-vs-display now — not keys-vs-nice-to-haves.
-  assert.equal(env.root.querySelectorAll(".key-group").length, 2,
-    "keys grouped by purpose — functional vs display");
+  // No KEYS/DISPLAY column split any more: the currency picker moved to the
+  // header, so the four fields sit directly in the card's own 2×2 grid.
+  assert.equal(env.root.querySelectorAll(".key-group").length, 0,
+    "the group wrappers are gone — the card heading carries the meaning");
+  assert.equal(env.root.querySelector(".api-keys-fields").children.length, 4,
+    "four key fields, direct children of the grid");
 });
 
 test("Steam link navigates to OpenID checkid_setup with return_to", async () => {
@@ -596,8 +597,10 @@ test("changing display currency re-prices the library in that currency", async (
   assert.equal(mod.getState().phase, "ready");
   assert.equal(mod.getState().currency, "INR", "defaults to INR");
 
-  const sel = env.root.querySelector(".currency-select");
-  assert.ok(sel, "currency picker rendered on the dashboard");
+  const pickers = env.root.querySelectorAll(".currency-select");
+  assert.equal(pickers.length, 1, "exactly one currency picker — the header's");
+  const sel = env.root.querySelector(".header-currency");
+  assert.ok(sel, "the picker lives in the header, not the filter bar");
   sel.value = "USD";
   sel.dispatch("change");
   await settle();
@@ -1142,8 +1145,8 @@ test("the visitor's region defaults the currency until they choose one", async (
 
   assert.equal(mod.getState().currency, "EUR",
     "the edge reports the country and the display currency follows it");
-  assert.equal(env.root.querySelector("#onboarding-currency").value, "EUR",
-    "the picker shows the detected default, not the INR it was built with");
+  assert.equal(env.root.querySelector(".currency-select").value, "EUR",
+    "the header picker shows the detected default");
   assert.match(env.root.querySelector(".toy-price").textContent, /€/,
     "and the landing-page toy repaints in the same currency — no hard-coded rupee");
 
@@ -1308,9 +1311,8 @@ test("every API-key field links to where the key is issued", async () => {
   // single game, PlatPrices without one prices nothing on PlayStation.
   assert.ok(!card.textContent.includes("Optional extras"),
     "no optional-extras bin");
-  assert.deepEqual(
-    card.querySelectorAll(".key-group-title").map((t) => t.textContent),
-    ["Keys", "Display"], "functional keys share the main group");
+  assert.equal(card.querySelectorAll(".key-group-title").length, 0,
+    "no column headings: the card's own title says what they are");
 });
 
 test("the keys card only says optional when the server really carries a key", async () => {

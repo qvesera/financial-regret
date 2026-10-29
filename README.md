@@ -12,7 +12,7 @@ A browser-based dashboard that shows how much you have spent on games versus how
 - **Verdict engine** — every game is judged against *your own* library's price-per-hour quartiles (worth it / fair / regret / untouched), so the thresholds follow how you spend rather than a hardcoded number. It surfaces as a box plot of the distribution, a badge on every row and card, and a plain-language explanation in the game inspector
 - **What-if slider** — replay any regrettable purchase at 1–60 hours and watch its rate and verdict change
 - **Faceted browsing** — filter by play status, platform or verdict, sort, and switch between the list and the cover-art grid; your filters survive a reload
-- **Selectable currency** — pick a display currency (INR, USD, EUR, …) from the dashboard or keys card; prices are re-fetched from IsThereAnyDeal in that currency's store region and re-labelled
+- **Selectable currency** — one display-currency picker in the header (INR, USD, EUR, …), defaulted from your region when the edge reports it; prices are re-fetched from IsThereAnyDeal in that currency's store region and re-labelled
 - **Big libraries** — Epic's catalog is fetched page by page with live progress, so huge accounts never hang a single request
 - **Non-game filtering** — DLC, soundtracks, Unreal Engine builds, and Epic store content for UE (Fab/marketplace plugins, Megascans, projects) are excluded — only real games are listed
 - **In-browser only** — tokens stay in your browser localStorage; no server-side user data
