@@ -16,8 +16,11 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
-API_DIR = ROOT / "api"
+API_DIR = ROOT / "backend"
 sys.path.insert(0, str(API_DIR))
+# api/index.py is the single serverless entry point, so it must be importable
+# alongside the modules it dispatches to.
+sys.path.insert(0, str(ROOT / "api"))
 
 import config as config_mod
 import health as health_mod
@@ -106,6 +109,53 @@ class TestVercelContract(unittest.TestCase):
         # file path, and server.py routes on the first path segment.
         for name in ("health", "config", "prices", "psn_prices", "steam_games"):
             self.assertTrue((API_DIR / f"{name}.py").is_file(), name)
+
+
+class TestIndexDispatch(unittest.TestCase):
+    """api/index.py stands in for the local server's routing on a Hobby plan."""
+
+    @staticmethod
+    def _dispatch(path, method="do_GET", body=b""):
+        # Call _dispatch unbound against the stub rather than instantiating the
+        # handler: BaseHTTPRequestHandler.__init__ wants a socket, and its
+        # send_response() needs the buffers __init__ builds. The stub satisfies
+        # everything _dispatch and the endpoint modules actually touch.
+        import index
+        h = StubHandler()
+        h.path = path
+        h.command = method[3:]
+        h.requestline = f"{h.command} {path} HTTP/1.1"
+        h.rfile = io.BytesIO(body)
+        index.handler._dispatch(h, method)
+        return h.status, json.loads(h.wfile.getvalue().decode() or "{}")
+
+    def test_routes_by_first_path_segment(self):
+        status, body = self._dispatch("/api/health")
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+
+    def test_query_string_is_not_part_of_the_route_name(self):
+        status, _ = self._dispatch("/api/health?openid.mode=id_res")
+        self.assertEqual(status, 200)
+
+    def test_unknown_route_is_a_json_404(self):
+        status, body = self._dispatch("/api/nope")
+        self.assertEqual(status, 404)
+        self.assertIn("'nope'", body["error"])
+
+    def test_wrong_method_is_405(self):
+        status, body = self._dispatch("/api/health", method="do_POST")
+        self.assertEqual(status, 405)
+        self.assertEqual(body["error"], "Method not allowed")
+
+    def test_a_module_is_loaded_once_and_reused(self):
+        # Warm instances must share module state, which is the main benefit of
+        # collapsing to one function.
+        import index
+        index._LOADED.clear()
+        self._dispatch("/api/config")
+        self._dispatch("/api/config")
+        self.assertEqual(len(index._LOADED), 1)
 
 
 if __name__ == "__main__":

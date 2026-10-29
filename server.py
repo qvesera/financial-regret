@@ -34,7 +34,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC_DIR = ROOT / "public"
-API_DIR = ROOT / "api"
+API_DIR = ROOT / "backend"
 
 try:
     from dotenv import load_dotenv

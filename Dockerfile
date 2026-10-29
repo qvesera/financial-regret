@@ -6,12 +6,12 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Python deps
-COPY api/requirements.txt requirements-dev.txt ./
+COPY backend/requirements.txt requirements-dev.txt ./
 RUN pip install --no-cache-dir -r api/requirements.txt -r requirements-dev.txt
 
 # App
 COPY server.py ./ 
-COPY api/ ./api/
+COPY backend/ ./backend/
 COPY public/ ./public/
 
 ENV PORT=8080

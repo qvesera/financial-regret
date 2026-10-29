@@ -3,7 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "api"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 from prices import _normalise_title  # noqa: E402
 from psn_games import iso8601_to_hours  # noqa: E402
