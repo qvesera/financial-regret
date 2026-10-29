@@ -6,6 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installEnv } from "./dom-stub.mjs";
+import { encodeCard } from "../../public/js/export.js";
 
 const settle = async () => { for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0)); };
 
@@ -1453,4 +1454,72 @@ test("the demo asks the store for the hero's real regional price", async () => {
   assert.equal(mod.getState().currency, "USD", "the region picked the currency first");
   assert.equal(env.root.querySelector(".toy-price").textContent, "$14.99",
     "the store's US price, not an FX conversion of India's list price");
+});
+
+test("the Export button ships with the dashboard and opens the deck", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  const exportBtn = env.root.querySelectorAll("button")
+    .find((b) => b.dataset.action === "export");
+  assert.ok(exportBtn, "the dashboard offers exports");
+  exportBtn.dispatch("click");
+  await settle();
+
+  const drawer = env.root.querySelector(".drawer");
+  assert.equal(drawer.classList.contains("hidden"), false,
+    "the deck opens in the drawer the game inspector already uses");
+  assert.equal(env.document.getElementById("drawer-title").textContent, "Export a card");
+  const chips = env.root.querySelector(".export-chips").children.map((c) => c.textContent);
+  assert.deepEqual(chips,
+    ["Wrapped", "Hall of shame", "Best value", "Idle purchases",
+     "Untouched", "No benchmark", "This view"],
+    "one chip per card this library can fill");
+  const canvas = env.document.getElementById("export-canvas");
+  assert.ok(canvas, "a live preview sits in the drawer");
+  assert.equal(canvas.width, 1080);
+
+  // No clipboard in the stub, so the link itself is shown — still useful.
+  const copy = env.root.querySelectorAll("button")
+    .find((b) => b.dataset.action === "export-copy");
+  copy.dispatch("click");
+  await settle();
+  assert.match(env.root.querySelector(".export-status").textContent, /#card=/,
+    "Copy link surfaces a URL that opens this exact card");
+});
+
+test("the Export button waits for a library", async () => {
+  const { env } = await boot();
+  await settle();
+  const btn = env.root.querySelectorAll("button")
+    .find((b) => b.dataset.action === "export");
+  assert.ok(btn && btn.hidden === true, "nothing to export before a scan");
+});
+
+test("a shared card link shows the snapshot, not a signup wall", async () => {
+  const payload = {
+    v: 1, kind: "wrapped", title: "WRAPPED", src: "friend.example", at: Date.now(),
+    eyebrow: "YOUR LIBRARY, JUDGED", badge: "12 GAMES", stats: [], rows: [], footnote: "",
+  };
+  const { env, mod } = await boot({ seed: (e) => {
+    e.window.location.hash = `#card=${encodeCard(payload)}`;
+  } });
+  await settle();
+
+  assert.equal(mod.getState().phase, "shared", "the link decides the phase");
+  assert.ok(env.root.querySelector(".shared-card"), "the card lands full size");
+  assert.ok(env.root.querySelector(".shared-note").textContent.includes("friend.example"),
+    "and says who made it");
+  assert.ok(env.document.getElementById("shared-canvas"), "the snapshot is drawn, not described");
+  const makeOwn = env.root.querySelectorAll("button")
+    .find((b) => b.dataset.action === "make-own");
+  assert.ok(makeOwn, "the way in is offered");
+  assert.equal(env.root.querySelector(".export-preview"), null,
+    "no app chrome on a shared card");
+
+  makeOwn.dispatch("click");
+  await settle();
+  assert.equal(mod.getState().phase, "onboarding",
+    "Make your own returns to the landing page, hash or not");
+  assert.equal(env.root.querySelector(".shared-card"), null, "the shared card leaves");
 });

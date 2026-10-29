@@ -907,6 +907,41 @@ td.cell-platform { white-space: nowrap; }
 .drawer-title { margin: 0 0 0.75rem; font-size: 1.15rem; }
 .drawer-meta { color: var(--muted); font-size: 0.85rem; margin: 0 0 1rem; }
 
+/* ---- card exports (drawer) and the shared-card landing ---- */
+.export-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: var(--space-4); }
+.export-preview {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 4 / 5;
+  margin: 0 auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.export-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: var(--space-4); }
+.export-status {
+  min-height: 1.2em;
+  margin-top: var(--space-2);
+  font-size: 0.78rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+.shared-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+.shared-card canvas {
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 4 / 5;
+  border: 1px solid var(--border);
+}
+.shared-note { color: var(--muted); margin: 0; max-width: 46ch; }
+
 /* ---------- responsive ---------- */
 
 @media (max-width: 900px) {

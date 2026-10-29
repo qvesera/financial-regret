@@ -11,6 +11,7 @@ import { view } from "./view.js";
 import { computeRegret } from "./regret.js";
 import { currencyForCountry } from "./format.js";
 import { paintVerdictToy, repaintVerdictToy, setToyAnchor, TOY_GAME } from "./arcade.js";
+import { cardSpec, cardBlob, renderCardTo, shareUrl, decodeCard, exportKinds } from "./export.js";
 import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
 
 /** UI state worth keeping across reloads — filters and the what-if setting.
@@ -77,6 +78,10 @@ let state = {
   search: "",
   scanning: false,
   openId: null,
+  // Card exports: which deck the export drawer is showing, and — on a
+  // #card= link — the snapshot another visitor shared.
+  exportKind: "wrapped",
+  sharedSpec: null,
   // derived: filled in by renderAll before anything reads them
   bench: { samples: 0, p25: null, p50: null, p75: null, p90: null, max: null },
   verdicts: new Map(),
@@ -662,6 +667,106 @@ function closeDrawer() {
   lastFocus = null;
 }
 
+// ---------- card exports ----------
+
+function currentExportSpec() {
+  return cardSpec(state, state.exportKind || "wrapped");
+}
+
+/** The drawer's preview is painted through the same path as the export, so
+ *  the file you get is the picture you saw. */
+async function repaintExportPreview() {
+  const cv = document.getElementById("export-canvas");
+  if (!cv) return;
+  const spec = currentExportSpec();
+  if (!spec) { view.exportStatus("Nothing to export in this view."); return; }
+  await renderCardTo(cv, spec);
+}
+
+function openExporter() {
+  if (!state.games.length) return;
+  // The chosen kind can outlive the view that filled it (a facet cleared, a
+  // store unlinked) — fall back to the card that is always available.
+  const kinds = exportKinds(state);
+  if (!kinds.includes(state.exportKind)) state.exportKind = "wrapped";
+  lastFocus = document.activeElement && document.activeElement.focus
+    ? document.activeElement : null;
+  view.renderExporter(state);
+  view.drawer.classList.remove("hidden");
+  repaintExportPreview();
+  const close = document.getElementById("drawer-close");
+  if (close && typeof close.focus === "function") close.focus();
+}
+
+function downloadBlob(blob, name) {
+  const a = document.createElement("a");
+  const url = (typeof URL !== "undefined" && URL.createObjectURL && blob)
+    ? URL.createObjectURL(blob) : null;
+  a.href = url || "#";
+  a.download = name;
+  document.body.appendChild(a);
+  if (typeof a.click === "function") a.click();
+  else if (typeof a.dispatch === "function") a.dispatch("click");
+  if (url && typeof URL !== "undefined" && URL.revokeObjectURL) URL.revokeObjectURL(url);
+}
+
+const exportFileName = (spec) => `regret-${String(spec.kind || "card").replace(/:/g, "-")}.png`;
+
+async function downloadExport() {
+  const spec = currentExportSpec();
+  if (!spec) return view.exportStatus("Nothing to export in this view.");
+  const blob = await cardBlob(spec);
+  if (!blob) return view.exportStatus("This browser cannot render the card.");
+  downloadBlob(blob, exportFileName(spec));
+  view.exportStatus("PNG saved.");
+}
+
+async function shareExport() {
+  const spec = currentExportSpec();
+  if (!spec) return view.exportStatus("Nothing to export in this view.");
+  const blob = await cardBlob(spec);
+  if (!blob) return view.exportStatus("This browser cannot render the card.");
+  const nav = typeof navigator !== "undefined" ? navigator : {};
+  const file = typeof File !== "undefined"
+    ? new File([blob], exportFileName(spec), { type: "image/png" }) : null;
+  if (file && typeof nav.canShare === "function" && nav.canShare({ files: [file] })) {
+    try {
+      await nav.share({ files: [file], title: spec.title, text: "My library, judged." });
+      view.exportStatus("Shared.");
+      return;
+    } catch { /* dismissed: fall through to a download */ }
+  }
+  downloadBlob(blob, exportFileName(spec));
+  view.exportStatus("No share sheet here — the PNG was saved instead.");
+}
+
+async function copyExportLink() {
+  const spec = currentExportSpec();
+  if (!spec) return view.exportStatus("Nothing to export in this view.");
+  const url = shareUrl(spec);
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard
+        && typeof navigator.clipboard.writeText === "function") {
+      await navigator.clipboard.writeText(url);
+      view.exportStatus("Link copied — it opens this exact card for anyone.");
+      return;
+    }
+  } catch { /* clipboard refused: show the link so it can be copied by hand */ }
+  view.exportStatus(url);
+}
+
+function makeYourOwn() {
+  state.sharedSpec = null;
+  state.phase = anyLinked(state.accounts) ? "ready" : "onboarding";
+  try {
+    if (typeof history !== "undefined" && history.replaceState) {
+      history.replaceState(null, "", window.location.pathname || "/");
+    }
+  } catch { /* the hash stays until the next navigation; harmless */ }
+  renderAll();
+  if (state.phase === "ready" && !state.games.length) scan();
+}
+
 let lastFocus = null;
 
 function forget() {
@@ -771,6 +876,16 @@ function onClick(e) {
       break;
     case "open": openDrawer(t.dataset.id); break;
     case "close-drawer": closeDrawer(); break;
+    case "export": openExporter(); break;
+    case "export-kind":
+      state.exportKind = t.dataset.kind || "wrapped";
+      view.renderExporter(state);
+      repaintExportPreview();
+      break;
+    case "export-download": downloadExport(); break;
+    case "export-share": shareExport(); break;
+    case "export-copy": copyExportLink(); break;
+    case "make-own": makeYourOwn(); break;
     case "toggle-menu":
       if (view.menu) view.menu.classList.toggle("hidden");
       break;
@@ -931,10 +1046,24 @@ export async function boot() {
     state.games = snap.games || [];
     state.prices = snap.prices || {};
   }
-  state.phase = anyLinked(state.accounts) ? "ready" : "onboarding";
+  // A shared card link (#card=…) renders the snapshot it carries, before the
+  // visitor is asked for anything. A malformed payload boots normally — a
+  // link must never be able to break the app.
+  const hash = (window.location && window.location.hash) || "";
+  const shared = hash.includes("card=") ? decodeCard(hash) : null;
+  if (shared) {
+    state.sharedSpec = shared;
+    state.phase = "shared";
+  } else {
+    state.phase = anyLinked(state.accounts) ? "ready" : "onboarding";
+  }
   wire(root);
   wireCrossWindow();
   renderAll();
+  if (state.phase === "shared" && state.sharedSpec) {
+    const cv = document.getElementById("shared-canvas");
+    if (cv) renderCardTo(cv, state.sharedSpec);
+  }
   // /api/config arrives after the first paint and decides two things: how the
   // keys card describes itself, and — when the visitor has never touched the
   // currency picker — which currency the first price fetch is denominated in.

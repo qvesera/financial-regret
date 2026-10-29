@@ -2,6 +2,7 @@
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
 import { TIER_LABEL, coverHue, headline as buildHeadline, whatIf } from "./verdict.js";
 import { renderVerdictToy, repaintVerdictToy } from "./arcade.js";
+import { CARD_W, CARD_H, exportKinds, kindLabel } from "./export.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -362,8 +363,14 @@ export const view = {
     menuBtn.setAttribute("aria-label", "Menu");
     menuBtn.setAttribute("aria-haspopup", "true");
     menuBtn.appendChild(icon("dots", 18));
+    // The Wrapped-style export deck. Ready-phase only, like Scan: there is
+    // nothing to export until a library exists.
+    const exportBtn = this.el("button", "button ghost", "Export");
+    exportBtn.type = "button";
+    exportBtn.dataset.action = "export";
     actions.appendChild(scanBtn);
     actions.appendChild(keysBtn);
+    actions.appendChild(exportBtn);
     actions.appendChild(menuBtn);
 
     right.appendChild(sources);
@@ -435,7 +442,7 @@ export const view = {
     main.appendChild(drawer);
     root.appendChild(main);
 
-    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, menuBtn, menu, phaseEl, drawer, drawerBody, footer, attribution, psnNote });
+    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, exportBtn, menuBtn, menu, phaseEl, drawer, drawerTitle, drawerBody, footer, attribution, psnNote });
     this._builtPhase = null;
     return this;
   },
@@ -1027,9 +1034,12 @@ export const view = {
     // this is how a geo-detected default reaches a page already built.
     if (this.currencySelect) this.currencySelect.value = this.currency;
     this.renderSources(state);
-    const showChrome = state.phase !== "onboarding";
+    // Shared-card links are a landing of their own: the visitor came for one
+    // picture, so none of the app chrome (or its buttons) comes along.
+    const showChrome = state.phase === "ready" || state.phase === "loading";
     this.sources.hidden = !showChrome;
     this.scanBtn.hidden = !showChrome;
+    if (this.exportBtn) this.exportBtn.hidden = !showChrome;
     // On onboarding the keys card is already on screen — a second shortcut
     // to it in the header would just be noise.
     if (this.keysBtn) this.keysBtn.hidden = !showChrome;
@@ -1038,6 +1048,15 @@ export const view = {
     // card in place here — the onboarding branch below is one-shot by design
     // (a rebuild would discard half-typed paste fields).
     this.updateKeysCard(state);
+
+    if (state.phase === "shared") {
+      if (this._builtPhase !== "shared") {
+        this.phaseEl.textContent = "";
+        this.phaseEl.appendChild(this.renderShared(state));
+        this._builtPhase = "shared";
+      }
+      return;
+    }
 
     if (state.phase === "onboarding") {
       if (this._builtPhase !== "onboarding") {
@@ -1456,6 +1475,69 @@ export const view = {
     }
   },
 
+  /** A card someone else shared: their snapshot, full size, and the way to
+   *  make your own. Built once — the canvas is painted by app.js, because
+   *  the painter is async (it waits for the arcade font). */
+  renderShared(state) {
+    const spec = state.sharedSpec || {};
+    const wrap = this.el("section", "shared-card");
+    wrap.appendChild(this.el("h1", "hero-title", "₹egret, shared"));
+    wrap.appendChild(this.el("p", "shared-note",
+      `${spec.src || "Someone"} made this card`
+      + `${spec.at ? ` on ${new Date(spec.at).toISOString().slice(0, 10)}` : ""}.`));
+    const cv = this.el("canvas");
+    cv.id = "shared-canvas";
+    cv.width = CARD_W;
+    cv.height = CARD_H;
+    cv.setAttribute("aria-label", spec.title || "shared card");
+    wrap.appendChild(cv);
+    const cta = this.el("button", "button primary", "Make your own");
+    cta.type = "button";
+    cta.dataset.action = "make-own";
+    wrap.appendChild(cta);
+    wrap.appendChild(this.el("p", "shared-note",
+      "Link a store and your library gets the same treatment."));
+    return wrap;
+  },
+
+  /** The export drawer: kind chips, a live preview, and three ways out. */
+  renderExporter(state) {
+    if (this.drawerTitle) this.drawerTitle.textContent = "Export a card";
+    const body = this.drawerBody;
+    body.textContent = "";
+    const chips = this.el("div", "export-chips");
+    const active = state.exportKind || "wrapped";
+    for (const kind of exportKinds(state)) {
+      const b = this.el("button", "tab", kindLabel(kind));
+      b.type = "button";
+      b.dataset.action = "export-kind";
+      b.dataset.kind = kind;
+      if (kind === active) b.classList.add("active");
+      chips.appendChild(b);
+    }
+    body.appendChild(chips);
+    const cv = this.el("canvas", "export-preview");
+    cv.id = "export-canvas";
+    cv.width = CARD_W;
+    cv.height = CARD_H;
+    body.appendChild(cv);
+    const acts = this.el("div", "export-actions");
+    [["export-download", "Download PNG"], ["export-share", "Share…"], ["export-copy", "Copy link"]]
+      .forEach(([action, label]) => {
+        const b = this.el("button", "button ghost", label);
+        b.type = "button";
+        b.dataset.action = action;
+        acts.appendChild(b);
+      });
+    body.appendChild(acts);
+    body.appendChild(this.el("p", "export-status"));
+  },
+
+  exportStatus(text) {
+    const box = this.drawerBody && this.drawerBody.querySelector(".export-status");
+    if (box) box.textContent = text;
+  },
+
   updateTierFacets(state) {
     if (!this.tierFacets) return;
     const v = state.verdicts || new Map();
@@ -1687,6 +1769,8 @@ export const view = {
   },
 
   renderDrawer(drawerBody, game, price, state) {
+    // The drawer is shared with the exporter; restore the game title.
+    if (this.drawerTitle) this.drawerTitle.textContent = "Game details";
     if (!drawerBody) return;
     drawerBody.textContent = "";
     const cur = (state && state.currency) || this.currency;
