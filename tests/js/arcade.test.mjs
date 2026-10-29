@@ -87,3 +87,22 @@ test("the frame at 0h explains itself instead of showing a blank rate", () => {
   assert.match(note.textContent, /never opened/);
   assert.equal(toy.querySelector("#toy-rate").textContent, "—");
 });
+
+test("the demo cartridge ships with its cover and price baked in", () => {
+  // Hollow Shard is fictional: no store page exists to fetch art or a price
+  // from, and the toy's pitch is "no sign-up, no key" — a live lookup would
+  // break both promises. So both ship with the page, and an empty frame plus
+  // a blank figure is exactly what a visitor cannot read.
+  assert.match(TOY_GAME.cover, /^covers\//, "the cover ships beside the page");
+  assert.ok(TOY_GAME.price > 0, "the price is baked, not left blank");
+
+  installEnv();
+  const toy = renderVerdictToy();
+  const cover = toy.querySelector(".toy-cover");
+  assert.ok(cover, "cover art renders in the card");
+  assert.equal(cover.src, TOY_GAME.cover);
+  assert.equal(cover.alt, "",
+    "decorative: the game's name is already the heading beside it");
+  assert.equal(toy.querySelector(".toy-price").textContent, "₹1,299",
+    "the figure the verdict arithmetic actually uses, not a placeholder");
+});

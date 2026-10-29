@@ -1132,6 +1132,29 @@ test("the headline's chip rides at the end of the sentence, not on its own row",
     "the sentence still renders through the inner span");
 });
 
+test("every API-key field links to where the key is issued", async () => {
+  const { env } = await boot();          // no stores linked: onboarding view
+  await settle();
+
+  const card = env.root.querySelector(".api-keys");
+  assert.ok(card, "the keys card renders on the landing page");
+  assert.equal(card.querySelectorAll(".key-field").length, 4,
+    "IsThereAnyDeal, Steam Web, SteamGridDB and PlatPrices");
+
+  const links = card.querySelectorAll(".key-link");
+  assert.equal(links.length, 4, "each field says where to get its key");
+  const hrefs = links.map((l) => l.href).join(" ");
+  for (const url of ["https://isthereanydeal.com/apps/",
+                     "https://steamcommunity.com/dev/apikey",
+                     "https://steamgriddb.com/profile/preferences/api",
+                     "https://platprices.com/api-request"]) {
+    assert.ok(hrefs.includes(url), `${url} is linked`);
+  }
+  assert.ok(links.every((l) => l.target === "_blank"
+    && (l.rel || "").includes("noopener")),
+    "external links open a new tab without handing it the opener");
+});
+
 test("the explanations still describe the actual maths", async () => {
   const { env } = await boot({ seed: withSteam });
   await settle();

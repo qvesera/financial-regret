@@ -44,10 +44,13 @@
   --space-6: 32px;
   --space-7: 48px;
 
-  --radius-sm: 6px;
-  --radius: 10px;
-  --radius-lg: 14px;
-  --shadow: 0 4px 12px -4px rgba(0,0,0,0.4);
+  /* Square everywhere: the arcade skin has no soft corners, and the token
+     triple keeps future rules from quietly reintroducing them. */
+  --radius-sm: 0px;
+  --radius: 0px;
+  --radius-lg: 0px;
+  /* Hard pixel offset, not a soft blur: a cabinet has edges, not ambience. */
+  --shadow: 3px 3px 0 0 rgba(0, 0, 0, 0.5);
 
   /* motion: hover → settle → sheet, all inside the 150-300ms band */
   --dur-fast: 140ms;
@@ -68,6 +71,19 @@
    flex — outranks it and the element stays on screen. One global override so
    the view toggle can hide the list or the grid again. */
 [hidden] { display: none !important; }
+
+/* The CRT wash, fixed to the viewport so it reaches all four edges. When it
+   lived on .onboarding it stopped at that column's boundary and read as a
+   texture sticker; a CRT's scanlines are the screen, not the furniture. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom,
+    rgba(0, 0, 0, 0.13) 0 1px, transparent 1px 4px);
+}
 
 @media (prefers-color-scheme: light) {
   :root {
@@ -116,7 +132,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* One family for the whole product: the terminal mono. Paragraphs stay in
+     the system mono rather than the pixel face — Press Start 2P past a few
+     words is a legibility problem, and the arcade is carried by shape, colour
+     and the marquee, not by forcing prose through an 8-bit grid. */
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+               "Liberation Mono", monospace;
   line-height: 1.5;
   /* No webfont: the CSP is style-src 'self' with no font-src allowance, and a
      third-party font would mean loosening it. Tabular figures give the numbers
@@ -202,7 +223,7 @@ button { cursor: pointer; font-family: inherit; }
 .platform-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
@@ -225,7 +246,7 @@ button { cursor: pointer; font-family: inherit; }
   letter-spacing: 0.06em;
   color: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 0;
   padding: 0.15rem 0.5rem;
 }
 
@@ -277,7 +298,7 @@ button { cursor: pointer; font-family: inherit; }
   padding: 0.45rem 0.6rem;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--text);
   font-size: 0.85rem;
 }
@@ -306,7 +327,7 @@ button { cursor: pointer; font-family: inherit; }
   padding: 0.35rem 0.7rem;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 0.82rem;
 }
 
@@ -358,7 +379,7 @@ button { cursor: pointer; font-family: inherit; }
   background: var(--accent);
   color: #0d1512;
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   font-weight: 600;
   font-size: 0.95rem;
   text-decoration: none;
@@ -411,7 +432,7 @@ button { cursor: pointer; font-family: inherit; }
   padding: 0.35rem 0.75rem;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--muted);
   font-size: 0.85rem;
   cursor: pointer;
@@ -448,7 +469,7 @@ input.search {
   padding: 0.4rem 0.75rem;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--text);
   font-size: 0.9rem;
 }
@@ -456,7 +477,7 @@ select.sort {
   padding: 0.4rem 0.75rem;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--text);
   font-size: 0.85rem;
 }
@@ -469,7 +490,7 @@ select.sort {
   padding: 0.35rem 0.75rem;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--muted);
   font-size: 0.85rem;
   cursor: pointer;
@@ -580,7 +601,7 @@ tr.game-row:hover { background: var(--surface-2); }
   padding: 0.25rem 0.4rem;
   background: none;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--muted);
   font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
@@ -620,7 +641,7 @@ tr.game-row:hover { background: var(--surface-2); }
   gap: 0.5rem;
   font-size: 0.85rem;
 }
-.platform-swatch { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.platform-swatch { width: 10px; height: 10px; border-radius: 0; flex: 0 0 auto; }
 .platform-name { flex: 1; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .platform-value { font-variant-numeric: tabular-nums; }
 .platform-legend .platform-row { cursor: pointer; }
@@ -749,7 +770,7 @@ tr.game-row:hover { background: var(--surface-2); }
   padding: 0.4rem 0.6rem;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--text);
   font-size: 0.85rem;
 }
@@ -769,7 +790,7 @@ tr.game-row:hover { background: var(--surface-2); }
 .skeleton {
   display: block;
   height: 12px;
-  border-radius: 4px;
+  border-radius: 0;
   background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.4s ease-in-out infinite;
@@ -821,7 +842,7 @@ tr.game-row:hover { background: var(--surface-2); }
   background: none;
   border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 6px;
+  border-radius: 0;
   padding: 0.3rem 0.6rem;
   font-size: 0.85rem;
 }
@@ -870,7 +891,7 @@ td.cell-platform { white-space: nowrap; }
 .dot {
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--muted);
   display: inline-block;
 }
@@ -936,7 +957,7 @@ td.cell-platform { white-space: nowrap; }
   padding: 0.5rem 0.65rem;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--text);
   font-size: 0.875rem;
   font-family: inherit;
@@ -950,6 +971,16 @@ td.cell-platform { white-space: nowrap; }
    buttons in an optional card pulled all the attention off the dashboard. */
 .key-row .button { flex: none; }
 .key-hint { font-size: 0.78rem; color: var(--muted); margin: 0; }
+/* Where to actually get the key — the field is useless without the door. */
+.key-link {
+  display: inline-block;
+  margin-top: 0.3rem;
+  color: var(--accent);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.key-link:hover { color: var(--text); }
 
 /* Display-currency picker (keys card): label stacked above the select. */
 .currency-field {
@@ -987,16 +1018,6 @@ td.cell-platform { white-space: nowrap; }
   display: flex;
   flex-direction: column;
   position: relative;
-}
-/* One accent beat: a gradient rule riding the card's top edge — accent →
-   info → warn, the same three hues that carry meaning elsewhere. */
-.hero::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 2px;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  background: linear-gradient(90deg, var(--accent), var(--info) 55%, var(--warn));
 }
 
 .micro {
@@ -1049,14 +1070,6 @@ td.cell-platform { white-space: nowrap; }
   margin-top: var(--space-5);
   padding-top: var(--space-5);
   position: relative;
-}
-.kpi-grid::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 1px;
-  background: linear-gradient(90deg, var(--accent), transparent 55%);
-  opacity: 0.6;
 }
 .kpi-grid .kpi-card {
   border: 0;
@@ -1198,7 +1211,7 @@ td.cell-platform { white-space: nowrap; }
   padding: var(--space-1) var(--space-3);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 0;
   color: var(--muted);
   font-size: 0.8125rem;
   transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
@@ -1213,7 +1226,7 @@ td.cell-platform { white-space: nowrap; }
 .tier-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--muted);
   flex: 0 0 auto;
 }
@@ -1231,7 +1244,7 @@ td.cell-platform { white-space: nowrap; }
 .badge {
   display: inline-block;
   padding: 1px var(--space-2);
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -1323,13 +1336,13 @@ td.cell-platform { white-space: nowrap; }
   position: relative;
   display: block;
   height: 4px;
-  border-radius: 2px;
+  border-radius: 0;
   background: var(--border);
 }
 .band-fill {
   position: absolute;
   inset: 0 auto 0 0;
-  border-radius: 2px;
+  border-radius: 0;
   background: var(--muted);
   opacity: 0.5;
 }
@@ -1338,7 +1351,7 @@ td.cell-platform { white-space: nowrap; }
   top: 50%;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--accent);
   border: 1px solid var(--surface);
   transform: translate(-50%, -50%);
@@ -1479,12 +1492,9 @@ td.cell-platform { white-space: nowrap; }
      Self-hosted because style-src 'self' forbids any CDN font. */
 }
 
-.onboarding {
-  position: relative;
-  background-image:
-    radial-gradient(75% 40% at 50% 0%, rgba(110, 231, 183, 0.13), transparent 65%),
-    repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.20) 0 1px, transparent 1px 4px);
-}
+/* Scanlines and the green radial moved out: the wash is body::after now, and
+   glow belonged to the old mixed skin. */
+.onboarding { position: relative; }
 
 /* The marquee. Pixel face only here and on the HUD labels — body copy stays in
    the system stack, because a pixel font at paragraph length is a legibility
@@ -1500,7 +1510,7 @@ td.cell-platform { white-space: nowrap; }
   padding: 0.85rem 1rem;
   margin-bottom: 0.9rem;
   border: 3px solid var(--accent);
-  border-radius: 4px;
+  border-radius: 0;
   background: var(--tier-worth-tint);
   box-shadow: 0 0 0 3px var(--bg), 0 0 22px -6px var(--accent),
               inset 0 0 20px -12px var(--accent);
@@ -1550,7 +1560,7 @@ td.cell-platform { white-space: nowrap; }
 .onboarding .button.primary::before { content: "\25B6\00a0"; color: var(--accent); }
 .onboarding .button.primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 5px 0 0 var(--border), 0 0 18px -5px var(--accent);
+  box-shadow: 0 5px 0 0 var(--border);
 }
 .onboarding .button.primary:active {
   transform: translateY(1px);
@@ -1561,8 +1571,10 @@ td.cell-platform { white-space: nowrap; }
    position in the grid and its steps, because the tests count them. */
 .onboarding .platform-card {
   position: relative;
-  background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 60%);
-  border-top: 3px solid var(--accent);
+  background: var(--surface);
+  /* One skin for every cartridge. The green top rule was decoration wearing
+     a state colour: the power LED already says what is connected. */
+  border-top: 3px solid var(--border);
   box-shadow: 0 5px 0 -2px var(--border);
   transition: transform var(--dur) var(--ease),
               box-shadow var(--dur) var(--ease),
@@ -1570,7 +1582,8 @@ td.cell-platform { white-space: nowrap; }
 }
 
 /* Power LED. Decorative: it carries no state, so nothing is lost when the
-   reduced-motion block or a forced-colours mode flattens it. */
+   reduced-motion block or a forced-colours mode flattens it. Square and
+   unlit-glow: one skin, no halos. */
 .onboarding .platform-card::before {
   content: "";
   position: absolute;
@@ -1578,13 +1591,10 @@ td.cell-platform { white-space: nowrap; }
   right: 0.95rem;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
   background: var(--tier-untouched);
-  box-shadow: 0 0 6px var(--tier-untouched);
 }
 .onboarding .platform-card.featured::before {
   background: var(--accent);
-  box-shadow: 0 0 10px var(--accent), 0 0 18px -6px var(--accent);
 }
 
 /* Connector teeth along the bottom edge — the cart is always drawn seated. */
@@ -1595,7 +1605,7 @@ td.cell-platform { white-space: nowrap; }
   right: 1.25rem;
   bottom: -1px;
   height: 5px;
-  border-radius: 0 0 3px 3px;
+  border-radius: 0;
   background: repeating-linear-gradient(90deg,
     var(--tier-worth-tint) 0 7px, transparent 7px 15px);
 }
@@ -1603,7 +1613,7 @@ td.cell-platform { white-space: nowrap; }
 .onboarding .platform-card:hover,
 .onboarding .platform-card:focus-within {
   transform: translateY(-4px);
-  box-shadow: 0 9px 0 -3px var(--border), 0 0 26px -10px var(--accent);
+  box-shadow: 0 9px 0 -3px var(--border);
 }
 .onboarding .platform-card.planned { border-top-color: var(--border); }
 .onboarding .platform-card.planned::before { box-shadow: none; opacity: 0.55; }
@@ -1618,22 +1628,13 @@ td.cell-platform { white-space: nowrap; }
 .toy-screen {
   position: relative;
   padding: var(--space-5);
-  border: 3px solid var(--accent);
-  border-radius: 6px;
+  /* Same skin as every other card. The neon frame and green wash read as
+     featured-loud, but prominence here comes from the marquee type and the
+     cover, not from a second colour system. */
+  border: 3px solid var(--border);
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(110, 231, 183, 0.10), transparent 58%),
-    var(--surface);
-  box-shadow: inset 0 0 40px -20px var(--accent), 0 0 26px -14px var(--accent);
-}
-
-/* Glass sheen across the tube. */
-.toy-screen::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(118deg, rgba(255, 255, 255, 0.07) 0 26%, transparent 44%);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
 .toy-kicker {
@@ -1653,6 +1654,18 @@ td.cell-platform { white-space: nowrap; }
   margin-bottom: var(--space-4);
 }
 
+/* Baked cover art for the demo cartridge, drawn at 8px chunks and scaled —
+   image-rendering keeps the pixels hard instead of smearing them. */
+.toy-cover {
+  width: 84px;
+  height: 84px;
+  flex: none;
+  border: 2px solid var(--border);
+  image-rendering: pixelated;
+}
+.toy-titles { flex: 1; min-width: 0; }
+.toy-price { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.85rem; }
+
 .toy-title {
   font-family: "Press Start 2P", ui-monospace, monospace;
   font-size: clamp(0.78rem, 2vw, 1rem);
@@ -1669,7 +1682,7 @@ td.cell-platform { white-space: nowrap; }
   letter-spacing: 0.04em;
   padding: 0.5rem 0.6rem;
   border: 2px solid currentColor;
-  border-radius: 4px;
+  border-radius: 0;
   animation: badge-pop 180ms var(--ease);
 }
 @keyframes badge-pop {
@@ -1689,7 +1702,6 @@ td.cell-platform { white-space: nowrap; }
   font-size: clamp(0.85rem, 3vw, 1.45rem);
   color: var(--accent);
   margin: 0;
-  text-shadow: 0 0 14px rgba(110, 231, 183, 0.45);
 }
 .toy-note { margin: 0; color: var(--muted); font-size: 0.85rem; }
 
@@ -1713,7 +1725,7 @@ td.cell-platform { white-space: nowrap; }
   width: 100%;
   height: 12px;
   border: 1px solid var(--border);
-  border-radius: 2px;
+  border-radius: 0;
   background: repeating-linear-gradient(90deg,
     rgba(255, 255, 255, 0.06) 0 10px, transparent 10px 20px);
   cursor: ew-resize;
@@ -1724,7 +1736,7 @@ td.cell-platform { white-space: nowrap; }
   width: 22px;
   height: 26px;
   border: 3px solid var(--bg);
-  border-radius: 3px;
+  border-radius: 0;
   background: var(--accent);
   box-shadow: 0 0 12px rgba(110, 231, 183, 0.75);
 }
@@ -1732,7 +1744,7 @@ td.cell-platform { white-space: nowrap; }
   width: 22px;
   height: 26px;
   border: 3px solid var(--bg);
-  border-radius: 3px;
+  border-radius: 0;
   background: var(--accent);
   box-shadow: 0 0 12px rgba(110, 231, 183, 0.75);
 }
@@ -1768,7 +1780,7 @@ td.cell-platform { white-space: nowrap; }
   margin-left: 0.4em;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--surface-2);
   color: var(--muted);
   font-size: 0.68rem;

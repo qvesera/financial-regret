@@ -450,7 +450,7 @@ export const view = {
   /** One bring-your-own-API-key row: visible label + masked input + Save.
    *  The label used to live only in the placeholder, which left the input
    *  unlabelled for screen readers and vanished the moment you typed. */
-  keyField(kind, label, hint) {
+  keyField(kind, label, hint, href) {
     const field = this.el("div", "key-field");
     const lab = this.el("label", "key-label", label);
     lab.htmlFor = `${kind}-key`;
@@ -471,6 +471,15 @@ export const view = {
     row.appendChild(btn);
     field.appendChild(row);
     field.appendChild(this.el("p", "key-hint", hint));
+    // The field is useless without the door: link to the page that issues the
+    // key, or every visitor has to go hunting with this form left open.
+    if (href) {
+      const link = this.el("a", "key-link", "Get a key ↗");
+      link.href = href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      field.appendChild(link);
+    }
     return field;
   },
 
@@ -619,15 +628,24 @@ export const view = {
     const pricing = this.el("div", "key-group");
     pricing.appendChild(this.el("h3", "key-group-title", "Pricing"));
     pricing.appendChild(this.keyField("itad", "IsThereAnyDeal API key",
-      "the one that matters — every price on the dashboard comes from it"));
+      "the one that matters — every price on the dashboard comes from it",
+      "https://isthereanydeal.com/apps/"));
     fields.appendChild(pricing);
 
     const extras = this.el("div", "key-group");
     extras.appendChild(this.el("h3", "key-group-title", "Optional extras"));
     extras.appendChild(this.keyField("steam", "Steam Web API key",
-      "only if the shared Steam key is rate-limited"));
+      "only if the shared Steam key is rate-limited",
+      "https://steamcommunity.com/dev/apikey"));
     extras.appendChild(this.keyField("sgdb", "SteamGridDB API key",
-      "cover art in the grid view"));
+      "cover art in the grid view",
+      "https://steamgriddb.com/profile/preferences/api"));
+    // The backend already honours a user-supplied PlatPrices key (psn_prices
+    // reads X-Platprices-Key before the server's own), so the field belongs
+    // here beside the other BYO keys rather than only in the PlayStation copy.
+    extras.appendChild(this.keyField("platprices", "PlatPrices API key",
+      "PlayStation prices when the shared server key is missing",
+      "https://platprices.com/api-request"));
     fields.appendChild(extras);
 
     const display = this.el("div", "key-group");

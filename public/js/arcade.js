@@ -33,7 +33,18 @@ export const TOY_SAMPLE = [
  *
  *  Prices are tuned so the range actually spans every verdict: with the sample
  *  quartiles as set, 60h lands inside p25 and reaches "Worth it". */
-export const TOY_GAME = { id: "toy-hero", name: "Hollow Shard", price: 1299, hours: 0 };
+export const TOY_GAME = {
+  id: "toy-hero",
+  name: "Hollow Shard",
+  price: 1299,
+  hours: 0,
+  // Baked, not fetched: Hollow Shard is a fictional SKU, so IsThereAnyDeal
+  // and SteamGridDB have nothing to return — and the toy's pitch is
+  // "no sign-up, no key", which a live lookup would break. The cover ships
+  // beside the page and the price sits in this constant; together they are
+  // the permanent cache of the two things the card used to show blank.
+  cover: "covers/hollow-shard.svg",
+};
 
 export const TOY_MIN = 0;
 export const TOY_MAX = 60;
@@ -71,7 +82,17 @@ export function renderVerdictToy() {
   screen.appendChild(el("p", "toy-kicker", "ATTRACT MODE"));
 
   const head = el("div", "toy-head");
-  head.appendChild(el("h2", "toy-title", TOY_GAME.name));
+  // The cover is decorative: the heading beside it already carries the name.
+  const cover = el("img", "toy-cover");
+  cover.src = TOY_GAME.cover;
+  cover.alt = "";
+  head.appendChild(cover);
+  const titles = el("div", "toy-titles");
+  titles.appendChild(el("h2", "toy-title", TOY_GAME.name));
+  // The price is part of the demo's arithmetic — it is what makes 0h read
+  // "Untouched" and 53h "Worth it" — so it is shown, not left implicit.
+  titles.appendChild(el("p", "toy-price", `₹${TOY_GAME.price.toLocaleString("en-IN")}`));
+  head.appendChild(titles);
   // Existing `badge badge-<tier>` convention: the tier colours are already
   // contrast-audited and re-themed by the light-theme block, so the toy gets
   // both for free instead of inventing a parallel palette.
