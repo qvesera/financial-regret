@@ -4,10 +4,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   cardSpec, encodeCard, decodeCard, shareUrl, drawCard, drawRupee, rupeeSvg,
-  exportKinds, kindLabel, pixelCapRatio, CARD_TOKENS, CARD_W, CARD_H,
+  exportKinds, kindLabel, pixelCapRatio, RUPEE_ASPECT, CARD_TOKENS, CARD_W, CARD_H,
 } from "../../public/js/export.js";
 import { benchmark, verdictMap, comparators } from "../../public/js/verdict.js";
 import { computeRegret } from "../../public/js/regret.js";
+
+// Path2D is a browser API, absent in node. A stub lets drawRupee exercise its
+// real code path — build the R, fill it even-odd — instead of degrading to a
+// bars-only no-op that would hide a regression in the mark itself.
+globalThis.Path2D = class { constructor(d) { this.d = d; } };
 
 // Six games covering every verdict: Hades is a regret (55.65/h), Celeste fair
 // (40/h), Disco Elysium worth it (20/h), Pocket F2P free, Cyberpunk and Elden
@@ -135,12 +140,19 @@ function fakeCtx() {
   const texts = [];
   const rects = [];
   const fonts = [];
+  const fills = [];
+  const translates = [];
+  const scales = [];
   const ctx = {
-    texts, rects, fonts,
+    texts, rects, fonts, fills, translates, scales,
     fillStyle: "", strokeStyle: "", lineWidth: 0, textAlign: "", font: "",
     fillRect: (...a) => rects.push(a),
     strokeRect: (...a) => rects.push(a),
     fillText: (t) => { texts.push(String(t)); fonts.push([String(t), ctx.font]); },
+    fill: (...a) => fills.push(a),
+    save() {}, restore() {},
+    translate: (...a) => translates.push(a),
+    scale: (...a) => scales.push(a),
     beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
     measureText: (t) => ({ width: String(t).length * 14 }),
   };
@@ -162,12 +174,9 @@ test("the painter draws the arcade card, scanlines and watermark and all", () =>
     `drawn in the pixel font, not mono: ${markFont && markFont[1]}`);
   assert.ok(!ctx.texts.includes("₹"),
     "the rupee is drawn, never typed — no font fallback anywhere");
-  const statBlocks = ctx.rects.filter((r) => r[2] === 5 && r[3] === 5);
-  assert.equal(statBlocks.length, 15,
-    "the stat's ₹ is fifteen pixel blocks (the '₹56/h' value)");
-  const markBlocks = ctx.rects.filter((r) => r[2] === 2 && r[3] === 2);
-  assert.equal(markBlocks.length, 15,
-    "and so is the watermark's, one block size down");
+  const rupeeFills = ctx.fills.filter(([, rule]) => rule === "evenodd");
+  assert.equal(rupeeFills.length, 2,
+    "the ₹ is drawn twice: the stat figure ('₹56/h') and the watermark");
   assert.ok(ctx.texts.includes("financial-regret.vercel.app"),
     "and names where to get it — the project home, not this hostname");
   const scanlines = ctx.rects.filter((r) => r[3] === 1);
@@ -177,27 +186,33 @@ test("the painter draws the arcade card, scanlines and watermark and all", () =>
     "the background covers the whole card");
 });
 
-test("the rupee glyph is hand-drawn pixel art — one grid, two surfaces", () => {
+test("the rupee mark is the hand-made vector — one glyph, two surfaces", () => {
   const ctx = fakeCtx();
-  drawRupee(ctx, 10, 70, 70, "#fff");   // size 70 → 10px blocks, top at 20
-  assert.equal(ctx.rects.length, 15, "fifteen blocks make the sign");
-  assert.ok(ctx.rects.every(([, , w, h]) => w === 10 && h === 10),
-    "square blocks, sized to the request — never fractional pixels");
-  assert.deepEqual(ctx.rects[0], [10, 20, 10, 10],
-    "baseline-aligned: the top bar starts at the top-left");
+  drawRupee(ctx, 10, 70, 70, "#fff");   // baseline 70, height 70 → top at 0
+  assert.deepEqual(ctx.translates[0], [10, 0],
+    "placed at x, its top on the baseline-minus-height");
+  assert.equal(ctx.fills.length, 1, "the R is one path fill");
+  assert.equal(ctx.fills[0][1], "evenodd",
+    "even-odd so the R's counter stays open");
+  assert.equal(ctx.rects.length, 2, "the two bars laid over the R");
+  assert.equal(ctx.scales.length, 1, "scaled from viewBox units to px");
   assert.equal(ctx.fillStyle, "#fff", "drawn in the caller's ink");
 
   const svg = rupeeSvg();
-  assert.ok(svg.includes('viewBox="0 0 5 5"'),
-    "the same 5×5 grid — one block per Press Start 2P design pixel");
-  assert.equal((svg.match(/<rect/g) || []).length, 15,
-    "the same fifteen blocks, as SVG for the DOM wordmark");
+  assert.ok(svg.includes('viewBox="0 0 51.460079 44.569721"'),
+    "the source viewBox — the glyph is wider than tall (the bars overhang)");
+  assert.ok(svg.includes('fill-rule="evenodd"'), "the R keeps its counter");
+  assert.ok(svg.includes("translate(-10.981945,-126.31401)"),
+    "the source group translate");
+  assert.equal((svg.match(/<rect/g) || []).length, 2, "the two bars, as SVG");
   assert.ok(svg.includes('aria-hidden="true"'),
     "decorative — the word beside it carries the name");
+  assert.ok(Math.abs(RUPEE_ASPECT - 51.460079 / 44.569721) < 1e-9,
+    "the aspect callers derive width from matches the source");
 });
 
 test("the DOM rupee is sized from the font's measured cap height", async () => {
   // Without a canvas (the test environment) the measured value degrades to
-  // the classic five-of-eight guess rather than throwing.
+  // the cap-height guess rather than throwing.
   assert.equal(await pixelCapRatio(), 0.625);
 });

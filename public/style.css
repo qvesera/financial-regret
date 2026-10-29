@@ -367,10 +367,9 @@ button { cursor: pointer; font-family: inherit; }
 
 .brand { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
 .brand h1 { font-size: 1.15rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; line-height: 1.1; }
-/* the ₹ of ₹egret — hand-drawn pixel art, because Press Start 2P ships no ₹
-   glyph (latin subset only) and the font fallback mid-word read as a glitch.
-   The same 5×7 grid as public/js/export.js's RUPEE: canvas rects on the
-   cards, this inline SVG in the DOM. */
+/* the ₹ of ₹egret — a hand-made vector mark (public/rupee glyph.svg), because
+   Press Start 2P ships no ₹ glyph (latin subset only) and the font fallback
+   mid-word read as a glitch. The same vector is drawn on the card canvas. */
 .brand-mark { color: var(--accent); }
 /* The wordmark is a button: bare reset so it reads as the text it wraps. */
 .brand-home {
@@ -384,14 +383,14 @@ button { cursor: pointer; font-family: inherit; }
   cursor: pointer;
 }
 .brand-home:hover .brand-mark { text-decoration: underline; text-underline-offset: 4px; }
-/* One block = one Press Start 2P design pixel (em/8); caps are five blocks,
-   so 0.625em square sits level with the letters beside it on the baseline. */
+/* The hand-made vector mark. Height is set to the letters' cap height in JS
+   (measured, not guessed); width follows the glyph's own aspect ratio. */
 .rupee-glyph {
   display: inline-block;
-  width: 0.625em;
-  height: 0.625em;
+  height: 0.625em;            /* cap-height fallback until JS measures */
+  aspect-ratio: 51.46 / 44.57;
   vertical-align: baseline;
-  margin-right: 0.125em;
+  margin-right: 0.1em;
 }
 .topbar-right {
   display: flex;

@@ -1491,17 +1491,18 @@ export const view = {
     const spec = state.sharedSpec || {};
     const wrap = this.el("section", "shared-card");
     // Built as spans, not one string: the pixel face has no ₹, and the
-    // header's split (mono symbol, pixel word) is what makes it look
-    // deliberate rather than broken.
+    // hand-made glyph is a vector that has to be sized to the letters
+    // beside it rather than typed.
     const head = this.el("h1", "hero-title");
     const mark = this.el("span", "brand-mark");
-    // The hand-drawn 5×5 pixel rupee — the same grid the exported cards use.
+    // The hand-made rupee mark — the same vector the exported cards draw.
     mark.innerHTML = rupeeSvg();
     // Sized to the letters' measured cap height, not a guessed em ratio:
-    // guessing once produced a glyph half the size of its neighbours.
+    // guessing once produced a glyph half the size of its neighbours. Width
+    // follows the glyph's own aspect from CSS.
     pixelCapRatio().then((cap) => {
-      mark.style.height = `${cap}em`;
-      mark.style.width = `${cap}em`;
+      const svg = mark.querySelector(".rupee-glyph");
+      if (svg) svg.style.height = `${cap}em`;
     });
     head.appendChild(mark);
     head.appendChild(this.el("span", null, "egret, shared"));

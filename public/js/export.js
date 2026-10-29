@@ -336,53 +336,74 @@ function loadArcadeFont() {
 const DISP = '"Press Start 2P", monospace';
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
-/** The rupee sign, hand-drawn. Press Start 2P ships no ₹ (latin subset
- *  only), and a mono fallback mid-pixel-word reads as a glitch — so the
- *  glyph is pixel art. 5×5, one block per Press Start 2P design pixel
- *  (the font is an 8px-grid face; caps are five), so at the same em size
- *  the ₹ sits exactly level with the letters beside it: top bar, stem,
- *  middle bar, and a leg stepping down to the right. */
-export const RUPEE = [
-  "11111",
-  "10000",
-  "11111",
-  "10010",
-  "10001",
-];
+/** The rupee mark, hand-made by the project owner (public/rupee glyph.svg):
+ *  the letter R from Press Start 2P with two full-width bars laid over it.
+ *  Carried as the original vector — not pixelated onto a block grid, which
+ *  is what made earlier attempts read wrong — so it renders exactly as
+ *  drawn, in the accent colour, on both the DOM and the canvas. */
+const RUPEE = {
+  // The source viewBox: 51.46 wide × 44.57 tall, so slightly wider than tall.
+  w: 51.460079,
+  h: 44.569721,
+  // The R glyph, in the pre-translate space of the source file.
+  path: "m 20.851027,126.43373 h 25.385958 v 6.35 h 6.35 v 19.05 h -12.7 v 6.35 h 6.35"
+    + " v 6.35 h 6.35 v 6.35 h -19.05 v -6.35 h -6.35 v -6.35 h -6.349999 z"
+    + " m -0.01404,25.4 h 12.699999 v -6.35 h 6.35 v -12.7 h -19.05 z",
+  // The two bars laid over the R, same pre-translate space.
+  bars: [
+    [10.981946, 126.314, 51.460079, 6.9927154],
+    [10.981946, 138.5856, 51.460079, 6.9927154],
+  ],
+  // The group translate that brings it all to a 0,0 origin.
+  tx: -10.981945,
+  ty: -126.31401,
+};
 
-/** Block size in px for a glyph drawn `size` px tall — integer, so the
- *  pixel art never renders as blurry fractions. */
-function rupeeBlock(size) {
-  return Math.max(1, Math.round((size * 0.7) / RUPEE.length));
+/** Width ÷ height of the glyph — the bars overhang the R, so it is wider
+ *  than a plain cap. Callers derive width from height through this. */
+export const RUPEE_ASPECT = RUPEE.w / RUPEE.h;
+
+/** The R path as a Path2D, built once. Path2D is a browser API — absent in
+ *  the node test env, where callers degrade to bars-only rather than throw. */
+let _rupeePath = null;
+function rupeePath() {
+  if (typeof Path2D === "undefined") return null;
+  if (!_rupeePath) _rupeePath = new Path2D(RUPEE.path);
+  return _rupeePath;
 }
 
-export function rupeeWidth(size) {
-  return rupeeBlock(size) * RUPEE[0].length;
-}
-
-/** Draw the glyph with its baseline at `y` and its height near `size`. */
+/** Draw the glyph with its baseline at `y` and its height at `size` px.
+ *  The R and the two bars are one fill in the source (the R even-odd so its
+ *  counter stays open); the bars are plain rects. */
 export function drawRupee(ctx, x, y, size, color) {
-  const s = rupeeBlock(size);
-  const top = y - s * RUPEE.length;
+  const s = size / RUPEE.h;
+  ctx.save();
   if (color) ctx.fillStyle = color;
-  for (let r = 0; r < RUPEE.length; r += 1) {
-    for (let c = 0; c < RUPEE[r].length; c += 1) {
-      if (RUPEE[r][c] === "1") ctx.fillRect(x + c * s, top + r * s, s, s);
-    }
-  }
+  ctx.translate(x, y - size);
+  ctx.scale(s, s);
+  ctx.translate(RUPEE.tx, RUPEE.ty);
+  const p = rupeePath();
+  if (p) ctx.fill(p, "evenodd");
+  for (const [bx, by, bw, bh] of RUPEE.bars) ctx.fillRect(bx, by, bw, bh);
+  ctx.restore();
 }
 
-/** The same grid as inline SVG, for the DOM wordmark — one glyph, two
+/** The glyph's width in px at a given height — the layout width callers hand
+ *  to the next element. */
+export function rupeeWidth(size) {
+  return size * RUPEE_ASPECT;
+}
+
+/** The same vector as inline SVG, for the DOM wordmark — one glyph, two
  *  surfaces, so the heading and the exported cards cannot drift apart. */
 export function rupeeSvg() {
-  const cells = [];
-  RUPEE.forEach((row, r) => {
-    for (let c = 0; c < row.length; c += 1) {
-      if (row[c] === "1") cells.push(`<rect x="${c}" y="${r}" width="1" height="1"/>`);
-    }
-  });
-  return `<svg class="rupee-glyph" viewBox="0 0 5 5" fill="currentColor"`
-    + ` preserveAspectRatio="none" aria-hidden="true">${cells.join("")}</svg>`;
+  const bars = RUPEE.bars
+    .map(([x, y, w, h]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}"/>`)
+    .join("");
+  return `<svg class="rupee-glyph" viewBox="0 0 ${RUPEE.w} ${RUPEE.h}"`
+    + ` fill="currentColor" preserveAspectRatio="xMidYMid meet" aria-hidden="true">`
+    + `<g transform="translate(${RUPEE.tx},${RUPEE.ty})">`
+    + `<path fill-rule="evenodd" d="${RUPEE.path}"/>${bars}</g></svg>`;
 }
 
 /** Cap height of the pixel face as a fraction of em — measured from the
