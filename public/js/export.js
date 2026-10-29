@@ -156,7 +156,9 @@ export function cardSpec(state, kind = "wrapped") {
     return {
       ...base,
       tier: null,
-      title: "WRAPPED",
+      // "Wrapped" is flat next to the rest of the deck's voice. This is the
+      // money card — what the shelf cost you — so it gets the wry title.
+      title: "THE DAMAGE REPORT",
       badge: `${games.length} GAMES`,
       stats: [
         { label: "LIBRARY VALUE", value: money(m.libraryValue || 0, cur) },

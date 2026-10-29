@@ -43,7 +43,7 @@ function makeState(patch = {}) {
 
 test("the wrapped card states the same figures the dashboard does", () => {
   const spec = cardSpec(makeState(), "wrapped");
-  assert.equal(spec.title, "WRAPPED");
+  assert.equal(spec.title, "THE DAMAGE REPORT");
   assert.equal(spec.badge, "6 GAMES");
   const stats = Object.fromEntries(spec.stats.map((x) => [x.label, x.value]));
   assert.equal(stats["LIBRARY VALUE"], "₹5,725.00");
