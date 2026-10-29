@@ -131,15 +131,17 @@ test("a share link round-trips and refuses anything else", () => {
 function fakeCtx() {
   const texts = [];
   const rects = [];
-  return {
-    texts, rects,
+  const fonts = [];
+  const ctx = {
+    texts, rects, fonts,
     fillStyle: "", strokeStyle: "", lineWidth: 0, textAlign: "", font: "",
     fillRect: (...a) => rects.push(a),
     strokeRect: (...a) => rects.push(a),
-    fillText: (t) => texts.push(String(t)),
+    fillText: (t) => { texts.push(String(t)); fonts.push([String(t), ctx.font]); },
     beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
     measureText: (t) => ({ width: String(t).length * 14 }),
   };
+  return ctx;
 }
 
 test("the painter draws the arcade card, scanlines and watermark and all", () => {
@@ -150,8 +152,13 @@ test("the painter draws the arcade card, scanlines and watermark and all", () =>
 
   assert.ok(ctx.texts.includes("HALL OF SHAME"));
   assert.ok(ctx.texts.some((t) => t.includes("Hades")), "the rows are drawn");
-  assert.ok(ctx.texts.includes("regret.example · make your own"),
-    "the watermark names the host — quietly, one muted line");
+  assert.ok(ctx.texts.includes("₹egret"),
+    "the watermark wears the wordmark, in the pixel font");
+  const markFont = ctx.fonts.find(([t]) => t === "₹egret");
+  assert.ok(markFont && markFont[1].includes("Press Start 2P"),
+    `drawn in the pixel font, not mono: ${markFont && markFont[1]}`);
+  assert.ok(ctx.texts.includes("financial-regret.vercel.app"),
+    "and names where to get it — the project home, not this hostname");
   const scanlines = ctx.rects.filter((r) => r[3] === 1);
   assert.equal(scanlines.length, Math.floor(CARD_H / 3),
     "one transparent pixel every three, the toy-screen skin");

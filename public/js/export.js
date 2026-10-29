@@ -333,6 +333,10 @@ function loadArcadeFont() {
 const DISP = '"Press Start 2P", monospace';
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
+/** Where the project lives — the watermark names the home, not whatever
+ *  hostname happened to serve this copy (localhost tells a stranger nothing). */
+const SITE = "financial-regret.vercel.app";
+
 /** Shrink-to-fit display text: titles are short by design, but a verdict
  *  label like "VERDICT: UNTOUCHED" is wider than the frame at full size. */
 function fitFont(ctx, text, size, maxW, family) {
@@ -433,10 +437,16 @@ export function drawCard(ctx, spec, tokens = CARD_TOKENS, w = CARD_W, h = CARD_H
   ctx.font = `18px ${MONO}`;
   ctx.fillText(spec.footnote || "", PAD, h - 84);
 
-  // Watermark: who hosts this, quietly — right-aligned, muted, one line.
-  const host = spec.src || currentHost() || "your own copy";
+  // Watermark: the wordmark in the pixel font plus where to get it, one
+  // quiet muted line — brand without shouting over the stats.
   ctx.textAlign = "right";
-  ctx.fillText(`${host} · make your own`, w - PAD, h - 84);
+  ctx.fillStyle = tokens.muted;
+  ctx.font = `18px ${MONO}`;
+  const site = SITE;
+  const siteW = ctx.measureText ? ctx.measureText(site).width : site.length * 11;
+  ctx.fillText(site, w - PAD, h - 84);
+  ctx.font = `16px ${DISP}`;
+  ctx.fillText("₹egret", w - PAD - siteW - 20, h - 84);
   ctx.textAlign = "left";
 }
 
