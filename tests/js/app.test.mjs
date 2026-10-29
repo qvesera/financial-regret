@@ -869,8 +869,11 @@ test("the header offers each control exactly once, in plain words", async () => 
   // The wordmark stands alone: the pitch line moved off the header — the
   // landing hero says it now, and a subtitle was one line of clutter per
   // screen for a sentence nobody read twice.
-  assert.equal(env.root.querySelector(".brand").querySelector("h1").textContent, "₹egret",
-    "the wordmark still carries the rupee pun");
+  const wordmark = env.root.querySelector(".brand").querySelector("h1");
+  assert.equal(wordmark.textContent, "egret",
+    "the wordmark keeps the egret — the ₹ is the hand-made vector glyph, not typed text");
+  assert.ok(env.root.querySelector(".brand-mark").innerHTML.includes("rupee-glyph"),
+    "the rupee is the same vector the shared heading and cards draw");
   assert.equal(env.root.querySelector(".brand-sub"), null,
     "no subtitle under the header brand");
   // The topbar shows only linkable stores — the still-planned Xbox chip is

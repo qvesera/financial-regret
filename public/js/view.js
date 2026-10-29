@@ -344,7 +344,15 @@ export const view = {
     homeBtn.type = "button";
     homeBtn.dataset.action = "home";
     homeBtn.setAttribute("aria-label", "Back to the landing page");
-    homeBtn.appendChild(this.el("span", "brand-mark", "₹"));
+    // The hand-made rupee mark, the same vector as the shared heading and the
+    // exported cards — sized to the letters' measured cap height.
+    const mark = this.el("span", "brand-mark");
+    mark.innerHTML = rupeeSvg();
+    pixelCapRatio().then((cap) => {
+      const svg = mark.querySelector(".rupee-glyph");
+      if (svg) svg.style.height = `${cap}em`;
+    });
+    homeBtn.appendChild(mark);
     homeBtn.appendChild(this.el("span", null, "egret"));
     wordmark.appendChild(homeBtn);
     brandText.appendChild(wordmark);
