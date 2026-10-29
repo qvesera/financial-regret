@@ -47,7 +47,7 @@ sys.path.insert(0, str(API_DIR))
 # api/ is on the path now, so the shared response/header helpers are importable
 # here. server.py keeps its own copies of the response writers because it also
 # serves static files and its own /api/health and /api/config.
-from _common import CSP, handle_options, require_user_keys   # noqa: E402
+from _common import CSP, handle_options   # noqa: E402
 from _cors import send_cors               # noqa: E402
 
 _module_cache = {}
@@ -279,48 +279,18 @@ class DevRequestHandler(BaseHTTPRequestHandler):
             handle_options(self)
 
 
-def _health_handler(handler: BaseHTTPRequestHandler) -> None:
-    handler._send_json(200, {
-        "ok": True,
-        "uptime_s": round(time.monotonic() - _START_TIME, 3),
-        # In BYO-key mode the server's own keys are ignored, so say which mode
-        # this is rather than implying the ones listed below are live.
-        "require_user_keys": require_user_keys(),
-        "keys": {
-            "steam": bool(os.environ.get("STEAM_API_KEY")),
-            "itad": bool(os.environ.get("ITAD_API_KEY")),
-            "platprices": bool(os.environ.get("PLATPRICES_API_KEY")),
-        },
-    })
-
-
-def _config_handler(handler: BaseHTTPRequestHandler) -> None:
-    handler._send_json(200, {
-        "publicBaseUrl": PUBLIC_BASE_URL,
-        "gogClientId": os.environ.get("GOG_CLIENT_ID", "46899977096215655"),
-        "epicClientId": os.environ.get("EPIC_CLIENT_ID", "34a02cf8f4414e29b15921876da36f9a"),
-        "gogRedirectMode": os.environ.get("GOG_REDIRECT_MODE", "callback"),
-    })
-
-
-_START_TIME = time.monotonic()
-
-# register built-in endpoints; handler contract is do_GET/do_POST/do_OPTIONS(self)
-class _HealthHandler:
-    do_GET = staticmethod(_health_handler)
-    do_OPTIONS = staticmethod(handle_options)
-
-
-class _ConfigHandler:
-    do_GET = staticmethod(_config_handler)
-    do_OPTIONS = staticmethod(handle_options)
-
-
-_module_cache["health"] = _HealthHandler
-_module_cache["config"] = _ConfigHandler
+# /api/health and /api/config live in api/ alongside every other endpoint now,
+# so they deploy to a serverless host instead of being special cases only this
+# server understands. Loading them at boot rather than on first request surfaces
+# a broken import at startup and pins the health endpoint's uptime clock to
+# process start.
+def _preload_builtin_endpoints() -> None:
+    for name in ("health", "config"):
+        _load_api_handler(name)
 
 
 def main() -> None:
+    _preload_builtin_endpoints()
     server = ThreadingHTTPServer((HOST, PORT), DevRequestHandler)
     print(f"Serving at http://{HOST}:{PORT}  (Ctrl+C to stop)")
     print(f"  public base url: {PUBLIC_BASE_URL}")

@@ -1,0 +1,8 @@
+# Installed by Vercel's Python runtime for the /api functions.
+#
+# Deliberately contains no web framework: a FastAPI, Flask or Django dependency
+# would trip Vercel's framework detection, which then hands every request to a
+# single framework app and stops these file-based functions from being routes at
+# all. That must not happen -- api/*.py are the routes.
+requests
+python-dotenv
