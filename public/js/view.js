@@ -78,6 +78,19 @@ function tierNote(tier) {
   return "No price recorded, so there is nothing to judge.";
 }
 
+/** Is the table narrower than the library? Distinguishes "your filters hid
+ *  everything" from "you have no qualifying games yet" — two very different
+ *  things to say to someone looking at an empty hall of shame. */
+function filtersActive(state) {
+  if (!state) return false;
+  return Boolean(
+    (state.tier && state.tier !== "All") ||
+    (state.filter && state.filter !== "All") ||
+    (state.platform && state.platform !== "All") ||
+    (state.search || "").trim()
+  );
+}
+
 /** Two-letter placeholder for a cover that has no art (yet). */
 function coverInitials(name) {
   const parts = String(name || "?").split(/[\s:]+/).filter(Boolean);
@@ -1142,8 +1155,12 @@ export const view = {
       list.textContent = "";
       const items = (state.comparators && state.comparators[kind]) || [];
       if (!items.length) {
-        list.appendChild(this.el("li", "rank-empty",
-          "No game has both an hour of play and a price yet."));
+        // The list is empty either because nothing qualifies yet or because the
+        // filters hid everything that did — say which, or the reader assumes
+        // the product is broken.
+        list.appendChild(this.el("li", "rank-empty", filtersActive(state)
+          ? "Nothing in this view has both an hour of play and a price."
+          : "No game has both an hour of play and a price yet."));
         continue;
       }
       for (const item of items) {

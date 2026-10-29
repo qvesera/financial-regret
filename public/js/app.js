@@ -255,14 +255,19 @@ function renderAll() {
     state.platform = "All";   // selected platform vanished (rescan / unlink)
   }
   // Verdicts are derived from the whole library, not the filtered rows: a
-  // filter must not redefine the benchmark it filters against.
+  // filter must not redefine the benchmark it filters against. That holds
+  // however the table is filtered — what varies is *which* games get ranked,
+  // which is a selection question rather than a scoring one.
   state.bench = benchmark(state.games);
   state.verdicts = verdictMap(state.games, state.bench);
-  state.comparators = rankGames(state.games);
+  state.rows = computeRows();
+  // Ranked from the visible rows, so the hall of shame and best value follow
+  // the filters: hide a store and its games leave the lists with it. Rates and
+  // verdicts are untouched — they were computed above against the whole library.
+  state.comparators = rankGames(state.rows);
   if (!state.comparators.worst.some((t) => t.id === state.simTarget)) {
     state.simTarget = state.comparators.worst.length ? state.comparators.worst[0].id : null;
   }
-  state.rows = computeRows();
   // Play-status counts for the tabs, taken from the pool the tab filter
   // itself is excluded from — a filter must never shrink its own option.
   const statusPool = computeRows({ skipPlayFilter: true });

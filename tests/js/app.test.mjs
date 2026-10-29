@@ -51,6 +51,28 @@ function routeScan(env, { steam = true } = {}) {
   });
 }
 
+// Two stores, each with exactly one game that can rank (an hour or more of play
+// *and* a price). A single-store fixture cannot test that hiding a store removes
+// its games: there would be nothing left to distinguish from "everything gone".
+const withSteamAndGog = (env) => {
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  env.localStorage.setItem("gog_access_token", "gog-seed-token");
+  const extra = "GOG:12345";
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) return { json: steamFixture };
+    if (url.includes("/api/gog_games")) return { json: { games: [
+      { id: extra, name: "Disco Elysium", platform: "GOG", hours: 45, appid: null },
+    ] } };
+    if (url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/prices")) return { json: {
+      prices: { ...PRICE_MAP, [extra]: 900 },
+      highs: { ...HIGH_MAP, [extra]: 900 },
+      lows: { ...LOW_MAP, [extra]: 450 },
+    } };
+    return null;
+  });
+};
+
 const withSteam = (env) => {
   env.localStorage.setItem("steam_id", "76561198000000000");
   routeScan(env);
@@ -922,4 +944,69 @@ test("PSN connect opens the sign-in page, never the NPSSO endpoint", async () =>
   assert.ok(steps.includes("sign in"), "step one says to sign in");
   assert.ok(steps.indexOf("sign in") < steps.indexOf("npsso"),
     "signing in comes before fetching the NPSSO");
+});
+
+test("filtering to a store takes the other stores' games out of the ranked lists", async () => {
+  const { env, mod } = await boot({ seed: withSteamAndGog });
+  await settle();
+
+  const names = (sel) => {
+    const list = env.root.querySelector(sel);
+    return list.querySelectorAll(".rank-name").map((n) => n.textContent);
+  };
+
+  const worst = names(".rank-worst");
+  assert.ok(worst.includes("Hades") && worst.includes("Disco Elysium"),
+    `both stores rank before filtering: ${worst}`);
+  const benchBefore = mod.getState().bench;
+
+  // The spend-by-platform legend filters TO a store, which hides every other
+  // one — the "hide a website" control.
+  const gog = env.root.querySelectorAll(".platform-row")
+    .find((r) => r.dataset.platform === "GOG");
+  assert.ok(gog, "the legend offers GOG as a filter");
+  gog.dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().platform, "GOG", "the filter took");
+  const after = names(".rank-worst");
+  assert.ok(!after.includes("Hades"), "the hidden store's game is gone");
+  assert.ok(after.includes("Disco Elysium"), "the visible store's game survives");
+  assert.deepEqual(names(".rank-best"), ["Disco Elysium"],
+    "best value re-ranks from what is still visible, not from a stale list");
+
+  // Scoring must not follow the filter — only selection does. A filter that
+  // redefined the benchmark would move every verdict on screen.
+  assert.deepEqual(mod.getState().bench, benchBefore, "benchmark is untouched");
+
+  gog.dispatch("click");   // the toggle clears itself
+  await settle();
+  assert.equal(mod.getState().platform, "All");
+  const restored = names(".rank-worst");
+  assert.ok(restored.includes("Disco Elysium") && restored.includes("Hades"),
+    "both return when the filter clears");
+});
+
+test("a rank list emptied by a filter says so, and recovers when cleared", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  const worst = () => env.root.querySelector(".rank-worst");
+  assert.equal(worst().querySelectorAll(".rank-name").length, 1, "Hades ranks unfiltered");
+
+  env.root.querySelectorAll(".tab").find((t) => t.dataset.filter === "Unplayed")
+    .dispatch("click");
+  await settle();
+
+  assert.equal(worst().querySelectorAll(".rank-name").length, 0,
+    "unplayed games are not evidence about value, so nothing ranks");
+  const empty = worst().querySelector(".rank-empty");
+  assert.ok(empty, "the empty list explains itself");
+  assert.ok(empty.textContent.includes("Nothing in this view"),
+    "a filtered-empty list must not claim you have no qualifying games");
+
+  env.root.querySelectorAll(".tab").find((t) => t.dataset.filter === "All")
+    .dispatch("click");
+  await settle();
+  assert.equal(worst().querySelectorAll(".rank-name").length, 1, "restores when cleared");
 });
