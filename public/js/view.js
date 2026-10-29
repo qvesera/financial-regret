@@ -1288,7 +1288,12 @@ export const view = {
     // Axis ends named: the scale read as a progress track because nothing on
     // it said which quantity grew to the right.
     const ends = this.el("div", "dist-ends");
-    ends.appendChild(this.el("span", null, `${symbol(cur)}0`));
+    // The axis origin is "symbol + 0" by design (no decimals), so it needs the
+    // same ISO-code spacing perHour uses: a multi-letter code (ZAR) must not
+    // jam against the 0 — "ZAR 0", not "ZAR0".
+    const cur0 = symbol(cur);
+    const axisMin = `${cur0}${/^[A-Za-z]{2,}$/.test(cur0) ? " " : ""}0`;
+    ends.appendChild(this.el("span", null, axisMin));
     ends.appendChild(this.el("span", null, `p90 ${money(p90, cur)}`));
     box.appendChild(ends);
 
