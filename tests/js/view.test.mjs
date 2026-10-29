@@ -96,6 +96,32 @@ test("renderGrid gives every card a fallback, a badge and a tab stop", () => {
   assert.ok(sub.children[1].classList.contains("card-store"), "store sits bottom-right");
 });
 
+test("the unplayed dim follows the Untouched verdict, not the raw hours", () => {
+  installEnv();
+  view.currency = "INR";
+  localStorage.removeItem("sgdb_api_key");
+  const wrap = document.createElement("div");
+  const verdicts = new Map([
+    ["Steam:idle-known", "untouched"],     // known 0.5h
+    ["Steam:idle-unknown", "untouched"],   // hours never reported
+    ["Steam:played", "worth"],
+  ]);
+
+  view.renderGrid(wrap, [
+    { id: "Steam:idle-known", name: "A", platform: "Steam", hours: 0.5 },
+    { id: "Steam:idle-unknown", name: "B", platform: "Steam", hours: null },
+    { id: "Steam:played", name: "C", platform: "Steam", hours: 20 },
+  ], {}, false, verdicts);
+
+  const cards = wrap.children;
+  assert.ok(cards[0].classList.contains("unplayed"), "known sub-hour play dims");
+  // The bug this replaces: unknown playtime was exempt from the dim, so two
+  // identical Untouched badges rendered at different brightness.
+  assert.ok(cards[1].classList.contains("unplayed"),
+    "unknown playtime dims with its Untouched badge too");
+  assert.ok(!cards[2].classList.contains("unplayed"), "a played card stays at full opacity");
+});
+
 test("price band marks where today's price sits", () => {
   installEnv();
   const game = { id: "Steam:1", name: "Hades", platform: "Steam", hours: 20, low: 599, high: 1499 };
