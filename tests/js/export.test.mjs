@@ -76,6 +76,10 @@ test("each verdict card holds only its own members, ranked its own way", () => {
   assert.deepEqual(untouched.rows.map((r) => r.name),
     ["Cyberpunk 2077", "Elden Ring"], "dearest unopened first");
   assert.equal(untouched.rows[0].value, "₹1,855.00");
+  assert.ok(!untouched.stats.some((x) => x.label === "HOURS ON RECORD"),
+    "a sub-hour opening is not playtime worth claiming above rows that say unopened");
+  const idle = untouched.stats.find((x) => x.label === "AVG IDLE COST");
+  assert.equal(idle && idle.value, "₹1,656.00", "3312 ÷ 2 idle games");
 
   assert.equal(cardSpec(s, "verdict:regret").rows[0].name, "Hades");
   assert.equal(cardSpec(s, "verdict:worth").rows[0].name, "Disco Elysium",

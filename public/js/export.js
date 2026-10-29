@@ -219,8 +219,18 @@ export function cardSpec(state, kind = "wrapped") {
       { label: "GAMES", value: `${members.length}` },
       { label: "SPEND", value: money(spend, cur) },
     ];
-    if (tier === "free" || tier === "untouched") {
+    if (tier === "free") {
       stats.push({ label: "HOURS ON RECORD", value: `${Math.round(totalHours)} h` });
+    }
+    if (tier === "untouched") {
+      // Not "hours on record": the verdict counts a sub-hour opening as
+      // untouched, so a summed playtime only contradicts the rows below it
+      // ("unopened" over a card claiming hours). What an idle library burned
+      // is money, and that is the number worth saying.
+      stats.push({
+        label: "AVG IDLE COST",
+        value: members.length ? money(spend / members.length, cur) : "—",
+      });
     }
     return {
       ...base,
