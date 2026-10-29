@@ -1480,7 +1480,13 @@ export const view = {
   renderShared(state) {
     const spec = state.sharedSpec || {};
     const wrap = this.el("section", "shared-card");
-    wrap.appendChild(this.el("h1", "hero-title", "₹egret, shared"));
+    // Built as spans, not one string: the pixel face has no ₹, and the
+    // header's split (mono symbol, pixel word) is what makes it look
+    // deliberate rather than broken.
+    const head = this.el("h1", "hero-title");
+    head.appendChild(this.el("span", "brand-mark", "₹"));
+    head.appendChild(this.el("span", null, "egret, shared"));
+    wrap.appendChild(head);
     wrap.appendChild(this.el("p", "shared-note",
       `${spec.src || "Someone"} made this card`
       + `${spec.at ? ` on ${new Date(spec.at).toISOString().slice(0, 10)}` : ""}.`));

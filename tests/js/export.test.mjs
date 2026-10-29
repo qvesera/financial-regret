@@ -152,11 +152,14 @@ test("the painter draws the arcade card, scanlines and watermark and all", () =>
 
   assert.ok(ctx.texts.includes("HALL OF SHAME"));
   assert.ok(ctx.texts.some((t) => t.includes("Hades")), "the rows are drawn");
-  assert.ok(ctx.texts.includes("₹egret"),
+  assert.ok(ctx.texts.includes("egret"),
     "the watermark wears the wordmark, in the pixel font");
-  const markFont = ctx.fonts.find(([t]) => t === "₹egret");
+  const markFont = ctx.fonts.find(([t]) => t === "egret");
   assert.ok(markFont && markFont[1].includes("Press Start 2P"),
     `drawn in the pixel font, not mono: ${markFont && markFont[1]}`);
+  const rupeeFont = ctx.fonts.find(([t]) => t === "₹");
+  assert.ok(rupeeFont && rupeeFont[1].includes("ui-monospace"),
+    "the rupee is the one glyph the pixel face lacks — mono, like the header");
   assert.ok(ctx.texts.includes("financial-regret.vercel.app"),
     "and names where to get it — the project home, not this hostname");
   const scanlines = ctx.rects.filter((r) => r[3] === 1);

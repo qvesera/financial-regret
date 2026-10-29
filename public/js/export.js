@@ -356,6 +356,23 @@ function truncate(ctx, text, maxW) {
   return `${t}…`;
 }
 
+/** Press Start 2P ships no ₹ (the latin subset is the only one vendored), so
+ *  the symbol always wears the mono font — the same split the header
+ *  wordmark uses — and the rest of the figure stays in pixels. */
+function fillDisplay(ctx, text, x, y, maxW, size) {
+  const s = String(text);
+  if (!s.startsWith("₹")) {
+    fitFont(ctx, s, size, maxW, DISP);
+    ctx.fillText(s, x, y);
+    return;
+  }
+  ctx.font = `${Math.round(size * 0.78)}px ${MONO}`;
+  ctx.fillText("₹", x, y);
+  const rw = ctx.measureText ? ctx.measureText("₹").width : size * 0.6;
+  fitFont(ctx, s.slice(1), size, maxW - rw, DISP);
+  ctx.fillText(s.slice(1), x + rw, y);
+}
+
 /** Draw one spec. Synchronous: renderCardTo() awaits the font first; a
  *  missing measureText skips fitting, which is what keeps this painter
  *  testable against a recording stub. */
@@ -400,8 +417,7 @@ export function drawCard(ctx, spec, tokens = CARD_TOKENS, w = CARD_W, h = CARD_H
     ctx.font = `20px ${MONO}`;
     ctx.fillText(s.label, x, y);
     ctx.fillStyle = tokens.text;
-    fitFont(ctx, s.value, 34, MAXW / 2 - 24, DISP);
-    ctx.fillText(s.value, x, y + 52);
+    fillDisplay(ctx, s.value, x, y + 52, MAXW / 2 - 24, 34);
   });
 
   const list = (spec.rows || []).slice(0, MAX_ROWS);
@@ -438,7 +454,8 @@ export function drawCard(ctx, spec, tokens = CARD_TOKENS, w = CARD_W, h = CARD_H
   ctx.fillText(spec.footnote || "", PAD, h - 84);
 
   // Watermark: the wordmark in the pixel font plus where to get it, one
-  // quiet muted line — brand without shouting over the stats.
+  // quiet muted line — brand without shouting over the stats. The ₹ is mono
+  // again: the pixel face simply has no rupee glyph.
   ctx.textAlign = "right";
   ctx.fillStyle = tokens.muted;
   ctx.font = `18px ${MONO}`;
@@ -446,7 +463,10 @@ export function drawCard(ctx, spec, tokens = CARD_TOKENS, w = CARD_W, h = CARD_H
   const siteW = ctx.measureText ? ctx.measureText(site).width : site.length * 11;
   ctx.fillText(site, w - PAD, h - 84);
   ctx.font = `16px ${DISP}`;
-  ctx.fillText("₹egret", w - PAD - siteW - 20, h - 84);
+  const markW = ctx.measureText ? ctx.measureText("egret").width : 5 * 16;
+  ctx.fillText("egret", w - PAD - siteW - 20, h - 84);
+  ctx.font = `16px ${MONO}`;
+  ctx.fillText("₹", w - PAD - siteW - 20 - markW - 2, h - 84);
   ctx.textAlign = "left";
 }
 
