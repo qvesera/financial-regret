@@ -91,6 +91,46 @@ function filtersActive(state) {
   );
 }
 
+/** Explanations for every number on the dashboard.
+ *
+ *  Written from computeRegret() and comparators() rather than from the labels
+ *  on screen: several labels are deliberately terse ("of known value", "on
+ *  record") and two of them are looser than the maths. Keyed by element id so a
+ *  tip cannot exist without its copy — infoTip() returns nothing otherwise. */
+const METRIC_TIPS = {
+  // Attached to the .micro label, not to #hero-spend: that element's
+  // textContent is pinned by tests and must stay a bare figure.
+  "hero-spend": "Your whole library repriced at today's cheapest price for each "
+    + "game — what buying it all again would cost right now. It is not what you "
+    + "paid: no connected store reports purchase history.",
+  "hero-line": "The percentage is how much of your library you've actually "
+    + "touched. 'Worst buy' is the most expensive hour in it: highest price per "
+    + "hour among games with at least an hour of play.",
+  "kpi-library": "Today's cheapest price for every game, added up. Games with "
+    + "no price found count as zero, so a library of unpriced titles reads low.",
+  "kpi-high": "The same library priced at each game's all-time high. Where "
+    + "there is no price history, today's price stands in rather than leaving a gap.",
+  "kpi-low": "The same library priced at each game's all-time low — the "
+    + "cheapest these games have ever been. Falls back to today's price when "
+    + "history is missing.",
+  "kpi-backlog": "Today's cheapest price of the games you own but have played "
+    + "for under an hour. Only games with known playtime count, so unknown-hours "
+    + "titles are left out.",
+  "kpi-regret": "Backlog value ÷ the value of games whose playtime you know — "
+    + "the share of your known money sitting in games you have barely touched. "
+    + "Games with unknown playtime are excluded from both halves.",
+  "kpi-vph": "The price of everything you've actually played, divided by your "
+    + "recorded hours across those games. A game you've never opened adds "
+    + "neither cost nor time.",
+  "kpi-hours": "Every hour the connected stores have recorded, summed. Titles "
+    + "with unknown playtime add nothing — they are never counted as zero-played.",
+  "rank-worst": "Your most expensive hour, ranked by price ÷ hours, highest "
+    + "first. Only games with an hour or more of play qualify: a ten-minute "
+    + "session proves nothing.",
+  "rank-best": "The same ranking cheapest per hour first — the most play for "
+    + "the least money. Games need an hour or more of play to qualify.",
+};
+
 /** Two-letter placeholder for a cover that has no art (yet). */
 function coverInitials(name) {
   const parts = String(name || "?").split(/[\s:]+/).filter(Boolean);
@@ -223,6 +263,31 @@ export const view = {
     if (cls) e.className = cls;
     if (text != null) e.textContent = text;
     return e;
+  },
+
+  /** Hover/focus/tap explanation for one metric.
+   *
+   *  A real button rather than a title attribute: it is reachable by keyboard,
+   *  announced through aria-describedby, and — crucially — carries its own
+   *  data-action so closestAction() stops here. Without that, clicking the chip
+   *  inside a ranked row would walk up to data-action="open" and open the drawer.
+   *
+   *  Returns null when METRIC_TIPS has no copy for the key: a chip with nothing
+   *  to say is worse than no chip, and the test asserts every key has copy. */
+  infoTip(key, name) {
+    const text = METRIC_TIPS[key];
+    if (!text) return null;
+    const chip = this.el("button", "info");
+    chip.type = "button";
+    chip.dataset.action = "info";
+    chip.setAttribute("aria-label", `About ${name}`);
+    const tip = this.el("span", "tip", text);
+    tip.id = `tip-${key}`;
+    tip.setAttribute("role", "tooltip");
+    chip.setAttribute("aria-describedby", tip.id);
+    chip.appendChild(this.el("span", "info-mark", "i"));
+    chip.appendChild(tip);
+    return chip;
   },
 
   /** Alias kept for callers that used view.view(). */
@@ -632,13 +697,18 @@ export const view = {
     // same stats verbatim.
     const hero = this.el("section", "hero");
     hero.id = "hero";
-    hero.appendChild(this.el("p", "micro", "Lifetime spend"));
+    const micro = this.el("p", "micro", "Lifetime spend");
+    // The chip goes on the label: #hero-spend's textContent is asserted by
+    // tests, and a bare figure should stay a bare figure anyway.
+    micro.appendChild(this.infoTip("hero-spend", "Lifetime spend"));
+    hero.appendChild(micro);
     const figure = this.el("p", "hero-figure", "—");
     figure.id = "hero-spend";
     hero.appendChild(figure);
     const line = this.el("p", "hero-line", "");
     line.id = "hero-line";
     hero.appendChild(line);
+    hero.appendChild(this.infoTip("hero-line", "the headline"));
 
     const kpi = this.el("div", "kpi-grid");
     let ringSvg = null;
@@ -657,7 +727,14 @@ export const view = {
         id === "kpi-vph" ? `${symbol(this.currency)} / hour` : label);
       lab.id = `${id}-label`;
       card.appendChild(lab);
-      card.appendChild(this.el("p", "kpi-sub", sub));
+      const subEl = this.el("p", "kpi-sub", sub);
+      // The chip rides on the sub-line rather than inside the label, because
+      // updateKpis rewrites the ₹/hour label with textContent — which destroys
+      // every child node. A chip inside the label would vanish after the first
+      // render, and the test stub's eager id map would have hidden that: the
+      // detached tip stays findable by id while being gone from the page.
+      subEl.appendChild(this.infoTip(id, label));
+      card.appendChild(subEl);
       const v = this.el("p", "kpi-value", "—");
       v.id = id;
       if (id === "kpi-regret") {
@@ -1140,7 +1217,9 @@ export const view = {
   /** Shell for one ranked list; the rows are refilled on every update. */
   rankCard(title, kind) {
     const card = this.el("section", "chart-card rank-card");
-    card.appendChild(this.el("h3", null, title));
+    const head = this.el("h3", null, title);
+    head.appendChild(this.infoTip(`rank-${kind}`, title));
+    card.appendChild(head);
     const list = this.el("ol", `rank rank-${kind}`);
     card.appendChild(list);
     return { card, list };

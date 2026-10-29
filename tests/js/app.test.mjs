@@ -1010,3 +1010,65 @@ test("a rank list emptied by a filter says so, and recovers when cleared", async
   await settle();
   assert.equal(worst().querySelectorAll(".rank-name").length, 1, "restores when cleared");
 });
+
+test("every dashboard metric carries a wired explanation chip", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  const chips = env.root.querySelectorAll(".info");
+  // 7 KPI cards + the hero label + the headline + both ranked cards.
+  // Root-scoped on purpose: it counts attached nodes only, which is what makes
+  // it a real guard against a chip being detached from the page while its id
+  // stays reachable — exactly what happened with the ₹/hour label.
+  assert.equal(chips.length, 11,
+    chips.map((c) => c.getAttribute("aria-describedby")).join(", "));
+
+  for (const chip of chips) {
+    assert.equal(chip.type, "button", "focusable by keyboard, and never a submit");
+    assert.equal(chip.dataset.action, "info",
+      "must stop closestAction here: inside a .rank-item this would open the drawer instead");
+    const id = chip.getAttribute("aria-describedby");
+    assert.ok(id, "referenced by id");
+    const tip = env.document.getElementById(id);
+    assert.ok(tip, `${id} resolves in the document`);
+    assert.equal(tip.getAttribute("role"), "tooltip");
+    assert.ok(tip.textContent.trim().length > 30,
+      `"${tip.textContent.slice(0, 30)}…" is a stub, not an explanation`);
+  }
+
+  for (const key of ["kpi-library", "kpi-regret", "kpi-vph", "hero-spend",
+                     "rank-worst", "rank-best"]) {
+    assert.ok(env.document.getElementById(`tip-${key}`), `tip-${key} exists`);
+  }
+});
+
+test("the hero figure stays a bare figure", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  // The chip annotates the "Lifetime spend" label instead, because this
+  // element's textContent is pinned by an existing assertion and a rupee total
+  // with a stray "i" glued to it would read as corruption.
+  const figure = env.document.getElementById("hero-spend");
+  assert.equal(figure.querySelector(".info"), null, "no chip inside the figure");
+  assert.match(figure.textContent, /^₹[\d,.]+$/, "still a bare amount");
+  // Split selector: the test DOM stub has no descendant-selector support.
+  const micro = env.root.querySelector(".micro");
+  assert.ok(micro && micro.querySelector(".info"), "the label carries it instead");
+});
+
+test("the explanations still describe the actual maths", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+  const tip = (key) => env.document.getElementById(`tip-${key}`).textContent;
+
+  // Regret is backlog ÷ known value; unknown playtime is excluded from both.
+  assert.ok(tip("kpi-regret").includes("÷"), "states the ratio");
+  assert.ok(tip("kpi-regret").includes("unknown playtime"),
+    "must keep saying unknown-playtime titles are excluded");
+  // value per hour is a division of price by recorded hours.
+  assert.ok(tip("kpi-vph").includes("divided by"));
+  // both ranked lists are gated on an hour of play, per comparators().
+  assert.ok(tip("rank-worst").includes("hour or more of play"));
+  assert.ok(tip("rank-best").includes("hour or more of play"));
+});

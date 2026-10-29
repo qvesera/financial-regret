@@ -1752,6 +1752,92 @@ td.cell-platform { white-space: nowrap; }
   color: var(--muted);
 }
 
+/* ---------- metric explanation chips ----------
+   Shown on hover, keyboard focus or tap. The tip text lives in a real element
+   with role="tooltip" (referenced by aria-describedby) rather than in content:
+   attr(), because screen readers must reach it and it must be selectable. */
+
+.info {
+  position: relative;
+  z-index: 40;               /* the tip paints above later siblings, not under */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  height: 1.1em;
+  margin-left: 0.4em;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: help;
+  transition: color var(--dur-fast) var(--ease),
+              border-color var(--dur-fast) var(--ease);
+}
+.info .info-mark { text-transform: none; pointer-events: none; }
+.info:hover,
+.info:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.tip {
+  position: absolute;
+  /* Anchored to the chip's left edge rather than centred: every chip here sits
+     near the left of its container, and a centred 17rem panel would poke past
+     the viewport edge on narrow desktop widths. */
+  left: 0;
+  top: calc(100% + 8px);
+  width: max-content;
+  max-width: min(17rem, calc(100vw - 2rem));
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.45;
+  letter-spacing: normal;
+  text-transform: none;   /* parents set uppercase; a paragraph must not be */
+  text-align: left;
+  white-space: normal;
+  z-index: 41;
+  /* opacity rather than visibility: the node stays in the accessibility tree,
+     so aria-describedby keeps working whether or not it is showing. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.info:hover .tip,
+.info:focus .tip {
+  opacity: 1;
+}
+
+@media (max-width: 640px) {
+  /* On a phone the chip is too close to the screen edge for any anchored
+     panel to guarantee it fits, so it drops to a fixed bar across the bottom:
+     always inside the viewport, no layout shift, and a tap focuses the chip
+     which is what reveals it. */
+  .tip {
+    position: fixed;
+    left: 1rem;
+    right: 1rem;
+    top: auto;
+    bottom: 1rem;
+    max-width: none;
+    width: auto;
+  }
+}
+
 @media (max-width: 600px) {
   .toy-screen { padding: var(--space-4); }
   .toy-head { gap: var(--space-2); }

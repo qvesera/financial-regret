@@ -715,6 +715,11 @@ function onClick(e) {
   const platform = t.dataset.platform;
   switch (t.dataset.action) {
     case "link": linkPlatform(platform); break;
+    // The metric explanation chip. Its data-action exists purely to stop
+    // closestAction() at the chip — clicking one inside a ranked row must not
+    // bubble up to data-action="open" and open the drawer. Showing the text is
+    // entirely CSS, so there is nothing to do here.
+    case "info": break;
     case "unlink": unlinkPlatform(platform); break;
     case "scan": scan(); break;
     case "filter": state.filter = t.dataset.filter; state.page = 1; renderAll(); break;
