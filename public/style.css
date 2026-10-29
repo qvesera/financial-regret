@@ -1151,7 +1151,8 @@ td.cell-platform { white-space: nowrap; }
 .dist-marker { fill: var(--tier-regret); stroke: var(--surface); stroke-width: 1.5; }
 
 /* Inspectable shapes: the cursor promises an explanation, the highlight
-   delivers which piece is speaking, and .dist-tip below says the rest. */
+   delivers which piece is speaking, and the in-flow .dist-say line below
+   says the rest. */
 .dist-plot [data-stat] {
   cursor: help;
   transition: fill-opacity var(--dur-fast) var(--ease),
