@@ -45,6 +45,9 @@
   --space-6: 32px;
   --space-7: 48px;
 
+  /* The dashboard's sidebar column, shared by every row that has one. */
+  --side-col: 320px;
+
   /* Square everywhere: the arcade skin has no soft corners, and the token
      triple keeps future rules from quietly reintroducing them. */
   --radius-sm: 0px;
@@ -433,8 +436,11 @@ button { cursor: pointer; font-family: inherit; }
 
 .dashboard-body {
   display: flex;
-  gap: 1.5rem;
-  padding: 1.5rem;
+  /* One gutter for every row of the dashboard — the body used to carry its
+     own 24px padding and a wider gap than the summary above it, so the
+     column edges stepped between rows instead of lining up. */
+  gap: var(--space-4);
+  padding: 0;
 }
 .panel { flex: 2; min-width: 0; }
 .filter-bar {
@@ -866,6 +872,11 @@ tr.game-row:hover { background: var(--surface-2); }
 
 .phase.is-scanning { color: var(--warn); }
 
+/* Page gutter for the ready screen — the summary, the insight cards and the
+   body all sit inside it, so every row starts and ends at the same x. It
+   used to live only on .dashboard-body, which stepped those rows inward. */
+.ready { padding: 0 var(--space-5) var(--space-5); }
+
 .menu-btn {
   background: none;
   border: 1px solid var(--border);
@@ -877,13 +888,10 @@ tr.game-row:hover { background: var(--surface-2); }
 
 /* ---------- panel side ---------- */
 
-.panel-side { flex: 1; min-width: 220px; }
-/* Above the column breakpoint the pie card keeps a sane measure and hands the
-   rest of the width to the grid instead of stretching to a third of an
-   ultrawide. */
-@media (min-width: 901px) {
-  .panel-side { flex: 0 0 320px; }
-}
+/* One sidebar column for the whole dashboard: the summary's regret panel and
+   the body's platform card share its width, so the right-hand edge is one
+   straight line down the page. */
+.panel-side { flex: 0 0 var(--side-col); min-width: 0; }
 
 .side-title {
   font-size: 0.8rem;
@@ -973,7 +981,7 @@ td.cell-platform { white-space: nowrap; }
 
 @media (max-width: 900px) {
   .dashboard-body { flex-direction: column; }
-  .panel-side { width: 100%; }
+  .panel-side { flex: 0 0 auto; width: 100%; }
   .topbar { flex-wrap: wrap; }
 }
 
@@ -1039,11 +1047,13 @@ td.cell-platform { white-space: nowrap; }
    Overhaul: hero, verdict engine, what-if, facets, stepper
    ============================================================ */
 
-/* ---- summary row: hero (8 cols) + regret card (4 cols) ---- */
+/* ---- summary row: hero + the sidebar column ---- */
 
 .dash-grid {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  /* The same two columns as .dashboard-body below — one main column, one
+     --side-col sidebar — so the right-hand edge lines up row after row. */
+  grid-template-columns: minmax(0, 1fr) var(--side-col);
   gap: var(--space-4);
   /* Stretch, not start: the hero card grows to the regret panel's height and
      its stats grid absorbs the difference — otherwise the left column ends
@@ -1051,8 +1061,6 @@ td.cell-platform { white-space: nowrap; }
   align-items: stretch;
   margin-top: var(--space-5);
 }
-.dash-grid > .hero { grid-column: span 8; }
-.dash-grid > .regret-card { grid-column: span 4; }
 
 .hero {
   background: var(--surface);
@@ -1504,8 +1512,7 @@ td.cell-platform { white-space: nowrap; }
 /* ---- responsive ---- */
 
 @media (max-width: 1100px) {
-  .dash-grid > .hero,
-  .dash-grid > .regret-card { grid-column: span 12; }
+  .dash-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 700px) {
@@ -1518,7 +1525,8 @@ td.cell-platform { white-space: nowrap; }
 
 @media (max-width: 600px) {
   /* chrome gives its padding back to content */
-  .dashboard-body { padding: 1rem; gap: 1rem; }
+  .ready { padding: 0 var(--space-3) var(--space-3); }
+  .dashboard-body { gap: var(--space-3); }
   .chart-card { padding: 0.85rem; }
   .empty-state { padding: 1.75rem 1rem; }
 
