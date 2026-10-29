@@ -93,14 +93,15 @@ test("each verdict card holds only its own members, ranked its own way", () => {
 
 test("the chip list offers only what the library can fill", () => {
   const kinds = exportKinds(makeState());
-  for (const k of ["wrapped", "worst", "best", "untouched", "verdict:worth",
+  for (const k of ["wrapped", "worst", "best", "verdict:worth",
     "verdict:fair", "verdict:regret", "verdict:untouched", "verdict:free", "view"]) {
     assert.ok(kinds.includes(k), `${k} is offered`);
   }
   assert.ok(!kinds.includes("verdict:nodata"), "an empty verdict never gets a chip");
+  assert.ok(!kinds.includes("untouched"),
+    "no view-scoped idle twin: the verdict card is the single Untouched card");
   assert.equal(kindLabel("wrapped"), "Wrapped");
-  assert.equal(kindLabel("untouched"), "Idle purchases",
-    "the ranked card and the Untouched verdict cannot share a chip name");
+  assert.equal(kindLabel("verdict:untouched"), "Untouched");
   assert.equal(kindLabel("verdict:fair"), "Fair");
 });
 

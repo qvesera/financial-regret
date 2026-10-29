@@ -1480,9 +1480,8 @@ test("the Share button ships with the dashboard and opens the deck", async () =>
     "the drawer opens by prompting a share, not by naming a file format");
   const chips = env.root.querySelector(".export-chips").children.map((c) => c.textContent);
   assert.deepEqual(chips,
-    ["Wrapped", "Hall of shame", "Best value", "Idle purchases",
-     "Untouched", "No benchmark", "This view"],
-    "one chip per card this library can fill");
+    ["Wrapped", "Hall of shame", "Best value", "Untouched", "No benchmark", "This view"],
+    "one chip per card this library can fill — Untouched appears once, library-wide");
   const canvas = env.document.getElementById("export-canvas");
   assert.ok(canvas, "a live preview sits in the drawer");
   assert.equal(canvas.width, 1080);

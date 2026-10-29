@@ -59,14 +59,16 @@ function currentHost() {
 }
 
 /** Kinds the current library can actually fill — the chips the UI offers.
- *  The three ranked lists come from the comparators the dashboard already
+ *  The two ranked lists come from the comparators the dashboard already
  *  computes; a verdict kind only appears when that verdict has members. */
 export function exportKinds(state) {
   const out = ["wrapped"];
   const c = state.comparators || {};
   if ((c.worst || []).length) out.push("worst");
   if ((c.best || []).length) out.push("best");
-  if ((c.untouched || []).length) out.push("untouched");
+  // No view-scoped untouched twin: the verdict card below is library-wide
+  // and carries the stats, and the table's filters already show whatever
+  // slice of it the user is looking at.
   const v = state.verdicts || new Map();
   const seen = new Set();
   for (const g of state.games || []) seen.add(v.get(g.id) || "nodata");
@@ -83,9 +85,6 @@ export function kindLabel(kind) {
   if (kind === "wrapped") return "Wrapped";
   if (kind === "worst") return "Hall of shame";
   if (kind === "best") return "Best value";
-  // Not "Untouched": the verdict chip below carries that word, and two chips
-  // with one name is a coin-flip every time the drawer opens.
-  if (kind === "untouched") return "Idle purchases";
   if (kind === "view") return "This view";
   if (kind && kind.startsWith("verdict:")) return TIER_LABEL[kind.slice(8)] || kind.slice(8);
   return String(kind || "");
@@ -171,24 +170,25 @@ export function cardSpec(state, kind = "wrapped") {
     };
   }
 
-  if (kind === "worst" || kind === "best" || kind === "untouched") {
+  // The two ranked lists. Untouched has no view-scoped twin — the verdict
+  // card below is library-wide, carries the stats, and the table's filters
+  // already show whatever slice of it the user is looking at.
+  if (kind === "worst" || kind === "best") {
     const list = (state.comparators || {})[kind] || [];
     if (!list.length) return null;
-    const tier = kind === "worst" ? "regret" : kind === "best" ? "worth" : "untouched";
+    const tier = kind === "worst" ? "regret" : "worth";
     return {
       ...base,
       tier,
-      title: kind === "worst" ? "HALL OF SHAME" : kind === "best" ? "BEST VALUE" : "UNTOUCHED",
+      title: kind === "worst" ? "HALL OF SHAME" : "BEST VALUE",
       badge: TIER_LABEL[tier],
       stats: [
         { label: "ON THE LIST", value: `${list.length}` },
-        kind === "untouched"
-          ? { label: "SPEND IDLE", value: money(list.reduce((s, x) => s + (x.price || 0), 0), cur) }
-          : { label: "PER HOUR", value: perHour(list[0].rate, cur) },
+        { label: "PER HOUR", value: perHour(list[0].rate, cur) },
       ],
       rows: list.slice(0, MAX_ROWS).map((x) => ({
         name: x.name,
-        value: kind === "untouched" ? money(x.price, cur) : perHour(x.rate, cur),
+        value: perHour(x.rate, cur),
         meta: x.hours == null ? "" : `${x.hours} h`,
       })),
       footnote: `Ranked from your current view · ${iso(Date.now())}`,
