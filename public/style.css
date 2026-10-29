@@ -1134,7 +1134,7 @@ td.cell-platform { white-space: nowrap; }
 
 /* ---- box plot of cost-per-hour ---- */
 
-.dist { margin-top: var(--space-3); position: relative; }   /* tip anchors here */
+.dist { margin-top: var(--space-3); }
 .dist-title { margin: 0 0 var(--space-2); font-size: 0.8rem; font-weight: 600; }
 .dist-plot { width: 100%; height: 40px; display: block; }
 .dist-ends {
@@ -1165,13 +1165,19 @@ td.cell-platform { white-space: nowrap; }
 .dist-marker { transform-box: fill-box; transform-origin: center; }
 .dist-marker:hover { stroke: var(--accent); transform: scale(1.35); }
 
-/* The chart's own copy of the .tip skin: centred under the whole chart,
-   shown by the hovered shape's class rather than by :hover on a chip.
-   Two classes deep on purpose — the shared .tip rule sits much later in this
-   file and wins every single-class tie on left/top, which anchored this panel
-   to the wrong edge when it first shipped. */
-.dist .dist-tip { left: 50%; transform: translateX(-50%); top: calc(100% + 6px); }
-.dist .dist-tip.on { opacity: 1; }
+/* In-flow by design: two floating panels each failed in a different layer
+   (event delivery to SVG children, then cascade order re-anchoring the box).
+   A line that already sits here cannot be clipped, stacked over, or pulled
+   off-screen — it only changes text. Two lines are reserved so the numbers
+   below never jump when the copy arrives. */
+.dist-say {
+  margin: var(--space-2) 0 0;
+  min-height: 2.6em;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.dist-say.on { color: var(--text); }
 .dist-summary,
 .dist-note {
   margin: var(--space-2) 0 0;

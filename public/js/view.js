@@ -1241,17 +1241,15 @@ export const view = {
     // name that game already; this line is about the shape of the spread.
     box.appendChild(summary);
 
-    // One explanation panel for the whole chart, skinned like every other .tip
-    // in the app. It sits centred below rather than pinned to the hovered
-    // shape: the shape's own highlight already says which piece this is about,
-    // and a shape-anchored panel would overflow the card on the right-hand
-    // outlier, which sits at the very edge of the scale by construction.
-    // aria-hidden by role design, not by accident: screen readers get the full
-    // reading from the svg's aria-label and the summary line above.
-    const tip = this.el("span", "tip dist-tip");
-    tip.id = "dist-tip";
-    tip.setAttribute("role", "tooltip");
-    box.appendChild(tip);
+    // In-flow by design, after two floating panels each failed in a different
+    // layer (an event that skips SVG children; a later single-class rule
+    // re-anchoring the box). Text that already sits on the page cannot be
+    // off-screen, clipped, or cascaded over. It opens with the instruction,
+    // because hover-only explanations are undiscoverable without one.
+    const hint = "Hover the box, the white line, the tick or the red dot"
+      + " to see what each one means.";
+    const out = this.el("p", "dist-say", hint);
+    box.appendChild(out);
 
     // Copy is built once from this render's data; a listener only swaps text
     // and a class, so none of them holds live state across renders.
@@ -1275,10 +1273,13 @@ export const view = {
       // is exactly how this first shipped: it lit up and said nothing. Shapes
       // are leaf nodes, so the usual relatedTarget guard would buy nothing.
       node.addEventListener("mouseover", () => {
-        tip.textContent = say[key];
-        tip.classList.add("on");
+        out.textContent = say[key];
+        out.classList.add("on");
       });
-      node.addEventListener("mouseout", () => { tip.classList.remove("on"); });
+      node.addEventListener("mouseout", () => {
+        out.textContent = hint;
+        out.classList.remove("on");
+      });
     }
   },
 

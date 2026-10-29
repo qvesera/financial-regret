@@ -1246,26 +1246,28 @@ test("the cost-per-hour chart names itself and explains each piece on hover", as
   assert.ok(ends.includes("₹0") && ends.includes("p90"),
     `axis ends are labelled: ${ends}`);
 
-  const tip = dist.querySelector(".dist-tip");
-  assert.ok(tip, "explanation panel present");
-  assert.equal(tip.getAttribute("role"), "tooltip");
-  assert.equal(tip.classList.contains("on"), false, "hidden until something is hovered");
+  const out = dist.querySelector(".dist-say");
+  assert.ok(out, "explanation line present, in normal flow");
+  assert.ok(out.textContent.includes("Hover the box"),
+    "opens with the instruction — hover was undiscoverable without it");
 
   const marker = dist.querySelector(".dist-marker");
   assert.ok(marker, "worst-buy dot drawn");
   assert.equal(marker.getAttribute("data-stat"), "worst",
     "the shapes declare which statistic they carry");
   marker.dispatch("mouseover");
-  assert.equal(tip.classList.contains("on"), true, "hovering the dot shows the tip");
-  assert.ok(tip.textContent.includes("Worst buy: Alpha"), `tip reads: ${tip.textContent}`);
-  assert.ok(tip.textContent.includes("per hour"), "and states the rate with its unit");
+  assert.ok(out.textContent.includes("Worst buy: Alpha"), `line reads: ${out.textContent}`);
+  assert.ok(out.textContent.includes("per hour"), "and states the rate with its unit");
+  assert.equal(out.classList.contains("on"), true, "marked while explaining");
 
   const median = dist.querySelector(".dist-median");
   median.dispatch("mouseover");
-  assert.ok(tip.textContent.includes("Median:"), "moving to another piece rewrites the tip");
+  assert.ok(out.textContent.includes("Median:"), "moving to another piece rewrites the line");
 
   median.dispatch("mouseout");
-  assert.equal(tip.classList.contains("on"), false, "leaving hides it again");
+  assert.ok(out.textContent.includes("Hover the box"),
+    "leaving restores the instruction rather than going blank");
+  assert.equal(out.classList.contains("on"), false);
 });
 
 test("the explanations still describe the actual maths", async () => {
