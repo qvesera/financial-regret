@@ -1461,20 +1461,23 @@ test("the demo asks the store for the hero's real regional price", async () => {
     "the store's US price, not an FX conversion of India's list price");
 });
 
-test("the Export button ships with the dashboard and opens the deck", async () => {
+test("the Share button ships with the dashboard and opens the deck", async () => {
   const { env } = await boot({ seed: withSteam });
   await settle();
 
-  const exportBtn = env.root.querySelectorAll("button")
-    .find((b) => b.dataset.action === "export");
-  assert.ok(exportBtn, "the dashboard offers exports");
-  exportBtn.dispatch("click");
+  const shareBtn = env.root.querySelectorAll("button")
+    .find((b) => b.dataset.action === "share");
+  assert.ok(shareBtn, "the dashboard invites sharing");
+  assert.equal(shareBtn.textContent, "Share");
+  shareBtn.dispatch("click");
   await settle();
 
   const drawer = env.root.querySelector(".drawer");
   assert.equal(drawer.classList.contains("hidden"), false,
     "the deck opens in the drawer the game inspector already uses");
-  assert.equal(env.document.getElementById("drawer-title").textContent, "Export a card");
+  assert.equal(env.document.getElementById("drawer-title").textContent, "Share your card");
+  assert.ok(env.root.querySelector(".export-prompt").textContent.includes("send it to someone"),
+    "the drawer opens by prompting a share, not by naming a file format");
   const chips = env.root.querySelector(".export-chips").children.map((c) => c.textContent);
   assert.deepEqual(chips,
     ["Wrapped", "Hall of shame", "Best value", "Idle purchases",
@@ -1493,12 +1496,12 @@ test("the Export button ships with the dashboard and opens the deck", async () =
     "Copy link surfaces a URL that opens this exact card");
 });
 
-test("the Export button waits for a library", async () => {
+test("the Share button waits for a library", async () => {
   const { env } = await boot();
   await settle();
   const btn = env.root.querySelectorAll("button")
-    .find((b) => b.dataset.action === "export");
-  assert.ok(btn && btn.hidden === true, "nothing to export before a scan");
+    .find((b) => b.dataset.action === "share");
+  assert.ok(btn && btn.hidden === true, "nothing to share before a scan");
 });
 
 test("a shared card link shows the snapshot, not a signup wall", async () => {

@@ -908,6 +908,7 @@ td.cell-platform { white-space: nowrap; }
 
 /* ---- card exports (drawer) and the shared-card landing ---- */
 .export-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: var(--space-4); }
+.export-prompt { margin: 0 0 var(--space-3); font-size: 0.85rem; color: var(--muted); }
 .export-preview {
   display: block;
   width: 100%;

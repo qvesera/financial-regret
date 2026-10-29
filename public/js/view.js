@@ -362,11 +362,11 @@ export const view = {
     menuBtn.setAttribute("aria-label", "Menu");
     menuBtn.setAttribute("aria-haspopup", "true");
     menuBtn.appendChild(icon("dots", 18));
-    // The Wrapped-style export deck. Ready-phase only, like Scan: there is
-    // nothing to export until a library exists.
-    const exportBtn = this.el("button", "button ghost", "Export");
+    // The Wrapped-style share deck. Ready-phase only, like Scan: there is
+    // nothing to share until a library exists.
+    const exportBtn = this.el("button", "button ghost", "Share");
     exportBtn.type = "button";
-    exportBtn.dataset.action = "export";
+    exportBtn.dataset.action = "share";
     actions.appendChild(scanBtn);
     actions.appendChild(keysBtn);
     actions.appendChild(exportBtn);
@@ -1499,11 +1499,16 @@ export const view = {
     return wrap;
   },
 
-  /** The export drawer: kind chips, a live preview, and three ways out. */
+  /** The share drawer: a nudge, the kind chips, a live preview, and three
+   *  ways to get the card into the world. */
   renderExporter(state) {
-    if (this.drawerTitle) this.drawerTitle.textContent = "Export a card";
+    if (this.drawerTitle) this.drawerTitle.textContent = "Share your card";
     const body = this.drawerBody;
     body.textContent = "";
+    body.appendChild(this.el("p", "export-prompt",
+      "Make a card from your library and send it to someone — download the "
+      + "PNG, share the image directly, or copy a link that opens this exact "
+      + "card for anyone."));
     const chips = this.el("div", "export-chips");
     const active = state.exportKind || "wrapped";
     for (const kind of exportKinds(state)) {
