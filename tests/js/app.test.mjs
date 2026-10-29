@@ -870,8 +870,8 @@ test("the header offers each control exactly once, in plain words", async () => 
   // landing hero says it now, and a subtitle was one line of clutter per
   // screen for a sentence nobody read twice.
   const wordmark = env.root.querySelector(".brand").querySelector("h1");
-  assert.equal(wordmark.textContent, "egret",
-    "the wordmark keeps the egret — the ₹ is the hand-made vector glyph, not typed text");
+  assert.equal(wordmark.textContent, "EGRET",
+    "the wordmark is caps — the ₹ is the hand-made vector glyph, not typed text");
   assert.ok(env.root.querySelector(".brand-mark").innerHTML.includes("rupee-glyph"),
     "the rupee is the same vector the shared heading and cards draw");
   assert.equal(env.root.querySelector(".brand-sub"), null,

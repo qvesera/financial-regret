@@ -353,7 +353,7 @@ export const view = {
       if (svg) svg.style.height = `${cap}em`;
     });
     homeBtn.appendChild(mark);
-    homeBtn.appendChild(this.el("span", null, "egret"));
+    homeBtn.appendChild(this.el("span", null, "EGRET"));
     wordmark.appendChild(homeBtn);
     brandText.appendChild(wordmark);
     brand.appendChild(brandText);
