@@ -1192,6 +1192,10 @@ export const view = {
     const top = Math.max(b.p90 || b.p75, b.p75) * 1.08 || 1;
     const x = (v) => pad + (Math.min(v, top) / top) * (W - pad * 2);
 
+    // A visible title, because this chart used to arrive nameless: only the
+    // aria-label said what it was, so a sighted reader guessed "slider".
+    box.appendChild(this.el("p", "dist-title", "Cost per hour across your library"));
+
     const svg = document.createElementNS(SVG_NS, "svg");
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("class", "dist-plot");
@@ -1205,23 +1209,72 @@ export const view = {
       return n;
     };
     svg.appendChild(mk("line", { class: "dist-axis", x1: pad, y1: 26, x2: W - pad, y2: 26 }));
-    svg.appendChild(mk("rect", {
+    // No rx: the rounded capsule was half of why this read as a slider.
+    const iqr = mk("rect", {
       class: "dist-box", x: x(b.p25), y: 12,
-      width: Math.max(2, x(b.p75) - x(b.p25)), height: 14, rx: 3,
-    }));
-    svg.appendChild(mk("line", { class: "dist-median", x1: x(b.p50), y1: 8, x2: x(b.p50), y2: 30 }));
-    svg.appendChild(mk("line", { class: "dist-whisk", x1: x(b.p90), y1: 16, x2: x(b.p90), y2: 22 }));
+      width: Math.max(2, x(b.p75) - x(b.p25)), height: 14,
+    });
+    svg.appendChild(iqr);
+    const med = mk("line", { class: "dist-median", x1: x(b.p50), y1: 8, x2: x(b.p50), y2: 30 });
+    svg.appendChild(med);
+    const p90 = b.p90 ?? b.p75;
+    const whisk = mk("line", { class: "dist-whisk", x1: x(p90), y1: 16, x2: x(p90), y2: 22 });
+    svg.appendChild(whisk);
     const worst = state.comparators && state.comparators.worst[0];
+    let marker = null;
     if (worst && Number.isFinite(worst.rate)) {
-      svg.appendChild(mk("circle", { class: "dist-marker", cx: x(worst.rate), cy: 19, r: 4 }));
+      marker = mk("circle", { class: "dist-marker", cx: x(worst.rate), cy: 19, r: 4 });
+      svg.appendChild(marker);
     }
     box.appendChild(svg);
+
+    // Axis ends named: the scale read as a progress track because nothing on
+    // it said which quantity grew to the right.
+    const ends = this.el("div", "dist-ends");
+    ends.appendChild(this.el("span", null, `${symbol(cur)}0`));
+    ends.appendChild(this.el("span", null, `p90 ${money(p90, cur)}`));
+    box.appendChild(ends);
 
     const summary = this.el("p", "dist-summary",
       `p25 ${money(b.p25, cur)} · median ${money(b.p50, cur)} · p75 ${money(b.p75, cur)}`);
     // No "worst:" suffix here — the hero headline and the hall of shame both
     // name that game already; this line is about the shape of the spread.
     box.appendChild(summary);
+
+    // One explanation panel for the whole chart, skinned like every other .tip
+    // in the app. It sits centred below rather than pinned to the hovered
+    // shape: the shape's own highlight already says which piece this is about,
+    // and a shape-anchored panel would overflow the card on the right-hand
+    // outlier, which sits at the very edge of the scale by construction.
+    // aria-hidden by role design, not by accident: screen readers get the full
+    // reading from the svg's aria-label and the summary line above.
+    const tip = this.el("span", "tip dist-tip");
+    tip.id = "dist-tip";
+    tip.setAttribute("role", "tooltip");
+    box.appendChild(tip);
+
+    // Copy is built once from this render's data; a listener only swaps text
+    // and a class, so none of them holds live state across renders.
+    const say = {
+      box: `Middle half of your library: ${money(b.p25, cur)} to ${money(b.p75, cur)}`
+        + " per hour, p25 to p75. Verdicts grade off this spread — Worth it at or"
+        + " under p25, Fair up to the median, Regret past it.",
+      median: `Median: ${money(b.p50, cur)} per hour. Half your priced, played`
+        + " games cost less than this; anything dearer reads Regret.",
+      p90: `p90: ${money(p90, cur)} per hour — where the priciest 10% of your games begin.`,
+      worst: worst
+        ? `Worst buy: ${worst.name} at ${money(worst.rate, cur)} per hour — the most expensive hour in your library.`
+        : "",
+    };
+    for (const [node, key] of [[iqr, "box"], [med, "median"], [whisk, "p90"], [marker, "worst"]]) {
+      if (!node) continue;
+      node.setAttribute("data-stat", key);
+      node.addEventListener("pointerenter", () => {
+        tip.textContent = say[key];
+        tip.classList.add("on");
+      });
+      node.addEventListener("pointerleave", () => { tip.classList.remove("on"); });
+    }
   },
 
   /** Built once so dragging the slider never rebuilds (and blurs) the input. */

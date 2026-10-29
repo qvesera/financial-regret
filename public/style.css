@@ -1134,13 +1134,41 @@ td.cell-platform { white-space: nowrap; }
 
 /* ---- box plot of cost-per-hour ---- */
 
-.dist { margin-top: var(--space-3); }
+.dist { margin-top: var(--space-3); position: relative; }   /* tip anchors here */
+.dist-title { margin: 0 0 var(--space-2); font-size: 0.8rem; font-weight: 600; }
 .dist-plot { width: 100%; height: 40px; display: block; }
+.dist-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
 .dist-axis { stroke: var(--border); stroke-width: 1; }
 .dist-box { fill: var(--info); fill-opacity: 0.28; }
 .dist-median { stroke: var(--text); stroke-width: 2; }
 .dist-whisk { stroke: var(--muted); stroke-width: 1.5; }
 .dist-marker { fill: var(--tier-regret); stroke: var(--surface); stroke-width: 1.5; }
+
+/* Inspectable shapes: the cursor promises an explanation, the highlight
+   delivers which piece is speaking, and .dist-tip below says the rest. */
+.dist-plot [data-stat] {
+  cursor: help;
+  transition: fill-opacity var(--dur-fast) var(--ease),
+              stroke var(--dur-fast) var(--ease),
+              stroke-width var(--dur-fast) var(--ease),
+              transform var(--dur-fast) var(--ease);
+}
+.dist-box:hover { fill-opacity: 0.5; }
+.dist-median:hover { stroke: var(--accent); stroke-width: 3; }
+.dist-whisk:hover { stroke: var(--accent); stroke-width: 2.5; }
+.dist-marker { transform-box: fill-box; transform-origin: center; }
+.dist-marker:hover { stroke: var(--accent); transform: scale(1.35); }
+
+/* The chart's own copy of the .tip skin: centred under the whole chart,
+   shown by the hovered shape's class rather than by :hover on a chip. */
+.dist-tip { left: 50%; transform: translateX(-50%); top: calc(100% + 6px); }
+.dist-tip.on { opacity: 1; }
 .dist-summary,
 .dist-note {
   margin: var(--space-2) 0 0;

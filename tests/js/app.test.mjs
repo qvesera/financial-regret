@@ -1212,6 +1212,62 @@ test("BYO-key mode needs the visitor's key even when the server has one", async 
     "the Steam hint drops its rate-limit framing too");
 });
 
+test("the cost-per-hour chart names itself and explains each piece on hover", async () => {
+  // The chart needs at least three priced, played games or benchmark() withholds
+  // the quartiles and only the "draw a benchmark" note renders.
+  const { env } = await boot({ seed: (e) => {
+    e.localStorage.setItem("steam_id", "76561198000000000");
+    e.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) return { json: { games: [
+        { id: "Steam:1", name: "Alpha", platform: "Steam", hours: 4, appid: 1 },
+        { id: "Steam:2", name: "Beta", platform: "Steam", hours: 20, appid: 2 },
+        { id: "Steam:3", name: "Gamma", platform: "Steam", hours: 60, appid: 3 },
+        { id: "Steam:4", name: "Delta", platform: "Steam", hours: 100, appid: 4 },
+      ] } };
+      if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) {
+        return { json: { games: [] } };
+      }
+      // Rates: Alpha 30, Beta 25, Delta 20, Gamma ~16.7 — a unique worst buy,
+      // so the marker test cannot depend on sort tie-breaking.
+      if (url.includes("/api/prices")) return { json: { prices: {
+        "Steam:1": 120, "Steam:2": 500, "Steam:3": 1000, "Steam:4": 2000,
+      } } };
+      return null;
+    });
+  } });
+  await settle();
+
+  const dist = env.document.getElementById("dist");
+  assert.equal(dist.querySelector(".dist-title").textContent,
+    "Cost per hour across your library",
+    "a visible name — it used to be aria-only, which is how it read as a slider");
+
+  const ends = dist.querySelector(".dist-ends").textContent;
+  assert.ok(ends.includes("₹0") && ends.includes("p90"),
+    `axis ends are labelled: ${ends}`);
+
+  const tip = dist.querySelector(".dist-tip");
+  assert.ok(tip, "explanation panel present");
+  assert.equal(tip.getAttribute("role"), "tooltip");
+  assert.equal(tip.classList.contains("on"), false, "hidden until something is hovered");
+
+  const marker = dist.querySelector(".dist-marker");
+  assert.ok(marker, "worst-buy dot drawn");
+  assert.equal(marker.getAttribute("data-stat"), "worst",
+    "the shapes declare which statistic they carry");
+  marker.dispatch("pointerenter");
+  assert.equal(tip.classList.contains("on"), true, "hovering the dot shows the tip");
+  assert.ok(tip.textContent.includes("Worst buy: Alpha"), `tip reads: ${tip.textContent}`);
+  assert.ok(tip.textContent.includes("per hour"), "and states the rate with its unit");
+
+  const median = dist.querySelector(".dist-median");
+  median.dispatch("pointerenter");
+  assert.ok(tip.textContent.includes("Median:"), "moving to another piece rewrites the tip");
+
+  median.dispatch("pointerleave");
+  assert.equal(tip.classList.contains("on"), false, "leaving hides it again");
+});
+
 test("the explanations still describe the actual maths", async () => {
   const { env } = await boot({ seed: withSteam });
   await settle();
