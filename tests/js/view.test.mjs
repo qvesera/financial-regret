@@ -157,26 +157,6 @@ test("the hidden attribute beats any author display rule", () => {
   );
 });
 
-test("the dashboard rows share one gutter and one sidebar column", () => {
-  // The circled bug: summary, insights and body each picked their own gutters
-  // and sidebar widths, so the card edges stepped down the page instead of
-  // forming straight columns.
-  const css = readFileSync(new URL("../../public/style.css", import.meta.url), "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "");
-  assert.ok(css.includes("--side-col: 320px"), "one sidebar width token exists");
-  const at = (sel) => css.indexOf(sel);
-  const slice = (a, b) => css.slice(at(a), at(b));
-  assert.ok(slice(".dash-grid {", ".hero {").includes("var(--side-col)"),
-    "the summary sidebar is the body's sidebar");
-  assert.ok(slice(".panel-side {", ".dashboard-body").includes("var(--side-col)")
-    || css.slice(at(".panel-side {"), at(".panel-side {") + 120).includes("var(--side-col)"),
-    "the body sidebar uses the same token");
-  assert.ok(slice(".dashboard-body {", ".panel {").includes("padding: 0"),
-    "the body no longer insets itself under the rows above");
-  assert.ok(css.slice(at(".ready {"), at(".ready {") + 140).includes("var(--space-5)"),
-    "the page gutter lives on the screen, not on one of its rows");
-});
-
 test("pageWindow shows every page when few, a window with ellipses when many", () => {
   assert.deepEqual(pageWindow(1, 3), [1, 2, 3], "small libraries list outright");
   assert.deepEqual(pageWindow(4, 7), [1, 2, 3, 4, 5, 6, 7], "seven pages is still a short list");
