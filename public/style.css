@@ -1121,7 +1121,9 @@ td.cell-platform { white-space: nowrap; }
 
 .hero-line {
   margin: var(--space-3) 0 0;
-  max-width: 62ch;            /* readable measure — never full-bleed text */
+  /* No max-width measure: the hero spans 8 of 12 columns, wide enough to hold
+     the whole headline on one line. A 62ch cap wrapped the sentence onto two
+     rows for no gain. */
   color: var(--muted);
   font-size: 0.9375rem;
 }
