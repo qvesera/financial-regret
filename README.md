@@ -25,7 +25,7 @@ A browser-based dashboard that shows how much you have spent on games versus how
 ### Local dev
 
 ```bash
-pip install -r api/requirements.txt -r requirements-dev.txt
+pip install -r backend/requirements.txt -r requirements-dev.txt
 ./run.sh            # http://localhost:8089  (or ./run.sh <port>)
 ```
 
