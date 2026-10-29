@@ -1224,12 +1224,16 @@ export const view = {
     const cur = this.currency;
     this.heroBits.figure.textContent = money(m.libraryValue ?? 0, cur);
     const worst = state.comparators && state.comparators.worst[0];
+    // Trailing non-breaking space: the info chip is an atomic inline-flex box,
+    // so browsers allow a line break right before it. Once the sentence fills
+    // the measure, that break orphaned the chip alone onto the next line. The
+    // nbsp glues it to the last word so it always rides at the sentence's end.
     this.heroBits.lineText.textContent = buildHeadline({
       total: (state.games || []).length,
       played: m.knownCount ?? 0,
       worstName: worst ? worst.name : null,
       worstRate: worst ? money(worst.rate, cur) : null,
-    });
+    }) + "\u00A0";
   },
 
   /** Box plot of cost-per-hour: p25→p75 box, median tick, p90 whisker and a
