@@ -10,8 +10,8 @@ import * as api from "./api.js";
 import { view } from "./view.js";
 import { computeRegret } from "./regret.js";
 import { currencyForCountry } from "./format.js";
+import { paintVerdictToy, repaintVerdictToy, setToyAnchor, TOY_GAME } from "./arcade.js";
 import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
-import { paintVerdictToy } from "./arcade.js";
 
 /** UI state worth keeping across reloads — filters and the what-if setting.
  *  `view_mode` stays in its own key: several tests assert it by name. */
@@ -840,6 +840,7 @@ function onChange(e) {
       state.currency = cur;
       localStorage.setItem("currency", cur);
       renderAll();
+      anchorToyPrice();   // the demo re-asks the store for its hero's new price
     }
   }
 }
@@ -887,6 +888,32 @@ function wireCrossWindow() {
 
 export function getState() { return state; }
 
+/** The demo's hero price, asked of the store instead of converted: regional
+ *  pricing ignores FX (Hollow Knight is about $14.99 in the US, not the $7.84
+ *  that ₹690 converts to). One real number anchors every toy figure together
+ *  — the verdict arc is scale-invariant, so only the money becomes true for
+ *  this region. A keyless instance, a missing key or an offline API simply
+ *  leave the static conversion standing: pricing is optional, the demo is
+ *  not allowed to be. */
+async function anchorToyPrice() {
+  if (state.phase !== "onboarding" || state.currency === "INR") return;
+  try {
+    const res = await api.fetchPrices([{
+      id: "toy-hero",
+      name: TOY_GAME.name,
+      appid: TOY_GAME.appid,
+      platform: "Steam",
+    }], state.currency);
+    const price = res.prices && res.prices["toy-hero"];
+    // Only when the store priced it in the currency we asked for — an
+    // upstream relabel would otherwise stamp one region's price on another.
+    if (price > 0 && (!res.currency || res.currency === state.currency)) {
+      setToyAnchor(state.currency, price / TOY_GAME.price);
+    }
+  } catch { /* the converted figure stands */ }
+  repaintVerdictToy(state.currency);
+}
+
 export async function boot() {
   const root = document.getElementById("app") || document.body;
   view.shell(root);
@@ -928,6 +955,7 @@ export async function boot() {
     if (local && local !== state.currency) state.currency = local;
   }
   renderAll();
+  await anchorToyPrice();   // the landing page's demo, before anything else reads it
   if (state.phase === "ready" && state.games.length === 0) {
     await scan();
   } else if (state.games.length && snap && snap.currency && snap.currency !== state.currency) {

@@ -1430,3 +1430,25 @@ test("the explanations still describe the actual maths", async () => {
   assert.ok(tip("rank-worst").includes("hour or more of play"));
   assert.ok(tip("rank-best").includes("hour or more of play"));
 });
+
+test("the demo asks the store for the hero's real regional price", async () => {
+  // Converting ₹690 at an FX rate would show a US visitor $7.84 — a number
+  // no store charges. Regional pricing is its own thing, so the landing page
+  // prices the one real game in the batch and anchors the demo on it.
+  const { env, mod } = await boot({ seed: (e) => {
+    e.fetchRoutes.push((url) => {
+      if (url.includes("/api/config")) {
+        return { json: { country: "US", requireUserKeys: false, keys: { itad: true } } };
+      }
+      if (url.includes("/api/prices")) {
+        return { json: { prices: { "toy-hero": 14.99 }, currency: "USD" } };
+      }
+      return null;
+    });
+  } });
+  await settle();
+
+  assert.equal(mod.getState().currency, "USD", "the region picked the currency first");
+  assert.equal(env.root.querySelector(".toy-price").textContent, "$14.99",
+    "the store's US price, not an FX conversion of India's list price");
+});

@@ -70,15 +70,37 @@ const INR_PER_UNIT = {
   THB: 2.5, PHP: 1.5, RUB: 0.9, UAH: 2.1, CZK: 3.8, HUF: 0.24, ILS: 24,
 };
 
-/** One toy figure (an INR price or rate) formatted in the display currency. */
+/** One toy figure (an INR amount or rate) formatted in the display currency.
+ *  The factor is either the static rate below or — when the store answered
+ *  with the hero's real regional price — the anchor, which is the truth for
+ *  that currency and outranks any conversion. */
 export function toyMoney(amountInr, currency = "INR") {
-  return money(amountInr / (INR_PER_UNIT[currency] || 1), currency);
+  return money(amountInr * factorFor(currency), currency);
 }
 
 /** The currency the widget is currently painted in. Module-level because the
  *  toy repaints in place — the landing page is built once, so a currency
  *  change must reach the slider's handler without rebuilding the page. */
 let toyCurrency = "INR";
+
+/** Regional anchor for one currency: the hero's real store price divided by
+ *  the INR figure the demo is built on. Regional pricing is not FX — Hollow
+ *  Knight is about $14.99 in the US, not the $7.84 that ₹690 converts to —
+ *  so when the backend can answer, this single number rescales every toy
+ *  figure together. The arc compares each rate against the sample's own
+ *  quartiles, so nothing about the verdicts moves; what changes is that the
+ *  money becomes true for this region. Scoped to a currency: a later picker
+ *  change cannot wear another region's price. */
+let toyAnchor = null;
+
+export function setToyAnchor(currency, factor) {
+  toyAnchor = factor > 0 ? { currency, factor } : null;
+}
+
+function factorFor(currency) {
+  if (toyAnchor && toyAnchor.currency === currency) return toyAnchor.factor;
+  return 1 / (INR_PER_UNIT[currency] || 1);
+}
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);

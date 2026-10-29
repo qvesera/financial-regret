@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { installEnv } from "./dom-stub.mjs";
 import {
   toyState, renderVerdictToy, paintVerdictToy, repaintVerdictToy, toyMoney,
+  setToyAnchor,
   TOY_SAMPLE, TOY_GAME, TOY_MAX, TOY_DEFAULT,
 } from "../../public/js/arcade.js";
 import { benchmark } from "../../public/js/verdict.js";
@@ -136,4 +137,32 @@ test("the toy's money speaks the display currency, converted, not hard-coded", (
   assert.match(document.getElementById("toy-rate").textContent, /€\d/);
 
   repaintVerdictToy("INR");   // module currency must not leak into the next test
+});
+
+test("a real regional price anchors the demo instead of converting it", () => {
+  installEnv();
+  const toy = renderVerdictToy("USD");
+  document.documentElement.appendChild(toy);
+  assert.equal(toy.querySelector(".toy-price").textContent, "$7.84",
+    "no store answer yet: the static conversion stands in");
+
+  // What a US store actually charges for Hollow Knight, as one number that
+  // rescales every toy figure — regional pricing is not FX.
+  setToyAnchor("USD", 14.99 / TOY_GAME.price);
+  repaintVerdictToy("USD");
+  assert.equal(document.getElementById("toy-price").textContent, "$14.99",
+    "the region's real price, not an FX conversion of India's");
+
+  // The arc is scale-invariant: anchoring moves money, never a verdict.
+  assert.equal(toyState(1).tier, "regret", "one hour still reads Regret");
+  assert.equal(toyState(53).tier, "worth", "53h still reaches Worth it");
+
+  // The anchor is scoped to its currency: another region falls back to its
+  // own rate rather than wearing someone else's price.
+  repaintVerdictToy("EUR");
+  assert.equal(document.getElementById("toy-price").textContent, "€7.26",
+    "₹690 at the static EUR rate, untouched by the US anchor");
+
+  setToyAnchor("USD", null);   // do not leak into the next test
+  repaintVerdictToy("INR");
 });

@@ -82,7 +82,9 @@ The display currency starts from the visitor's region: the edge's country
 header (Vercel's `x-vercel-ip-country`, Cloudflare's `cf-ipcountry`) rides on
 `/api/config` and is mapped to a currency the picker offers. A self-hosted
 `server.py` reports none and keeps the INR default, and a currency the visitor
-picked is never overridden.
+picked is never overridden. The landing-page demo converts its INR figures as
+a fallback, but anchors them on the hero game's real regional price whenever
+the instance can price it — regional pricing is not an exchange rate.
 
 **Optional long-running backend** — `render.yaml` plus the root `Dockerfile`
 run `server.py` as a persistent service, for libraries so large that a scan
