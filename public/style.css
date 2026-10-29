@@ -1147,8 +1147,9 @@ td.cell-platform { white-space: nowrap; }
 }
 .kpi-grid .kpi-value { font-size: 1.375rem; margin-top: auto; }
 
-/* regret panel: the gauge, the distribution and the what-if toy together */
-.regret-card { padding: var(--space-5); }
+/* regret panel: the gauge, the distribution and the what-if toy together.
+   Sits a step roomier than the hero beside it (space-6 vs space-5): the toy   and the box plot need the extra inset to breathe against the card edge. */
+.regret-card { padding: var(--space-6); }
 .regret-card > .kpi-card {
   border: 0;
   padding: 0;
