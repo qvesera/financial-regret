@@ -1041,13 +1041,20 @@ test("a rank list emptied by a filter says so, and recovers when cleared", async
   assert.equal(worst().querySelectorAll(".rank-name").length, 1, "restores when cleared");
 });
 
-test("a store that never reports playtime takes both ranked lists with it", async () => {
+test("a store with no playtime takes the rate lists — untouched rides on", async () => {
   const { env, mod } = await boot({ seed: withSteamAndAmazon });
   await settle();
 
   const cards = () => env.root.querySelectorAll(".rank-card");
-  assert.equal(cards().length, 2, "both lists ship");
+  const untouchedCard = () => cards().find((c) => c.querySelector(".rank-untouched"));
+  const names = (sel) => env.root.querySelector(sel)
+    .querySelectorAll(".rank-name").map((n) => n.textContent);
+
+  assert.equal(cards().length, 3, "three ranked cards ship");
   assert.ok(cards().every((c) => !c.hidden), "visible while any store reports hours");
+  assert.deepEqual(names(".rank-untouched"),
+    ["Cyberpunk 2077", "Elden Ring", "Control", "Crysis"],
+    "unopened, dearest first — ranked by price, not by a rate they cannot have");
 
   const amazon = env.root.querySelectorAll(".platform-row")
     .find((r) => r.dataset.platform === "Amazon");
@@ -1059,9 +1066,17 @@ test("a store that never reports playtime takes both ranked lists with it", asyn
   const rows = mod.getState().rows;
   assert.ok(rows.length > 0, "the store has games on the table");
   assert.ok(rows.every((r) => r.hours == null), "…and not one of them carries playtime");
-  assert.ok(cards().every((c) => c.hidden),
-    "nothing here could ever rank, so the cards leave the page — "
-    + "'nothing qualifies yet' would be a promise they cannot keep");
+
+  const rateCards = cards().filter((c) => !c.querySelector(".rank-untouched"));
+  assert.equal(rateCards.length, 2, "the two rate lists are still on the page…");
+  assert.ok(rateCards.every((c) => c.hidden),
+    "…but hidden: nothing here could ever rank per hour, and 'nothing qualifies "
+    + "yet' would be a promise they cannot keep");
+  assert.ok(untouchedCard() && !untouchedCard().hidden,
+    "the untouched list stays — it ranks by price, and a store that never "
+    + "reports playtime is exactly where it earns its keep");
+  assert.deepEqual(untouchedCard().querySelectorAll(".rank-name").map((n) => n.textContent),
+    ["Control", "Crysis"], "its own dearest-first ordering, from this view only");
 
   amazon.dispatch("click");               // the toggle clears itself
   await settle();
@@ -1076,11 +1091,11 @@ test("every dashboard metric carries a wired explanation chip", async () => {
   await settle();
 
   const chips = env.root.querySelectorAll(".info");
-  // 7 KPI cards + the hero label + the headline + both ranked cards.
+  // 7 KPI cards + the hero label + the headline + all three ranked cards.
   // Root-scoped on purpose: it counts attached nodes only, which is what makes
   // it a real guard against a chip being detached from the page while its id
   // stays reachable — exactly what happened with the ₹/hour label.
-  assert.equal(chips.length, 11,
+  assert.equal(chips.length, 12,
     chips.map((c) => c.getAttribute("aria-describedby")).join(", "));
 
   for (const chip of chips) {
@@ -1097,7 +1112,7 @@ test("every dashboard metric carries a wired explanation chip", async () => {
   }
 
   for (const key of ["kpi-library", "kpi-regret", "kpi-vph", "hero-spend",
-                     "rank-worst", "rank-best"]) {
+                     "rank-worst", "rank-best", "rank-untouched"]) {
     assert.ok(env.document.getElementById(`tip-${key}`), `tip-${key} exists`);
   }
 });

@@ -153,6 +153,11 @@ const METRIC_TIPS = {
     + "session proves nothing.",
   "rank-best": "The same ranking cheapest per hour first — the most play for "
     + "the least money. Games need an hour or more of play to qualify.",
+  "rank-untouched": "Unopened games ranked by what they cost, dearest first — "
+    + "the biggest purchases sitting idle. Per-hour maths cannot rank them "
+    + "(there are hardly any hours), so the price does. Titles whose store "
+    + "never reports playtime count as untouched here too, exactly as the "
+    + "verdict facet counts them.",
 };
 
 /** Two-letter placeholder for a cover that has no art (yet). */
@@ -850,11 +855,13 @@ export const view = {
     const insights = this.el("div", "insights");
     const worstCard = this.rankCard("Hall of shame", "worst");
     const bestCard = this.rankCard("Best value", "best");
+    const untouchedCard = this.rankCard("Untouched", "untouched");
     insights.appendChild(worstCard.card);
     insights.appendChild(bestCard.card);
+    insights.appendChild(untouchedCard.card);
     wrap.appendChild(insights);
-    this.rankLists = { worst: worstCard.list, best: bestCard.list };
-    this.rankCards = { worst: worstCard.card, best: bestCard.card };
+    this.rankLists = { worst: worstCard.list, best: bestCard.list, untouched: untouchedCard.list };
+    this.rankCards = { worst: worstCard.card, best: bestCard.card, untouched: untouchedCard.card };
 
 
     const bodyEl = this.el("div", "dashboard-body");
@@ -1365,28 +1372,34 @@ export const view = {
     if (!this.rankLists) return;
     const cur = this.currency;
     // Some stores report no playtime at all — Amazon pins hours to null by
-    // design, and Epic's playtime endpoint can fail mid-scan. When every
-    // visible row is one of those, neither list could ever fill, so the
-    // "nothing qualifies yet" copy would be a permanent fiction. Take the
-    // cards off the page instead; they return the moment one visible row
-    // carries hours.
+    // design, and Epic's playtime endpoint can fail mid-scan. The two rate
+    // lists could never fill from such a view, so their cards leave the page
+    // rather than promising forever that something "qualifies yet". Untouched
+    // is exempt: it ranks by price, and a no-playtime store is exactly where
+    // it earns its keep.
     const rows = state.rows || [];
     const noHoursAnywhere = rows.length > 0 && rows.every((r) => r.hours == null);
-    for (const kind of ["worst", "best"]) {
+    for (const kind of ["worst", "best", "untouched"]) {
       const card = this.rankCards && this.rankCards[kind];
-      if (card) card.hidden = noHoursAnywhere;
+      if (card) card.hidden = kind !== "untouched" && noHoursAnywhere;
       const list = this.rankLists[kind];
       if (!list) continue;
       list.textContent = "";
-      if (noHoursAnywhere) continue;
+      if (kind !== "untouched" && noHoursAnywhere) continue;
       const items = (state.comparators && state.comparators[kind]) || [];
       if (!items.length) {
         // The list is empty either because nothing qualifies yet or because the
         // filters hid everything that did — say which, or the reader assumes
-        // the product is broken.
-        list.appendChild(this.el("li", "rank-empty", filtersActive(state)
-          ? "Nothing in this view has both an hour of play and a price."
-          : "No game has both an hour of play and a price yet."));
+        // the product is broken. Each kind names what *it* needs: the rate
+        // lists need an hour of play, the untouched list needs a price.
+        const empty = kind === "untouched"
+          ? (filtersActive(state)
+            ? "Nothing in this view is unopened with a price."
+            : "No unopened games with a price.")
+          : (filtersActive(state)
+            ? "Nothing in this view has both an hour of play and a price."
+            : "No game has both an hour of play and a price yet.");
+        list.appendChild(this.el("li", "rank-empty", empty));
         continue;
       }
       for (const item of items) {
@@ -1396,7 +1409,10 @@ export const view = {
         li.tabIndex = 0;
         li.setAttribute("role", "button");
         li.appendChild(this.el("span", "rank-name", item.name));
-        li.appendChild(this.el("span", "rank-rate", perHour(item.rate, cur)));
+        // Untouched has no rate to show — the purchase price takes the rate
+        // slot, because price is what the list is ranked by.
+        li.appendChild(this.el("span", "rank-rate",
+          kind === "untouched" ? money(item.price, cur) : perHour(item.rate, cur)));
         li.appendChild(this.el("span", "rank-hours", hours(item.hours)));
         list.appendChild(li);
       }

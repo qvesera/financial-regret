@@ -151,6 +151,21 @@ test("comparators rank the extremes and ignore unproven games", () => {
   assert.ok(!worst.some((x) => x.name === "H"), "unpriced games are excluded");
 });
 
+test("Untouched ranks unopened games by what they cost, not by rate", () => {
+  const { untouched } = comparators([
+    g("u1", "U1", 0, 900),
+    g("u2", "U2", 0, 1500),
+    g("u3", "U3", null, 1200),   // unknown playtime counts, like the verdict
+    g("p1", "P1", 10, 5000),     // played: not untouched, whatever it cost
+    g("f1", "F1", 0, 0),         // free: nothing was spent
+    g("n1", "N1", 0, null),      // unpriced: no price to rank on
+  ]);
+  assert.deepEqual(untouched.map((x) => x.name), ["U2", "U3", "U1"],
+    "dearest unopened purchase first; played, free and unpriced rows stay out");
+  assert.equal(untouched[0].price, 1500);
+  assert.equal(untouched.length, 3, "the other three had no spend to rank by");
+});
+
 test("every tier has a human label", () => {
   for (const t of ["worth", "fair", "regret", "untouched", "nodata", "unknown"]) {
     assert.ok(TIER_LABEL[t], `${t} labelled`);

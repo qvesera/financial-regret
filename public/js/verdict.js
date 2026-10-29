@@ -154,5 +154,19 @@ export function comparators(rows, limit = 5) {
     }))
     .filter((x) => Number.isFinite(x.rate));
   const desc = [...scored].sort((a, b) => b.rate - a.rate || (b.hours || 0) - (a.hours || 0));
-  return { worst: desc.slice(0, limit), best: [...desc].reverse().slice(0, limit) };
+  // Untouched ranked by what it cost: an unopened game has no rate to rank on
+  // (₹/hour over ~zero hours is unbounded), and the honest measure of a
+  // wasted purchase is the purchase. Mirrors the Untouched verdict — hours
+  // unknown or under an hour — so the facet filter and this list always agree,
+  // and free and unpriced rows stay out because there is no spend to rank.
+  const untouched = (rows || [])
+    .filter((x) => x.price > 0 && (x.hours == null || x.hours < 1))
+    .sort((a, b) => b.price - a.price || (a.hours || 0) - (b.hours || 0))
+    .slice(0, limit)
+    .map((x) => ({ id: x.id, name: x.name, hours: x.hours, price: x.price }));
+  return {
+    worst: desc.slice(0, limit),
+    best: [...desc].reverse().slice(0, limit),
+    untouched,
+  };
 }
