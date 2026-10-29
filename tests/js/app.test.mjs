@@ -1110,6 +1110,28 @@ test("the hero figure stays a bare figure", async () => {
   assert.ok(micro && micro.querySelector(".info"), "the label carries it instead");
 });
 
+test("the headline's chip rides at the end of the sentence, not on its own row", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  const line = env.document.getElementById("hero-line");
+  assert.ok(line.querySelector(".info"),
+    "inside the paragraph, so it sits inline after the last word");
+
+  // The bug this replaces: appended as a sibling of the paragraph, the chip
+  // fell onto its own row and hung in the gap above the KPI grid.
+  const orphanChip = env.document.getElementById("hero").children
+    .some((el) => el.classList && el.classList.contains("info"));
+  assert.ok(!orphanChip,
+    "no chip as a direct child of the hero — only the labelled blocks belong there");
+
+  // updateHero rewrites the sentence on every render; reaching this text
+  // through the inner span proves the chip survived those rewrites instead of
+  // being detached from the page at build time.
+  assert.ok(line.textContent.includes("Worst buy:"),
+    "the sentence still renders through the inner span");
+});
+
 test("the explanations still describe the actual maths", async () => {
   const { env } = await boot({ seed: withSteam });
   await settle();

@@ -705,10 +705,17 @@ export const view = {
     const figure = this.el("p", "hero-figure", "—");
     figure.id = "hero-spend";
     hero.appendChild(figure);
-    const line = this.el("p", "hero-line", "");
+    const line = this.el("p", "hero-line");
     line.id = "hero-line";
+    // The sentence lives in its own span, because updateHero rewrites it on
+    // every render and a textContent write on the paragraph would take the
+    // chip with it — the same wipe that once deleted the ₹/hour chip. The chip
+    // rides inline at the end of the sentence; as a sibling of the paragraph
+    // it fell onto its own row and hung there like a stray character.
+    const lineText = this.el("span", null, "");
+    line.appendChild(lineText);
+    line.appendChild(this.infoTip("hero-line", "the headline"));
     hero.appendChild(line);
-    hero.appendChild(this.infoTip("hero-line", "the headline"));
 
     const kpi = this.el("div", "kpi-grid");
     let ringSvg = null;
@@ -771,7 +778,7 @@ export const view = {
     // `kpi` is the scope renderKpis queries: it must reach #kpi-regret now
     // that the regret card has moved out of the row.
     wrap.appendChild(summary);
-    this.heroBits = { figure, line };
+    this.heroBits = { figure, line, lineText };
     this.distBox = dist;
 
     // ---- the two ranked lists: worst buys and best value ----
@@ -1091,7 +1098,7 @@ export const view = {
     const cur = this.currency;
     this.heroBits.figure.textContent = money(m.libraryValue ?? 0, cur);
     const worst = state.comparators && state.comparators.worst[0];
-    this.heroBits.line.textContent = buildHeadline({
+    this.heroBits.lineText.textContent = buildHeadline({
       total: (state.games || []).length,
       played: m.knownCount ?? 0,
       worstName: worst ? worst.name : null,
