@@ -605,6 +605,9 @@ select.sort {
 .grid-hint { grid-column: 1 / -1; font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0; }
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { text-align: left; padding: 0.6rem 0.5rem; border-bottom: 1px solid var(--border); }
+/* Numeric columns right-align on tabular figures so the digits stack down the
+   column — "8.4 h" and "142.6 h" line up on the decimal instead of drifting. */
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 th { color: var(--muted); font-weight: 500; font-size: 0.8rem; }
 tr.game-row:hover { background: var(--surface-2); }
 

@@ -1000,8 +1000,10 @@ export const view = {
     const table = this.el("table");
     const thead = this.el("thead");
     const hrow = this.el("tr");
+    // Columns 2–4 (price, hours, rate) are numeric: they get .num so CSS can
+    // right-align them on tabular figures and the digits stack.
     const headerCells = ["Game", "Platform", "Price", "Hours", `${symbol(this.currency)} / hour`, "Verdict"]
-      .map((h) => { const th = this.el("th", null, h); hrow.appendChild(th); return th; });
+      .map((h, i) => { const th = this.el("th", i >= 2 && i <= 4 ? "num" : null, h); hrow.appendChild(th); return th; });
     thead.appendChild(hrow);
     table.appendChild(thead);
     const tbody = this.el("tbody");
@@ -1708,7 +1710,10 @@ export const view = {
       ];
       cells.forEach((text, i) => {
         if (i !== 1) {
-          const td = this.el("td", i === 0 ? "cell-name" : null, text);
+          // Price, hours and rate (2–4) are numeric: .num right-aligns them on
+          // tabular figures so the digits stack down the column.
+          const cls = i === 0 ? "cell-name" : (i >= 2 && i <= 4 ? "num" : null);
+          const td = this.el("td", cls, text);
           // Add-on rows carry a small chip so DLC is legible in the list.
           if (i === 0 && game.kind === "dlc") td.appendChild(this.el("span", "dlc-chip", "DLC"));
           tr.appendChild(td);
