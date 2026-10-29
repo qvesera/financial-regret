@@ -733,6 +733,13 @@ export const view = {
     keysCard.appendChild(kh);
     const blurb = this.el("p", "pc-blurb", copy.blurb);
     keysCard.appendChild(blurb);
+    // Shown only when a Connect click was refused for want of a key (the gate
+    // in app.js reveals it); saving a key rebuilds this card and it goes quiet.
+    const lockNote = this.el("p", "keys-lock",
+      "No store connects without at least one key — save one below first.");
+    lockNote.id = "keys-lock";
+    lockNote.hidden = true;
+    keysCard.appendChild(lockNote);
     // Two labelled groups, not three: prices, playtime and PSN prices are all
     // functional keys. Filing Steam under "optional extras" claimed the store
     // could be read without one, which only holds while the server shares its

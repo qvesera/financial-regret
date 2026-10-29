@@ -482,7 +482,48 @@ function ensurePasteSurface(platform) {
   if (box) box.open = true;
 }
 
+// ---------- bring-your-own-key gate ----------
+
+/** The four keys the keys card accepts, stored as `${kind}_api_key`. */
+const USER_KEY_KINDS = ["itad", "steam", "platprices", "sgdb"];
+
+/** Did this visitor bring at least one key of their own? This is a
+ *  bring-your-own-key app: a store linked without one could not be priced
+ *  (or, for Steam, read at all), so linking is gated on this. */
+function hasUserKeys() {
+  return USER_KEY_KINDS.some((k) => !!localStorage.getItem(`${k}_api_key`));
+}
+
+/** No keys: refuse the store login and land on the keys card instead —
+ *  highlight it, reveal the note that says why, scroll the fields into view
+ *  and focus the first one. Saving a key rebuilds the onboarding card, which
+ *  clears both the note and the highlight. */
+function goToKeysCard() {
+  if (state.phase !== "onboarding") {
+    closeDrawer();
+    state.phase = "onboarding";
+    renderAll();
+  }
+  const card = document.querySelector(".api-keys");
+  if (card) card.classList.add("needs-keys");
+  const note = document.getElementById("keys-lock");
+  if (note) note.hidden = false;
+  const first = document.getElementById("itad-key");
+  const target = first || card;
+  if (target && typeof target.scrollIntoView === "function") {
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  if (first && typeof first.focus === "function") first.focus({ preventScroll: true });
+}
+
 function linkPlatform(platform) {
+  // The gate: no key this browser has ever been given, no login flow started.
+  // Clicking Connect would otherwise open a store login the visitor could not
+  // finish usefully — send them to the keys card instead.
+  if (!hasUserKeys()) {
+    goToKeysCard();
+    return;
+  }
   if (platform === "steam") {
     window.location.href = api.loginSteam(`${window.location.origin}/steam-callback.html`);
   } else if (platform === "gog") {
