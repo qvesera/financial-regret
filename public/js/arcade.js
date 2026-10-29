@@ -25,25 +25,30 @@ export const TOY_SAMPLE = [
   { id: "toy-6", name: "Void Cathedral", price: 1999, hours: 8 },
 ];
 
-/** The card under the slider, bought and never opened. Starting at 0h matters:
+/** The card under the slider, owned and never opened. Starting at 0h matters:
  *  whatIf() falls back to the game's own hours whenever the proposed playtime
  *  is under one, so a demo game with hours already logged would read "Regret"
  *  at 0h instead of "Untouched" — and the honest first frame here is the one
  *  the hero copy promises: a game you never opened.
  *
- *  Prices are tuned so the range actually spans every verdict: with the sample
- *  quartiles as set, 60h lands inside p25 and reaches "Worth it". */
+ *  A real game, not an invented one: Hollow Knight, at its actual Indian list
+ *  price. ₹690 also sits inside the window where one drag still spans all
+ *  four verdicts against the sample quartiles (above roughly ₹571 an hour is
+ *  still Regret, and at or under roughly ₹1,301 it reaches Worth it by 53h),
+ *  so the arc stays arithmetic instead of being tuned around a fiction. */
 export const TOY_GAME = {
   id: "toy-hero",
-  name: "Hollow Shard",
-  price: 1299,
+  name: "Hollow Knight",
+  appid: 367520,
+  price: 690,
   hours: 0,
-  // Baked, not fetched: Hollow Shard is a fictional SKU, so IsThereAnyDeal
-  // and SteamGridDB have nothing to return — and the toy's pitch is
-  // "no sign-up, no key", which a live lookup would break. The cover ships
-  // beside the page and the price sits in this constant; together they are
-  // the permanent cache of the two things the card used to show blank.
-  cover: "covers/hollow-shard.svg",
+  // Cached beside the page, not looked up: img-src 'self' forbids the Steam
+  // CDN at runtime, and the toy's pitch is "no sign-up, no key" — a cover or
+  // price fetch would break both. The art is Hollow Knight's official Steam
+  // library cover (Team Cherry's, via Valve's CDN), fetched once and shipped;
+  // the price is the real ₹690 India list price, to be updated only when the
+  // publisher changes it.
+  cover: "covers/hollow-knight.jpg",
 };
 
 export const TOY_MIN = 0;

@@ -1654,14 +1654,14 @@ td.cell-platform { white-space: nowrap; }
   margin-bottom: var(--space-4);
 }
 
-/* Baked cover art for the demo cartridge, drawn at 8px chunks and scaled —
-   image-rendering keeps the pixels hard instead of smearing them. */
+/* Baked cover for the demo cartridge: portrait art cropped into a square
+   frame. */
 .toy-cover {
   width: 84px;
   height: 84px;
   flex: none;
   border: 2px solid var(--border);
-  image-rendering: pixelated;
+  object-fit: cover;
 }
 .toy-titles { flex: 1; min-width: 0; }
 .toy-price { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.85rem; }
@@ -1718,8 +1718,11 @@ td.cell-platform { white-space: nowrap; }
 }
 .toy-out { color: var(--accent); font-size: 0.85rem; }
 
-/* Slider: square thumb, phosphor trail — a cabinet fader, not a iOS switch. */
-.toy-range {
+/* Both faders — the landing toy's and the dashboard what-if's — same cabinet
+   hardware: square thumb, phosphor trail, ticked track. A native range input
+   here was the one control still wearing the browser's skin. */
+.toy-range,
+.sim-range {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -1730,7 +1733,8 @@ td.cell-platform { white-space: nowrap; }
     rgba(255, 255, 255, 0.06) 0 10px, transparent 10px 20px);
   cursor: ew-resize;
 }
-.toy-range::-webkit-slider-thumb {
+.toy-range::-webkit-slider-thumb,
+.sim-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 22px;
@@ -1740,7 +1744,8 @@ td.cell-platform { white-space: nowrap; }
   background: var(--accent);
   box-shadow: 0 0 12px rgba(110, 231, 183, 0.75);
 }
-.toy-range::-moz-range-thumb {
+.toy-range::-moz-range-thumb,
+.sim-range::-moz-range-thumb {
   width: 22px;
   height: 26px;
   border: 3px solid var(--bg);
@@ -1748,7 +1753,8 @@ td.cell-platform { white-space: nowrap; }
   background: var(--accent);
   box-shadow: 0 0 12px rgba(110, 231, 183, 0.75);
 }
-.toy-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.toy-range:focus-visible,
+.sim-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 .toy-scale {
   display: flex;

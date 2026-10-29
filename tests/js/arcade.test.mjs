@@ -10,7 +10,7 @@ import { benchmark } from "../../public/js/verdict.js";
 test("one drag spans every verdict the product can give", () => {
   // The whole pitch of the toy: four tiers, measured, not asserted by eye.
   assert.equal(toyState(0).tier, "untouched", "a never-opened game reads Untouched");
-  assert.equal(toyState(1).tier, "regret", "one hour of a ₹1,299 game is Regret");
+  assert.equal(toyState(1).tier, "regret", "one hour of a ₹690 game is Regret");
   assert.equal(toyState(23).tier, "fair", "23h crosses into Fair");
   assert.equal(toyState(53).tier, "worth", "53h reaches Worth it");
 
@@ -88,11 +88,13 @@ test("the frame at 0h explains itself instead of showing a blank rate", () => {
   assert.equal(toy.querySelector("#toy-rate").textContent, "—");
 });
 
-test("the demo cartridge ships with its cover and price baked in", () => {
-  // Hollow Shard is fictional: no store page exists to fetch art or a price
-  // from, and the toy's pitch is "no sign-up, no key" — a live lookup would
-  // break both promises. So both ship with the page, and an empty frame plus
-  // a blank figure is exactly what a visitor cannot read.
+test("the demo cartridge ships a real game's cover and price", () => {
+  // A real title, not an invention: Hollow Shard had no store page to fetch
+  // anything from, which is exactly why the frame used to come up empty. The
+  // cover still ships beside the page (img-src 'self' forbids a runtime CDN
+  // fetch) and the price is the game's actual list price — the toy's
+  // "no sign-up, no key" pitch rules out a live lookup either way.
+  assert.equal(TOY_GAME.name, "Hollow Knight", "a real game, not an invention");
   assert.match(TOY_GAME.cover, /^covers\//, "the cover ships beside the page");
   assert.ok(TOY_GAME.price > 0, "the price is baked, not left blank");
 
@@ -103,6 +105,6 @@ test("the demo cartridge ships with its cover and price baked in", () => {
   assert.equal(cover.src, TOY_GAME.cover);
   assert.equal(cover.alt, "",
     "decorative: the game's name is already the heading beside it");
-  assert.equal(toy.querySelector(".toy-price").textContent, "₹1,299",
-    "the figure the verdict arithmetic actually uses, not a placeholder");
+  assert.equal(toy.querySelector(".toy-price").textContent, "₹690",
+    "the game's real list price, and the figure the verdict arithmetic uses");
 });
