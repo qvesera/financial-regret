@@ -364,9 +364,9 @@ button { cursor: pointer; font-family: inherit; }
 
 .brand { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
 /* The wordmark is set in the pixel face, the same as the shared heading, so
-   the logo reads as one thing wherever it appears. Lowercase is kept — the
-   pun is ₹ + egret, and uppercasing it would flatten that. The rupee glyph
-   measures its height from this same font's cap height, so it lines up. */
+   the logo reads as one thing wherever it appears — caps, like the heading.
+   The rupee glyph measures its height from this same font's cap height, so
+   it lines up. */
 .brand h1 {
   font-family: "Press Start 2P", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 1.05rem;
@@ -374,6 +374,7 @@ button { cursor: pointer; font-family: inherit; }
   margin: 0;
   letter-spacing: 0.02em;
   line-height: 1.4;
+  text-transform: uppercase;
 }
 /* the ₹ of ₹egret — a hand-made vector mark (public/rupee glyph.svg), because
    Press Start 2P ships no ₹ glyph (latin subset only) and the font fallback
