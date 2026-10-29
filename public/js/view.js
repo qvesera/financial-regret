@@ -91,6 +91,29 @@ function filtersActive(state) {
   );
 }
 
+/** What the keys card says, read from what /api/config reported. Pure, so
+ *  the builder and the updater that runs later cannot drift into two
+ *  different stories about the same instance: the card builds before the
+ *  config lands, then repaints from this same function. */
+function keysCopy(server) {
+  const shared = (name) => Boolean(
+    server && !server.requireUserKeys && server.keys && server.keys[name]);
+  const pricing = shared("itad");
+  return {
+    tag: pricing ? "optional" : "needed for pricing",
+    blurb: pricing
+      ? "Bring your own keys to use your own rate-limit quota instead of the "
+        + "shared server key. Stored only in this browser and sent only with "
+        + "your own requests."
+      : "This server has no shared IsThereAnyDeal key, so prices will not "
+        + "load until you save your own below. Stored only in this browser "
+        + "and sent only with your own requests.",
+    steamHint: shared("steam")
+      ? "only if the shared Steam key is rate-limited"
+      : "this server has no shared Steam key — needed to read Steam playtime",
+  };
+}
+
 /** Explanations for every number on the dashboard.
  *
  *  Written from computeRegret() and comparators() rather than from the labels
@@ -483,6 +506,16 @@ export const view = {
     return field;
   },
 
+  /** Repaint the keys card from config that landed after the build. */
+  updateKeysCard(state) {
+    const bits = this.keysCardBits;
+    if (!bits) return;
+    const copy = keysCopy(state.server);
+    bits.tag.textContent = copy.tag;
+    bits.blurb.textContent = copy.blurb;
+    bits.steamHint.textContent = copy.steamHint;
+  },
+
   /** Display-currency picker (reused in the dashboard toolbar and keys card). */
   buildCurrencySelect(currency) {
     const sel = this.el("select", "sort currency-select");
@@ -612,41 +645,46 @@ export const view = {
     // Bring-your-own-API-keys card: each user can supply their own
     // IsThereAnyDeal / Steam keys so they use their own rate-limit quota
     // instead of the shared server key (matters when self-hosted for a group).
-    // Deliberately out of the store grid — it is optional, not a fourth store.
+    // Deliberately out of the store grid — it is not a store. Whether the keys
+    // themselves are optional belongs to the instance, and the tag below
+    // reports what this one actually said.
     const keysCard = this.el("article", "platform-card api-keys");
+    // Repainted by updateKeysCard once /api/config answers: the page builds
+    // before that reply arrives.
+    const copy = keysCopy(state.server);
     const kh = this.el("div", "pc-head");
     kh.appendChild(this.el("span", "dot keys"));
     kh.appendChild(this.el("h2", null, "Your API keys"));
-    kh.appendChild(this.el("span", "pc-tag", "optional"));
+    const tag = this.el("span", "pc-tag", copy.tag);
+    kh.appendChild(tag);
     keysCard.appendChild(kh);
-    keysCard.appendChild(this.el("p", "pc-blurb",
-      "Bring your own keys to use your own rate-limit quota instead of the shared server key. Stored only in this browser and sent only with your own requests."));
-    // Three labelled groups, not one flat row of input+button pairs: which
-    // key does what is the whole question this card has to answer.
+    const blurb = this.el("p", "pc-blurb", copy.blurb);
+    keysCard.appendChild(blurb);
+    // Two labelled groups, not three: prices, playtime and PSN prices are all
+    // functional keys. Filing Steam under "optional extras" claimed the store
+    // could be read without one, which only holds while the server shares its
+    // own — the hint says which world this instance is in. Only cover art is
+    // genuinely optional.
     const fields = this.el("div", "api-keys-fields");
 
-    const pricing = this.el("div", "key-group");
-    pricing.appendChild(this.el("h3", "key-group-title", "Pricing"));
-    pricing.appendChild(this.keyField("itad", "IsThereAnyDeal API key",
+    const keysGroup = this.el("div", "key-group");
+    keysGroup.appendChild(this.el("h3", "key-group-title", "Keys"));
+    keysGroup.appendChild(this.keyField("itad", "IsThereAnyDeal API key",
       "the one that matters — every price on the dashboard comes from it",
       "https://isthereanydeal.com/apps/"));
-    fields.appendChild(pricing);
-
-    const extras = this.el("div", "key-group");
-    extras.appendChild(this.el("h3", "key-group-title", "Optional extras"));
-    extras.appendChild(this.keyField("steam", "Steam Web API key",
-      "only if the shared Steam key is rate-limited",
-      "https://steamcommunity.com/dev/apikey"));
-    extras.appendChild(this.keyField("sgdb", "SteamGridDB API key",
-      "cover art in the grid view",
-      "https://steamgriddb.com/profile/preferences/api"));
+    const steamField = this.keyField("steam", "Steam Web API key", copy.steamHint,
+      "https://steamcommunity.com/dev/apikey");
+    keysGroup.appendChild(steamField);
     // The backend already honours a user-supplied PlatPrices key (psn_prices
-    // reads X-Platprices-Key before the server's own), so the field belongs
-    // here beside the other BYO keys rather than only in the PlayStation copy.
-    extras.appendChild(this.keyField("platprices", "PlatPrices API key",
+    // reads X-Platprices-Key before the server's own), so its field sits here
+    // with the other functional keys rather than only in the PlayStation copy.
+    keysGroup.appendChild(this.keyField("platprices", "PlatPrices API key",
       "PlayStation prices when the shared server key is missing",
       "https://platprices.com/api-request"));
-    fields.appendChild(extras);
+    keysGroup.appendChild(this.keyField("sgdb", "SteamGridDB API key",
+      "cover art in the grid view — cosmetic, no number depends on it",
+      "https://steamgriddb.com/profile/preferences/api"));
+    fields.appendChild(keysGroup);
 
     const display = this.el("div", "key-group");
     display.appendChild(this.el("h3", "key-group-title", "Display"));
@@ -663,6 +701,14 @@ export const view = {
     fields.appendChild(display);
 
     keysCard.appendChild(fields);
+    // Live refs: /api/config arrives after this build and repaints in place.
+    // A rebuild instead would discard whatever the visitor is halfway through
+    // typing into the paste fields on this page.
+    this.keysCardBits = {
+      tag,
+      blurb,
+      steamHint: steamField.querySelector(".key-hint"),
+    };
     wrap.appendChild(keysCard);
 
     // The back button and the trust note are the screen's footer; stacked
@@ -977,6 +1023,11 @@ export const view = {
     // On onboarding the keys card is already on screen — a second shortcut
     // to it in the header would just be noise.
     if (this.keysBtn) this.keysBtn.hidden = !showChrome;
+
+    // A config that lands after the landing page was built repaints the keys
+    // card in place here — the onboarding branch below is one-shot by design
+    // (a rebuild would discard half-typed paste fields).
+    this.updateKeysCard(state);
 
     if (state.phase === "onboarding") {
       if (this._builtPhase !== "onboarding") {

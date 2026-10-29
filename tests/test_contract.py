@@ -19,6 +19,44 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 CANONICAL_KEYS = {"id", "name", "platform", "hours", "appid"}
 
 
+class TestConfigKeyShape(unittest.TestCase):
+    """/api/config must say whether the visitor needs their own keys — and
+    never leak key material while saying it. The landing page's keys card
+    reads these booleans to choose its tag and blurb."""
+
+    def _get(self, env):
+        import config
+        fake = mock.MagicMock()
+        fake.path = "/api/config"
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(config, "send_json") as sj:
+            config.handler.do_GET(fake)
+        sj.assert_called_once()
+        return sj.call_args.args[1], sj.call_args.args[2]
+
+    def test_reports_key_presence_as_booleans_only(self):
+        status, body = self._get({"ITAD_API_KEY": "super-secret"})
+        self.assertEqual(status, 200)
+        self.assertIs(body["requireUserKeys"], False)
+        self.assertIs(body["keys"]["itad"], True)
+        self.assertEqual(set(body["keys"]), {"steam", "itad", "platprices"})
+        # Presence is deployment shape; material never leaves the server.
+        self.assertNotIn("super-secret", json.dumps(body))
+
+    def test_byo_mode_reports_required_even_with_keys_set(self):
+        # In BYO-key mode the server ignores its own keys, so the card must
+        # still read "needed" — the same rule health.py states.
+        status, body = self._get({"REQUIRE_USER_KEYS": "1", "ITAD_API_KEY": "k"})
+        self.assertEqual(status, 200)
+        self.assertIs(body["requireUserKeys"], True)
+
+    def test_keyless_deploy_says_so(self):
+        status, body = self._get({})
+        self.assertIs(body["requireUserKeys"], False)
+        self.assertEqual(body["keys"], {"steam": False, "itad": False,
+                                        "platprices": False})
+
+
 def _resp(json_data, status=200):
     r = mock.MagicMock()
     r.status_code = status

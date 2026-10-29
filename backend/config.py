@@ -2,12 +2,14 @@
 
 Deliberately carries no secrets: a client id identifies the application, not a
 user, and this endpoint answers anyone who asks. The frontend reads it on boot
-to construct the Steam, GOG and Epic sign-in URLs.
+to construct the Steam, GOG and Epic sign-in URLs, and to learn whether this
+instance can price anything without the visitor's own key — key *presence* is
+reported as booleans, never key material.
 """
 import os
 from http.server import BaseHTTPRequestHandler
 
-from _common import handle_options, send_json
+from _common import handle_options, require_user_keys, send_json
 
 
 class handler(BaseHTTPRequestHandler):
@@ -26,4 +28,15 @@ class handler(BaseHTTPRequestHandler):
             "gogClientId": os.environ.get("GOG_CLIENT_ID", "46899977096215655"),
             "epicClientId": os.environ.get("EPIC_CLIENT_ID", "34a02cf8f4414e29b15921876da36f9a"),
             "gogRedirectMode": os.environ.get("GOG_REDIRECT_MODE", "callback"),
+            # Whether a visitor can price anything without bringing their own
+            # key. Booleans only: key presence is deployment shape, the key
+            # itself never leaves the server. The landing page's keys card
+            # reads these to choose between "optional" and "needed for
+            # pricing" — the same rule health.py states for BYO-key mode.
+            "requireUserKeys": require_user_keys(),
+            "keys": {
+                "steam": bool(os.environ.get("STEAM_API_KEY")),
+                "itad": bool(os.environ.get("ITAD_API_KEY")),
+                "platprices": bool(os.environ.get("PLATPRICES_API_KEY")),
+            },
         })

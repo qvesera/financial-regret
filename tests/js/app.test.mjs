@@ -136,7 +136,11 @@ test("cold start shows onboarding, hides metrics chrome", async () => {
     const lab = env.root.querySelectorAll("label").find((l) => l.htmlFor === `${kind}-key`);
     assert.ok(lab && lab.textContent.length > 3, `${kind} key has a real <label for>`);
   }
-  assert.equal(env.root.querySelectorAll(".key-group").length, 3, "keys grouped by purpose");
+  // Two groups since Steam and PlatPrices moved out of "extras": pricing,
+  // playtime and PSN prices are all functional, so purpose splits
+  // functional-vs-display now — not keys-vs-nice-to-haves.
+  assert.equal(env.root.querySelectorAll(".key-group").length, 2,
+    "keys grouped by purpose — functional vs display");
 });
 
 test("Steam link navigates to OpenID checkid_setup with return_to", async () => {
@@ -1153,6 +1157,59 @@ test("every API-key field links to where the key is issued", async () => {
   assert.ok(links.every((l) => l.target === "_blank"
     && (l.rel || "").includes("noopener")),
     "external links open a new tab without handing it the opener");
+
+  // Nothing is filed under "optional extras": with no shared key three of
+  // these four are load-bearing — Steam without its Web key cannot read a
+  // single game, PlatPrices without one prices nothing on PlayStation.
+  assert.ok(!card.textContent.includes("Optional extras"),
+    "no optional-extras bin");
+  assert.deepEqual(
+    card.querySelectorAll(".key-group-title").map((t) => t.textContent),
+    ["Keys", "Display"], "functional keys share the main group");
+});
+
+test("the keys card only says optional when the server really carries a key", async () => {
+  // Config unreachable: state.server stays null, and calling keys optional
+  // on no evidence is exactly the claim that shipped wrong.
+  const bare = await boot();
+  await settle();
+  const bareTag = bare.env.root.querySelector(".api-keys").querySelector(".pc-tag");
+  assert.equal(bareTag.textContent, "needed for pricing",
+    "unverified is not the same as optional");
+
+  // A shared-key instance: the quota framing finally becomes true.
+  const shared = await boot({ seed: (env) => {
+    env.fetchRoutes.push((url) => (url.includes("/api/config") ? { json: {
+      publicBaseUrl: "https://demo.test",
+      requireUserKeys: false,
+      keys: { steam: true, itad: true, platprices: false },
+    } } : null));
+  } });
+  await settle();
+  const card = shared.env.root.querySelector(".api-keys");
+  assert.equal(card.querySelector(".pc-tag").textContent, "optional");
+  assert.ok(card.querySelector(".pc-blurb").textContent.includes("rate-limit quota"),
+    "the shared-key instance explains the quota trade, not a requirement");
+  assert.ok(card.textContent.includes("only if the shared Steam key is rate-limited"),
+    "the Steam hint follows the same read of the server's keys");
+});
+
+test("BYO-key mode needs the visitor's key even when the server has one", async () => {
+  // health.py's rule, mirrored: in BYO-key mode the server's own keys are
+  // ignored, so a configured server key changes nothing for the visitor.
+  const { env } = await boot({ seed: (e) => {
+    e.fetchRoutes.push((url) => (url.includes("/api/config") ? { json: {
+      requireUserKeys: true,
+      keys: { steam: false, itad: true, platprices: false },
+    } } : null));
+  } });
+  await settle();
+  const card = env.root.querySelector(".api-keys");
+  assert.equal(card.querySelector(".pc-tag").textContent, "needed for pricing");
+  assert.ok(card.querySelector(".pc-blurb").textContent.includes(
+    "no shared IsThereAnyDeal key"), "and says why");
+  assert.ok(card.textContent.includes("needed to read Steam playtime"),
+    "the Steam hint drops its rate-limit framing too");
 });
 
 test("the explanations still describe the actual maths", async () => {

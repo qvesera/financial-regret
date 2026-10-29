@@ -83,6 +83,10 @@ let state = {
   simTarget: savedUi.simTarget || null,
   simHours: Number(savedUi.simHours) || 10,
   scanSteps: null,
+  // /api/config, fetched at boot: whether this instance can price anything
+  // without the visitor's own keys. null until it lands, and stays null if
+  // the fetch fails.
+  server: null,
   page: 1,                 // 1-based library page; never persisted
   tabCounts: { All: 0, Unplayed: 0, Played: 0, "No data": 0 },
 };
@@ -903,6 +907,14 @@ export async function boot() {
   wire(root);
   wireCrossWindow();
   renderAll();
+  // Whether this instance carries shared keys decides how the keys card
+  // describes itself, so ask right after the first paint. Non-blocking, and
+  // a failed fetch just leaves state.server null — the card then assumes the
+  // visitor's key is required, which is the safe direction: assuming
+  // "optional" is the mistake that shipped.
+  api.fetchConfig()
+    .then((cfg) => { state.server = cfg; renderAll(); })
+    .catch(() => { /* no config: the keys card keeps its worst-case copy */ });
   if (state.phase === "ready" && state.games.length === 0) {
     await scan();
   } else if (state.games.length && snap && snap.currency && snap.currency !== state.currency) {
