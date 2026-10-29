@@ -937,8 +937,11 @@ td.cell-platform { white-space: nowrap; }
   text-align: center;
 }
 .shared-card canvas {
-  width: 100%;
-  max-width: 420px;
+  /* Scales with the viewport, capped so the CTA stays above the fold on the
+     4:5 canvas: 88vw for phones, 56vh keeps height ≤70vh, and a 640px ceiling
+     on the widest screens. The old fixed 420px was a postage stamp on a
+     desktop — the one thing a shared link is watched on. */
+  width: min(88vw, 56vh, 640px);
   aspect-ratio: 4 / 5;
   border: 1px solid var(--border);
 }
