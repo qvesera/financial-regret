@@ -154,6 +154,18 @@ export function comparators(rows, limit = 5) {
     }))
     .filter((x) => Number.isFinite(x.rate));
   const desc = [...scored].sort((a, b) => b.rate - a.rate || (b.hours || 0) - (a.hours || 0));
+  const paidBest = [...desc].reverse().slice(0, limit);
+  // Best value falls back to free games when nothing paid qualifies — in an
+  // all-free view the only value on offer is play itself, so the most hours
+  // wins. Rate stays 0 because free is 0/h: honest, and uniform across rows.
+  // Hall of shame gains nothing from this fallback: worst stays empty for
+  // free rows (nothing was paid), and the view hides that card outright
+  // rather than implying a free game could ever be a bad buy.
+  const freeBest = (rows || [])
+    .filter((x) => x.price === 0 && x.hours != null && x.hours >= 1)
+    .sort((a, b) => b.hours - a.hours)
+    .slice(0, limit)
+    .map((x) => ({ id: x.id, name: x.name, hours: x.hours, price: 0, rate: 0 }));
   // Untouched ranked by what it cost: an unopened game has no rate to rank on
   // (₹/hour over ~zero hours is unbounded), and the honest measure of a
   // wasted purchase is the purchase. Mirrors the Untouched verdict — hours
@@ -166,7 +178,7 @@ export function comparators(rows, limit = 5) {
     .map((x) => ({ id: x.id, name: x.name, hours: x.hours, price: x.price }));
   return {
     worst: desc.slice(0, limit),
-    best: [...desc].reverse().slice(0, limit),
+    best: paidBest.length ? paidBest : freeBest,
     untouched,
   };
 }

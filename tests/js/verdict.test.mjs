@@ -166,6 +166,33 @@ test("Untouched ranks unopened games by what they cost, not by rate", () => {
   assert.equal(untouched.length, 3, "the other three had no spend to rank by");
 });
 
+test("an all-free view ranks Best value by hours — and has no hall of shame", () => {
+  const { worst, best } = comparators([
+    g("f1", "Short", 3, 0),
+    g("f2", "Marathon", 300, 0),
+    g("f3", "Middle", 40, 0),
+    g("f4", "Never", 0, 0),       // unplayed: no value shown yet
+    g("p1", "Paid", 10, 500),
+  ]);
+  // worst keeps its paid filter, so free rows leave it empty by truth —
+  // the view hides the card rather than shaming a game that cost nothing.
+  assert.equal(worst.length, 1, "only the paid game is shameable at all");
+  assert.equal(worst[0].name, "Paid");
+
+  const freeOnly = comparators([
+    g("f1", "Short", 3, 0), g("f2", "Marathon", 300, 0),
+    g("f3", "Middle", 40, 0), g("f4", "Never", 0, 0),
+  ]);
+  assert.equal(freeOnly.worst.length, 0, "nothing paid, nothing shamed");
+  assert.deepEqual(freeOnly.best.map((x) => x.name),
+    ["Marathon", "Middle", "Short"],
+    "most hours first — play is the only value a free game offers");
+  assert.ok(freeOnly.best.every((x) => x.rate === 0),
+    "the rate column stays honest: ₹0/h on every row");
+  assert.ok(!freeOnly.best.some((x) => x.name === "Never"),
+    "an unplayed free game has shown no value yet");
+});
+
 test("every tier has a human label", () => {
   for (const t of ["worth", "fair", "regret", "untouched", "nodata", "unknown"]) {
     assert.ok(TIER_LABEL[t], `${t} labelled`);

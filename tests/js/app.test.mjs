@@ -1086,6 +1086,48 @@ test("a store with no playtime takes the rate lists — untouched rides on", asy
     "Hades ranks again once hours exist in view");
 });
 
+test("the Free facet ranks Best value by hours and drops Hall of shame", async () => {
+  const { env, mod } = await boot({ seed: (e) => {
+    e.localStorage.setItem("steam_id", "76561198000000000");
+    e.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) return { json: { games: [
+        { id: "Steam:100", name: "Marathon F2P", platform: "Steam", hours: 300, appid: 100 },
+        { id: "Steam:200", name: "Quick F2P", platform: "Steam", hours: 5, appid: 200 },
+        { id: "Steam:300", name: "Mid F2P", platform: "Steam", hours: 40, appid: 300 },
+        { id: "Steam:400", name: "Paid Title", platform: "Steam", hours: 20, appid: 400 },
+      ] } };
+      if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) {
+        return { json: { games: [] } };
+      }
+      if (url.includes("/api/prices")) return { json: { prices: {
+        "Steam:100": 0, "Steam:200": 0, "Steam:300": 0, "Steam:400": 500,
+      } } };
+      return null;
+    });
+  } });
+  await settle();
+
+  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "free")
+    .dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().rows.length, 3,
+    "the facet selects only played free games — unplayed free reads Untouched");
+  const cards = () => env.root.querySelectorAll(".rank-card");
+  const find = (cls) => cards().find((c) => c.querySelector(cls));
+
+  assert.equal(find(".rank-worst").hidden, true,
+    "no hall of shame in free — nothing was paid, so nothing can be a bad buy");
+  const best = find(".rank-best");
+  assert.ok(best && !best.hidden, "Best value still speaks, about play");
+  assert.deepEqual(best.querySelectorAll(".rank-name").map((n) => n.textContent),
+    ["Marathon F2P", "Mid F2P", "Quick F2P"], "most hours first");
+  assert.equal(best.querySelector(".rank-rate").textContent, "₹0/h",
+    "the rate column stays honest about what free costs per hour");
+  assert.ok(find(".rank-untouched").textContent.includes("Nothing in this view"),
+    "no unpriced rows to rank there, and it says so");
+});
+
 test("every dashboard metric carries a wired explanation chip", async () => {
   const { env } = await boot({ seed: withSteam });
   await settle();

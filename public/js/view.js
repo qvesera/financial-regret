@@ -1379,9 +1379,17 @@ export const view = {
     // it earns its keep.
     const rows = state.rows || [];
     const noHoursAnywhere = rows.length > 0 && rows.every((r) => r.hours == null);
+    // Every row free: nothing was paid, so Hall of shame has nothing to shame
+    // — hiding the card beats an empty one that implies a bad buy exists
+    // somewhere. Best value keeps speaking: for free rows its value is hours.
+    const allFree = rows.length > 0 && rows.every((r) => r.price === 0);
     for (const kind of ["worst", "best", "untouched"]) {
       const card = this.rankCards && this.rankCards[kind];
-      if (card) card.hidden = kind !== "untouched" && noHoursAnywhere;
+      if (card) {
+        card.hidden = kind === "worst"
+          ? allFree || noHoursAnywhere
+          : kind !== "untouched" && noHoursAnywhere;
+      }
       const list = this.rankLists[kind];
       if (!list) continue;
       list.textContent = "";
@@ -1391,14 +1399,19 @@ export const view = {
         // The list is empty either because nothing qualifies yet or because the
         // filters hid everything that did — say which, or the reader assumes
         // the product is broken. Each kind names what *it* needs: the rate
-        // lists need an hour of play, the untouched list needs a price.
+        // lists need an hour of play (or, in an all-free view, free play),
+        // the untouched list needs a price.
         const empty = kind === "untouched"
           ? (filtersActive(state)
             ? "Nothing in this view is unopened with a price."
             : "No unopened games with a price.")
-          : (filtersActive(state)
-            ? "Nothing in this view has both an hour of play and a price."
-            : "No game has both an hour of play and a price yet.");
+          : allFree
+            ? (filtersActive(state)
+              ? "Nothing in this view has an hour of play yet."
+              : "No free game here has been played for an hour yet.")
+            : (filtersActive(state)
+              ? "Nothing in this view has both an hour of play and a price."
+              : "No game has both an hour of play and a price yet.");
         list.appendChild(this.el("li", "rank-empty", empty));
         continue;
       }
