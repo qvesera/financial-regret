@@ -1086,6 +1086,8 @@ test("a store with no playtime takes the rate lists — untouched rides on", asy
     + "reports playtime is exactly where it earns its keep");
   assert.deepEqual(untouchedCard().querySelectorAll(".rank-name").map((n) => n.textContent),
     ["Control", "Crysis"], "its own dearest-first ordering, from this view only");
+  assert.equal(untouchedCard().querySelectorAll(".rank-hours").length, 0,
+    "no hours column: an unopened game has no playtime worth printing");
 
   amazon.dispatch("click");               // the toggle clears itself
   await settle();

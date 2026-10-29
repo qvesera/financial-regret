@@ -1458,10 +1458,14 @@ export const view = {
         li.setAttribute("role", "button");
         li.appendChild(this.el("span", "rank-name", item.name));
         // Untouched has no rate to show — the purchase price takes the rate
-        // slot, because price is what the list is ranked by.
+        // slot, because price is what the list is ranked by. It has no
+        // playtime to show either: "0.0 h" or "—" beside an unopened game
+        // only invites the reader to wonder which opening it means.
         li.appendChild(this.el("span", "rank-rate",
           kind === "untouched" ? money(item.price, cur) : perHour(item.rate, cur)));
-        li.appendChild(this.el("span", "rank-hours", hours(item.hours)));
+        if (kind !== "untouched") {
+          li.appendChild(this.el("span", "rank-hours", hours(item.hours)));
+        }
         list.appendChild(li);
       }
     }
