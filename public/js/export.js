@@ -6,7 +6,8 @@
  *  by hand so the repo keeps its zero-frontend-dep footing.
  */
 import { money, perHour, pricePerHour } from "./format.js";
-import { TIER_LABEL, TIERS } from "./verdict.js";
+import { TIER_LABEL, TIERS, comparators as rankGames } from "./verdict.js";
+import { computeRegret } from "./regret.js";
 
 export const CARD_W = 1080;
 export const CARD_H = 1350;      // 4:5 — feed-native, and room for eight rows
@@ -127,7 +128,6 @@ export function cardSpec(state, kind = "wrapped") {
   const cur = state.currency || "INR";
   const games = state.games || [];
   const rows = state.rows || [];
-  const m = state.metrics || {};
   const base = {
     v: 1,
     kind,
@@ -139,12 +139,18 @@ export function cardSpec(state, kind = "wrapped") {
 
   if (kind === "wrapped") {
     if (!games.length) return null;
-    const c = state.comparators || {};
+    // Wrapped is the whole library, whatever the filters say. state.metrics
+    // and state.comparators are built from the *filtered* rows (the dashboard
+    // KPIs follow the table), and the summary card is the one someone
+    // screenshots — it has to be the full story, so both are recomputed here
+    // from the library itself.
+    const m = computeRegret(games);
+    const c = rankGames(games);
     const worst = (c.worst || [])[0];
     const best = (c.best || [])[0];
     const idle = (c.untouched || [])[0];
-    const playedCount = rows.filter((g) => g.hours != null && g.hours >= 1).length;
-    const pct = rows.length ? Math.round((playedCount / rows.length) * 100) : 0;
+    const playedCount = games.filter((g) => g.hours != null && g.hours >= 1).length;
+    const pct = games.length ? Math.round((playedCount / games.length) * 100) : 0;
     return {
       ...base,
       tier: null,

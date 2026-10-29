@@ -51,6 +51,23 @@ test("the wrapped card states the same figures the dashboard does", () => {
   assert.ok(spec.rows.some((r) => r.name.includes("Cyberpunk")), "the biggest idle buy is named");
 });
 
+test("the wrapped card is the whole library, whatever the filters say", () => {
+  // A filtered view is what the other cards are for. Wrapped is the
+  // screenshot card — if a facet shrank it, the numbers would quietly be
+  // about the filter instead of the library.
+  const gogOnly = makeState({
+    platform: "GOG",
+    rows: GAMES.filter((g) => g.platform === "GOG"),
+  });
+  const spec = cardSpec(gogOnly, "wrapped");
+  assert.equal(spec.badge, "6 GAMES", "the badge counts the library, not the view");
+  const stats = Object.fromEntries(spec.stats.map((x) => [x.label, x.value]));
+  assert.equal(stats["LIBRARY VALUE"], "₹5,725.00", "whole-library spend");
+  assert.equal(stats["TOTAL HOURS"], "80 h", "whole-library hours");
+  assert.ok(spec.rows.some((r) => r.name.includes("Hades")),
+    "the library's worst buy, not the GOG view's");
+});
+
 test("each verdict card holds only its own members, ranked its own way", () => {
   const s = makeState();
 
