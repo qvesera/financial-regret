@@ -1129,6 +1129,39 @@ test("the Free facet ranks Best value by hours and drops Hall of shame", async (
     + "than explaining its own absence forever");
 });
 
+test("the visitor's region defaults the currency until they choose one", async () => {
+  const geo = (country) => (e) => {
+    e.fetchRoutes.push((url) => (url.includes("/api/config") ? { json: {
+      publicBaseUrl: "https://demo.test", country,
+      requireUserKeys: true, keys: {},
+    } } : null));
+  };
+
+  const { env, mod } = await boot({ seed: geo("DE") });
+  await settle();
+
+  assert.equal(mod.getState().currency, "EUR",
+    "the edge reports the country and the display currency follows it");
+  assert.equal(env.root.querySelector("#onboarding-currency").value, "EUR",
+    "the picker shows the detected default, not the INR it was built with");
+  assert.match(env.root.querySelector(".toy-price").textContent, /€/,
+    "and the landing-page toy repaints in the same currency — no hard-coded rupee");
+
+  // A country we offer no currency for leaves the default alone.
+  const unknown = await boot({ seed: geo("ZZ") });
+  await settle();
+  assert.equal(unknown.mod.getState().currency, "INR",
+    "no offered currency, no change");
+
+  // An explicit picker choice is never rivalled by detection.
+  const chosen = await boot({ seed: (e) => {
+    e.localStorage.setItem("currency", "JPY");
+    geo("DE")(e);
+  } });
+  await settle();
+  assert.equal(chosen.mod.getState().currency, "JPY", "the saved choice wins");
+});
+
 test("the Untouched facet swaps in the untouched list and drops the rate cards", async () => {
   const { env } = await boot({ seed: withSteam });
   await settle();

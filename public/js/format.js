@@ -9,6 +9,41 @@ export const CURRENCIES = [
 ];
 
 const _formatters = new Map();
+
+/** ISO 3166-1 alpha-2 → the display currency, restricted to the codes in
+ *  CURRENCIES so a detected region can never name a currency the picker
+ *  (and the price API) does not offer. Country groups share their currency
+ *  where that is the truth — the euro area, Scandinavia's neighbours — and
+ *  everything else maps to its own. */
+const COUNTRY_CURRENCY = {
+  IN: "INR",
+  US: "USD", EC: "USD", SV: "USD", PA: "USD", PW: "USD", MH: "USD",
+  FM: "USD", AS: "USD", GU: "USD", PR: "USD", VI: "USD", MP: "USD", TL: "USD",
+  AT: "EUR", BE: "EUR", CY: "EUR", DE: "EUR", EE: "EUR", ES: "EUR", FI: "EUR",
+  FR: "EUR", GR: "EUR", HR: "EUR", IE: "EUR", IT: "EUR", LT: "EUR", LU: "EUR",
+  LV: "EUR", MT: "EUR", NL: "EUR", PT: "EUR", SK: "EUR", SI: "EUR",
+  AD: "EUR", MC: "EUR", SM: "EUR", VA: "EUR", ME: "EUR", XK: "EUR",
+  GF: "EUR", GP: "EUR", MQ: "EUR", RE: "EUR", YT: "EUR",
+  GB: "GBP", JE: "GBP", GG: "GBP", IM: "GBP",
+  JP: "JPY",
+  AU: "AUD", CC: "AUD", CX: "AUD", HM: "AUD", NF: "AUD", NR: "AUD",
+  TV: "AUD", KI: "AUD",
+  CA: "CAD", BR: "BRL", KR: "KRW", SG: "SGD", HK: "HKD",
+  NZ: "NZD", CK: "NZD", NU: "NZD", TK: "NZD", PN: "NZD",
+  SE: "SEK", NO: "NOK", SJ: "NOK", BV: "NOK",
+  DK: "DKK", FO: "DKK", GL: "DKK", CH: "CHF", LI: "CHF",
+  PL: "PLN", TR: "TRY", ZA: "ZAR", LS: "ZAR", NA: "ZAR", SZ: "ZAR",
+  MX: "MXN", CN: "CNY", ID: "IDR", TH: "THB", PH: "PH",
+  RU: "RUB", UA: "UAH", CZ: "CZK", HU: "HUF", IL: "ILS",
+};
+
+/** The display currency for a country code, or null when we have none to
+ *  offer — the caller falls back to the default rather than being handed a
+ *  currency the price API cannot shop in. */
+export function currencyForCountry(country) {
+  const cc = String(country || "").trim().toUpperCase();
+  return COUNTRY_CURRENCY[cc] || null;
+}
 function formatter(currency) {
   let f = _formatters.get(currency);
   if (!f) {

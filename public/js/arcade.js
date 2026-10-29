@@ -12,6 +12,7 @@
  * why the rest of this app walks parentNode by hand too.
  */
 import { benchmark, whatIf, TIER_LABEL } from "./verdict.js";
+import { money } from "./format.js";
 
 /** A small fake library. At least three priced, played rows are required or
  *  benchmark() withholds quartiles and every verdict would read "No benchmark",
@@ -55,6 +56,30 @@ export const TOY_MIN = 0;
 export const TOY_MAX = 60;
 export const TOY_DEFAULT = 0;
 
+/** The toy's figures are real Indian list prices in INR — the source of the
+ *  verdict arithmetic. A visitor on another display currency sees them
+ *  converted at these approximate static rates: every toy figure scales by
+ *  the same factor, and the verdict arc compares each rate against the
+ *  sample's own quartiles, so no verdict can move — only the money labels.
+ *  Deliberately not fetched: the toy's pitch is "no sign-up, no key", and a
+ *  rate call would break both that and the offline cover art's logic. */
+const INR_PER_UNIT = {
+  INR: 1, USD: 88, EUR: 95, GBP: 112, JPY: 0.58, AUD: 57, CAD: 64, BRL: 15,
+  KRW: 0.064, SGD: 66, HKD: 11, NZD: 52, SEK: 9.2, NOK: 8.6, DKK: 12.7,
+  CHF: 100, PLN: 23, TRY: 2.4, ZAR: 4.9, MXN: 4.6, CNY: 12, IDR: 0.0056,
+  THB: 2.5, PHP: 1.5, RUB: 0.9, UAH: 2.1, CZK: 3.8, HUF: 0.24, ILS: 24,
+};
+
+/** One toy figure (an INR price or rate) formatted in the display currency. */
+export function toyMoney(amountInr, currency = "INR") {
+  return money(amountInr / (INR_PER_UNIT[currency] || 1), currency);
+}
+
+/** The currency the widget is currently painted in. Module-level because the
+ *  toy repaints in place — the landing page is built once, so a currency
+ *  change must reach the slider's handler without rebuilding the page. */
+let toyCurrency = "INR";
+
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -78,8 +103,11 @@ export function toyState(hours) {
   };
 }
 
-/** The widget. Returns one section; the caller decides where it goes. */
-export function renderVerdictToy() {
+/** The widget. Returns one section; the caller decides where it goes.
+ *  `currency` paints the money labels; later changes go through
+ *  repaintVerdictToy so the one-shot page never rebuilds mid-drag. */
+export function renderVerdictToy(currency = "INR") {
+  toyCurrency = currency;
   const section = el("section", "toy");
   section.setAttribute("aria-label", "Verdict demo");
 
@@ -95,7 +123,9 @@ export function renderVerdictToy() {
   titles.appendChild(el("h2", "toy-title", TOY_GAME.name));
   // The price is part of the demo's arithmetic — it is what makes 0h read
   // "Untouched" and 53h "Worth it" — so it is shown, not left implicit.
-  titles.appendChild(el("p", "toy-price", `₹${TOY_GAME.price.toLocaleString("en-IN")}`));
+  const priceLine = el("p", "toy-price", toyMoney(TOY_GAME.price, toyCurrency));
+  priceLine.id = "toy-price";   // repaint target when the currency changes
+  titles.appendChild(priceLine);
   head.appendChild(titles);
   // Existing `badge badge-<tier>` convention: the tier colours are already
   // contrast-audited and re-themed by the light-theme block, so the toy gets
@@ -166,7 +196,7 @@ export function paintVerdictToy(hours, refs = {}) {
     badge.textContent = s.label;
   }
   const rate = refs.rate || document.getElementById("toy-rate");
-  if (rate) rate.textContent = s.rate == null ? "—" : `₹${s.rate.toFixed(2)} / hour`;
+  if (rate) rate.textContent = s.rate == null ? "—" : `${toyMoney(s.rate, toyCurrency)} / hour`;
 
   const note = refs.note || document.getElementById("toy-note");
   if (note) {
@@ -177,8 +207,20 @@ export function paintVerdictToy(hours, refs = {}) {
       ? `${TOY_GAME.name} · bought, never opened`
       : s.changed
         ? `${s.nowLabel} at ${TOY_GAME.hours}h → ${s.label} at ${hours}h`
-        : `still ${s.label}, ${s.rate == null ? "—" : `₹${s.rate.toFixed(2)}/hour`}`;
+        : `still ${s.label}, ${s.rate == null ? "—" : `${toyMoney(s.rate, toyCurrency)}/hour`}`;
   }
   const out = refs.out || document.getElementById("toy-out");
   if (out) out.textContent = `${hours}h`;
+}
+
+/** Change the painted currency without rebuilding the page: the price line,
+ *  the rate and the note repaint from wherever the slider currently sits.
+ *  All lookups are no-ops on a page where the toy is not (or not yet) built,
+ *  so the view can call this on every onboarding render without care. */
+export function repaintVerdictToy(currency) {
+  toyCurrency = currency || "INR";
+  const price = document.getElementById("toy-price");
+  if (price) price.textContent = toyMoney(TOY_GAME.price, toyCurrency);
+  const range = document.getElementById("toy-hours");
+  paintVerdictToy(range ? Number(range.value) : TOY_DEFAULT);
 }

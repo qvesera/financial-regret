@@ -83,6 +83,25 @@ class TestConfig(unittest.TestCase):
         status, _, body = _call(config_mod, {"PORT": "8123"})
         self.assertEqual(body["publicBaseUrl"], "http://localhost:8123")
 
+    def test_reports_the_visitor_country_from_the_edge(self):
+        # Vercel's header. The browser defaults the display currency from it.
+        h = StubHandler({"x-vercel-ip-country": "DE"})
+        config_mod.handler.do_GET(h)
+        body = json.loads(h.wfile.getvalue().decode())
+        self.assertEqual(body["country"], "DE")
+
+    def test_also_reads_cloudflare_country(self):
+        h = StubHandler({"cf-ipcountry": "gb"})
+        config_mod.handler.do_GET(h)
+        body = json.loads(h.wfile.getvalue().decode())
+        self.assertEqual(body["country"], "GB", "normalised to upper case")
+
+    def test_country_is_null_when_no_edge_reported_one(self):
+        # A direct self-hosted server.py: the frontend keeps its own default
+        # rather than being told a country nobody measured.
+        _, _, body = _call(config_mod, {})
+        self.assertIsNone(body["country"])
+
 
 class TestVercelContract(unittest.TestCase):
     """Every api module must be loadable by Vercel's /api runtime."""

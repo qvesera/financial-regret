@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { pricePerHour, perHour, money } from "./format.js";
+import { pricePerHour, perHour, money, currencyForCountry } from "./format.js";
 
 describe("pricePerHour", () => {
   it("divides normally at one hour or more", () => {
@@ -54,5 +54,36 @@ describe("money", () => {
   });
   it("renders unknown as a dash", () => {
     assert.equal(money(null, "INR"), "—");
+  });
+});
+
+describe("currencyForCountry", () => {
+  it("maps a country to the currency its prices are sold in", () => {
+    assert.equal(currencyForCountry("US"), "USD");
+    assert.equal(currencyForCountry("IN"), "INR");
+    assert.equal(currencyForCountry("JP"), "JPY");
+    assert.equal(currencyForCountry("GB"), "GBP");
+    assert.equal(currencyForCountry("BR"), "BRL");
+  });
+
+  it("shares a currency across the places that share it", () => {
+    assert.equal(currencyForCountry("DE"), "EUR", "the euro area is one answer");
+    assert.equal(currencyForCountry("FR"), "EUR");
+    assert.equal(currencyForCountry("GL"), "DKK", "Greenland is still on the krone");
+  });
+
+  it("normalises case and whitespace", () => {
+    assert.equal(currencyForCountry(" de "), "EUR");
+    assert.equal(currencyForCountry("us"), "USD");
+  });
+
+  it("returns null where there is no offered currency to name", () => {
+    // Null, not a fallback code: the caller decides what the default is, and
+    // an unoffered currency (NPR, VND) must never reach the price API.
+    assert.equal(currencyForCountry("ZZ"), null);
+    assert.equal(currencyForCountry("NP"), null);
+    assert.equal(currencyForCountry(""), null);
+    assert.equal(currencyForCountry(null), null);
+    assert.equal(currencyForCountry(undefined), null);
   });
 });

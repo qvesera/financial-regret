@@ -1,7 +1,7 @@
 /** DOM builders. textContent only — never innerHTML with user data. */
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
 import { TIER_LABEL, coverHue, headline as buildHeadline, whatIf } from "./verdict.js";
-import { renderVerdictToy } from "./arcade.js";
+import { renderVerdictToy, repaintVerdictToy } from "./arcade.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -700,6 +700,7 @@ export const view = {
     cwrap.appendChild(clabel);
     const csel = this.buildCurrencySelect(state.currency);
     csel.id = "onboarding-currency";
+    this.onboardCurrency = csel;   // repainted in place when a geo default lands
     cwrap.appendChild(csel);
     display.appendChild(cwrap);
     display.appendChild(this.el("p", "key-hint",
@@ -1044,6 +1045,12 @@ export const view = {
         this.phaseEl.appendChild(this.renderOnboarding(state));
         this._builtPhase = "onboarding";
       }
+      // One-shot build, so anything the currency knows after it lands (the
+      // visitor's own picker choice, or the region default from /api/config)
+      // repaints the picker and the toy in place — a rebuild would discard
+      // half-typed paste fields and pull the slider out from under a thumb.
+      if (this.onboardCurrency) this.onboardCurrency.value = state.currency || "INR";
+      repaintVerdictToy(state.currency);
       return;
     }
 

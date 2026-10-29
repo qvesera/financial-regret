@@ -12,6 +12,19 @@ from http.server import BaseHTTPRequestHandler
 from _common import handle_options, require_user_keys, send_json
 
 
+def _edge_country(handler) -> str | None:
+    """The visitor's ISO 3166-1 alpha-2 country, when an edge put one on the
+    request: Vercel sends x-vercel-ip-country, Cloudflare cf-ipcountry.
+    Anything that is not a two-letter string is discarded — a header is
+    attacker-controlled input (and a test double is a MagicMock), so only a
+    plausible code reaches the JSON body. Nothing is stored or logged."""
+    for header in ("x-vercel-ip-country", "cf-ipcountry"):
+        value = handler.headers.get(header)
+        if isinstance(value, str) and len(value.strip()) == 2:
+            return value.strip().upper()
+    return None
+
+
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         handle_options(self)
@@ -34,6 +47,10 @@ class handler(BaseHTTPRequestHandler):
             # reads these to choose between "optional" and "needed for
             # pricing" — the same rule health.py states for BYO-key mode.
             "requireUserKeys": require_user_keys(),
+            # The browser defaults the display currency to the visitor's
+            # region from this. Null on a direct self-hosted server.py — the
+            # frontend then keeps its own default.
+            "country": _edge_country(self),
             "keys": {
                 "steam": bool(os.environ.get("STEAM_API_KEY")),
                 "itad": bool(os.environ.get("ITAD_API_KEY")),

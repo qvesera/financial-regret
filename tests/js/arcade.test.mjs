@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installEnv } from "./dom-stub.mjs";
 import {
-  toyState, renderVerdictToy, paintVerdictToy,
+  toyState, renderVerdictToy, paintVerdictToy, repaintVerdictToy, toyMoney,
   TOY_SAMPLE, TOY_GAME, TOY_MAX, TOY_DEFAULT,
 } from "../../public/js/arcade.js";
 import { benchmark } from "../../public/js/verdict.js";
@@ -109,6 +109,31 @@ test("the demo cartridge ships a real game's cover and price", () => {
   assert.equal(cover.src, TOY_GAME.cover);
   assert.equal(cover.alt, "",
     "decorative: the game's name is already the heading beside it");
-  assert.equal(toy.querySelector(".toy-price").textContent, "₹690",
+  assert.equal(toy.querySelector(".toy-price").textContent, "₹690.00",
     "the game's real list price, and the figure the verdict arithmetic uses");
+});
+
+test("the toy's money speaks the display currency, converted, not hard-coded", () => {
+  // The INR figures are the source of the arithmetic; other currencies are
+  // the same figures converted — the verdict arc cannot move, only the labels.
+  assert.equal(toyMoney(690, "INR"), "₹690.00", "INR is the source figure");
+  assert.equal(toyMoney(88, "USD"), "$1.00", "converted at the toy's static rate");
+
+  installEnv();
+  const toy = renderVerdictToy("USD");
+  document.documentElement.appendChild(toy);
+  assert.match(toy.querySelector(".toy-price").textContent, /^\$/,
+    "a US visitor never sees a rupee sign on the landing page");
+  assert.equal(toy.querySelector("#toy-hours").value, String(TOY_DEFAULT));
+
+  // The page is built once, so a currency change repaints in place — the
+  // delegated drag handler keeps painting in the same currency afterwards.
+  repaintVerdictToy("EUR");
+  assert.match(document.getElementById("toy-price").textContent, /€/);
+  assert.match(document.getElementById("toy-rate").textContent, /—/,
+    "at 0h there is still no rate to show");
+  paintVerdictToy(53);
+  assert.match(document.getElementById("toy-rate").textContent, /€\d/);
+
+  repaintVerdictToy("INR");   // module currency must not leak into the next test
 });

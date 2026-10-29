@@ -9,6 +9,7 @@ import { store } from "./store.js";
 import * as api from "./api.js";
 import { view } from "./view.js";
 import { computeRegret } from "./regret.js";
+import { currencyForCountry } from "./format.js";
 import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
 import { paintVerdictToy } from "./arcade.js";
 
@@ -907,14 +908,26 @@ export async function boot() {
   wire(root);
   wireCrossWindow();
   renderAll();
-  // Whether this instance carries shared keys decides how the keys card
-  // describes itself, so ask right after the first paint. Non-blocking, and
-  // a failed fetch just leaves state.server null — the card then assumes the
-  // visitor's key is required, which is the safe direction: assuming
-  // "optional" is the mistake that shipped.
-  api.fetchConfig()
-    .then((cfg) => { state.server = cfg; renderAll(); })
-    .catch(() => { /* no config: the keys card keeps its worst-case copy */ });
+  // /api/config arrives after the first paint and decides two things: how the
+  // keys card describes itself, and — when the visitor has never touched the
+  // currency picker — which currency the first price fetch is denominated in.
+  // Awaiting it before the first scan is deliberate: a scan priced in the
+  // default and re-priced after detection would spend the visitor's API quota
+  // twice. A failed fetch just leaves state.server null — the keys card then
+  // assumes the visitor's key is required, which is the safe direction:
+  // assuming "optional" is the mistake that shipped.
+  let cfg = null;
+  try { cfg = await api.fetchConfig(); } catch { /* keep the worst-case copy */ }
+  state.server = cfg;
+  if (!localStorage.getItem("currency")) {
+    // The edge tells us the visitor's country (Vercel's x-vercel-ip-country,
+    // Cloudflare's cf-ipcountry); a self-hosted server.py reports none and the
+    // INR default simply stands. An explicit picker choice is never rivalled —
+    // detection fills the blank, it never overwrites.
+    const local = cfg && currencyForCountry(cfg.country);
+    if (local && local !== state.currency) state.currency = local;
+  }
+  renderAll();
   if (state.phase === "ready" && state.games.length === 0) {
     await scan();
   } else if (state.games.length && snap && snap.currency && snap.currency !== state.currency) {

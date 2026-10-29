@@ -78,6 +78,12 @@ strict CSP) ship on every response. Same origin by construction: no CORS
 surface, no `BACKEND_URL` to configure, and the per-IP rate limit sees real
 client IPs instead of an edge proxy's.
 
+The display currency starts from the visitor's region: the edge's country
+header (Vercel's `x-vercel-ip-country`, Cloudflare's `cf-ipcountry`) rides on
+`/api/config` and is mapped to a currency the picker offers. A self-hosted
+`server.py` reports none and keeps the INR default, and a currency the visitor
+picked is never overridden.
+
 **Optional long-running backend** — `render.yaml` plus the root `Dockerfile`
 run `server.py` as a persistent service, for libraries so large that a scan
 outgrows Vercel's function cap. Push the repo, then connect it to Render
