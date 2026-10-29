@@ -364,10 +364,18 @@ button { cursor: pointer; font-family: inherit; }
 
 .brand { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
 .brand h1 { font-size: 1.15rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; line-height: 1.1; }
-/* the ₹ of ₹egret — in the mono face, because Press Start 2P ships no ₹
-   glyph (latin subset only) and the fallback reads as a glitch. The one
-   symbol wears mono everywhere; the word stays pixel. */
-.brand-mark { color: var(--accent); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+/* the ₹ of ₹egret — hand-drawn pixel art, because Press Start 2P ships no ₹
+   glyph (latin subset only) and the font fallback mid-word read as a glitch.
+   The same 5×7 grid as public/js/export.js's RUPEE: canvas rects on the
+   cards, this inline SVG in the DOM. */
+.brand-mark { color: var(--accent); }
+.rupee-glyph {
+  display: inline-block;
+  width: 0.5em;      /* five blocks */
+  height: 0.7em;     /* seven blocks */
+  vertical-align: baseline;
+  margin-right: 0.15em;
+}
 .topbar-right {
   display: flex;
   align-items: center;

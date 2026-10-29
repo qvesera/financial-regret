@@ -333,6 +333,56 @@ function loadArcadeFont() {
 const DISP = '"Press Start 2P", monospace';
 const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
+/** The rupee sign, hand-drawn. Press Start 2P ships no ₹ (latin subset
+ *  only), and a mono fallback mid-pixel-word reads as a glitch — so the
+ *  glyph is pixel art in the same face that draws everything else. The
+ *  shape is the ₹ of Devanagari र with a strike: top bar, stem, middle
+ *  bar, and a leg stepping down to the right. 5×7 blocks. */
+export const RUPEE = [
+  "11111",
+  "10000",
+  "10000",
+  "11111",
+  "10100",
+  "10010",
+  "10001",
+];
+
+/** Block size in px for a glyph drawn `size` px tall — integer, so the
+ *  pixel art never renders as blurry fractions. */
+function rupeeBlock(size) {
+  return Math.max(1, Math.round((size * 0.7) / RUPEE.length));
+}
+
+export function rupeeWidth(size) {
+  return rupeeBlock(size) * RUPEE[0].length;
+}
+
+/** Draw the glyph with its baseline at `y` and its height near `size`. */
+export function drawRupee(ctx, x, y, size, color) {
+  const s = rupeeBlock(size);
+  const top = y - s * RUPEE.length;
+  if (color) ctx.fillStyle = color;
+  for (let r = 0; r < RUPEE.length; r += 1) {
+    for (let c = 0; c < RUPEE[r].length; c += 1) {
+      if (RUPEE[r][c] === "1") ctx.fillRect(x + c * s, top + r * s, s, s);
+    }
+  }
+}
+
+/** The same grid as inline SVG, for the DOM wordmark — one glyph, two
+ *  surfaces, so the heading and the exported cards cannot drift apart. */
+export function rupeeSvg() {
+  const cells = [];
+  RUPEE.forEach((row, r) => {
+    for (let c = 0; c < row.length; c += 1) {
+      if (row[c] === "1") cells.push(`<rect x="${c}" y="${r}" width="1" height="1"/>`);
+    }
+  });
+  return `<svg class="rupee-glyph" viewBox="0 0 5 7" fill="currentColor"`
+    + ` preserveAspectRatio="none" aria-hidden="true">${cells.join("")}</svg>`;
+}
+
 /** Where the project lives — the watermark names the home, not whatever
  *  hostname happened to serve this copy (localhost tells a stranger nothing). */
 const SITE = "financial-regret.vercel.app";
@@ -357,8 +407,8 @@ function truncate(ctx, text, maxW) {
 }
 
 /** Press Start 2P ships no ₹ (the latin subset is the only one vendored), so
- *  the symbol always wears the mono font — the same split the header
- *  wordmark uses — and the rest of the figure stays in pixels. */
+ *  a leading ₹ is drawn as the hand-drawn pixel glyph and the rest of the
+ *  figure stays in pixels — no font fallback anywhere. */
 function fillDisplay(ctx, text, x, y, maxW, size) {
   const s = String(text);
   if (!s.startsWith("₹")) {
@@ -366,9 +416,8 @@ function fillDisplay(ctx, text, x, y, maxW, size) {
     ctx.fillText(s, x, y);
     return;
   }
-  ctx.font = `${Math.round(size * 0.78)}px ${MONO}`;
-  ctx.fillText("₹", x, y);
-  const rw = ctx.measureText ? ctx.measureText("₹").width : size * 0.6;
+  const rw = rupeeWidth(size);
+  drawRupee(ctx, x, y, size, ctx.fillStyle);
   fitFont(ctx, s.slice(1), size, maxW - rw, DISP);
   ctx.fillText(s.slice(1), x + rw, y);
 }
@@ -454,8 +503,8 @@ export function drawCard(ctx, spec, tokens = CARD_TOKENS, w = CARD_W, h = CARD_H
   ctx.fillText(spec.footnote || "", PAD, h - 84);
 
   // Watermark: the wordmark in the pixel font plus where to get it, one
-  // quiet muted line — brand without shouting over the stats. The ₹ is mono
-  // again: the pixel face simply has no rupee glyph.
+  // quiet muted line — brand without shouting over the stats. The ₹ is the
+  // hand-drawn glyph again: the pixel face has no rupee.
   ctx.textAlign = "right";
   ctx.fillStyle = tokens.muted;
   ctx.font = `18px ${MONO}`;
@@ -465,8 +514,7 @@ export function drawCard(ctx, spec, tokens = CARD_TOKENS, w = CARD_W, h = CARD_H
   ctx.font = `16px ${DISP}`;
   const markW = ctx.measureText ? ctx.measureText("egret").width : 5 * 16;
   ctx.fillText("egret", w - PAD - siteW - 20, h - 84);
-  ctx.font = `16px ${MONO}`;
-  ctx.fillText("₹", w - PAD - siteW - 20 - markW - 2, h - 84);
+  drawRupee(ctx, w - PAD - siteW - 20 - markW - 10, h - 84, 16, tokens.muted);
   ctx.textAlign = "left";
 }
 

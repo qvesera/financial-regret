@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  cardSpec, encodeCard, decodeCard, shareUrl, drawCard,
+  cardSpec, encodeCard, decodeCard, shareUrl, drawCard, drawRupee, rupeeSvg,
   exportKinds, kindLabel, CARD_TOKENS, CARD_W, CARD_H,
 } from "../../public/js/export.js";
 import { benchmark, verdictMap, comparators } from "../../public/js/verdict.js";
@@ -158,9 +158,14 @@ test("the painter draws the arcade card, scanlines and watermark and all", () =>
   const markFont = ctx.fonts.find(([t]) => t === "egret");
   assert.ok(markFont && markFont[1].includes("Press Start 2P"),
     `drawn in the pixel font, not mono: ${markFont && markFont[1]}`);
-  const rupeeFont = ctx.fonts.find(([t]) => t === "₹");
-  assert.ok(rupeeFont && rupeeFont[1].includes("ui-monospace"),
-    "the rupee is the one glyph the pixel face lacks — mono, like the header");
+  assert.ok(!ctx.texts.includes("₹"),
+    "the rupee is drawn, never typed — no font fallback anywhere");
+  const statBlocks = ctx.rects.filter((r) => r[2] === 3 && r[3] === 3);
+  assert.equal(statBlocks.length, 18,
+    "the stat's ₹ is eighteen pixel blocks (the '₹56/h' value)");
+  const markBlocks = ctx.rects.filter((r) => r[2] === 2 && r[3] === 2);
+  assert.equal(markBlocks.length, 18,
+    "and so is the watermark's, one block size down");
   assert.ok(ctx.texts.includes("financial-regret.vercel.app"),
     "and names where to get it — the project home, not this hostname");
   const scanlines = ctx.rects.filter((r) => r[3] === 1);
@@ -168,4 +173,22 @@ test("the painter draws the arcade card, scanlines and watermark and all", () =>
     "one transparent pixel every three, the toy-screen skin");
   assert.ok(ctx.rects.some((r) => r[2] === CARD_W && r[3] === CARD_H),
     "the background covers the whole card");
+});
+
+test("the rupee glyph is hand-drawn pixel art — one grid, two surfaces", () => {
+  const ctx = fakeCtx();
+  drawRupee(ctx, 10, 70, 70, "#fff");   // size 70 → 7px blocks, top at 21
+  assert.equal(ctx.rects.length, 18, "eighteen blocks make the sign");
+  assert.ok(ctx.rects.every(([, , w, h]) => w === 7 && h === 7),
+    "square blocks, sized to the request — never fractional pixels");
+  assert.deepEqual(ctx.rects[0], [10, 21, 7, 7],
+    "baseline-aligned: the top bar starts at the top-left");
+  assert.equal(ctx.fillStyle, "#fff", "drawn in the caller's ink");
+
+  const svg = rupeeSvg();
+  assert.ok(svg.includes('viewBox="0 0 5 7"'), "the same 5×7 grid");
+  assert.equal((svg.match(/<rect/g) || []).length, 18,
+    "the same eighteen blocks, as SVG for the DOM wordmark");
+  assert.ok(svg.includes('aria-hidden="true"'),
+    "decorative — the word beside it carries the name");
 });

@@ -2,7 +2,7 @@
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
 import { TIER_LABEL, coverHue, headline as buildHeadline, whatIf } from "./verdict.js";
 import { renderVerdictToy, repaintVerdictToy } from "./arcade.js";
-import { CARD_W, CARD_H, exportKinds, kindLabel } from "./export.js";
+import { CARD_W, CARD_H, exportKinds, kindLabel, rupeeSvg } from "./export.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1484,7 +1484,10 @@ export const view = {
     // header's split (mono symbol, pixel word) is what makes it look
     // deliberate rather than broken.
     const head = this.el("h1", "hero-title");
-    head.appendChild(this.el("span", "brand-mark", "₹"));
+    const mark = this.el("span", "brand-mark");
+    // The hand-drawn 5×7 pixel rupee — the same grid the exported cards use.
+    mark.innerHTML = rupeeSvg();
+    head.appendChild(mark);
     head.appendChild(this.el("span", null, "egret, shared"));
     wrap.appendChild(head);
     wrap.appendChild(this.el("p", "shared-note",
