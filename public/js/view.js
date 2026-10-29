@@ -342,7 +342,6 @@ export const view = {
     wordmark.appendChild(this.el("span", "brand-mark", "₹"));
     wordmark.appendChild(this.el("span", null, "egret"));
     brandText.appendChild(wordmark);
-    brandText.appendChild(this.el("p", "brand-sub", "what your library actually cost"));
     brand.appendChild(brandText);
 
     // Right cluster: which stores are connected, then the two global

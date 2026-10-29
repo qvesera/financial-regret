@@ -866,8 +866,13 @@ test("the header offers each control exactly once, in plain words", async () => 
     .map((b) => `${b.dataset.action}:${b.textContent}`);
   assert.ok(labels.includes("unlink:Forget"), `a linked store reads Forget: ${labels}`);
   assert.ok(labels.includes("link:Link"), `an unlinked store reads Link: ${labels}`);
-  assert.equal(env.root.querySelector(".brand-sub").textContent,
-    "what your library actually cost");
+  // The wordmark stands alone: the pitch line moved off the header — the
+  // landing hero says it now, and a subtitle was one line of clutter per
+  // screen for a sentence nobody read twice.
+  assert.equal(env.root.querySelector(".brand").querySelector("h1").textContent, "₹egret",
+    "the wordmark still carries the rupee pun");
+  assert.equal(env.root.querySelector(".brand-sub"), null,
+    "no subtitle under the header brand");
   // The topbar shows only linkable stores — the still-planned Xbox chip is
   // absent, but PlayStation (now live) is present.
   const chipNames = env.root.querySelectorAll(".source-name").map((e) => e.textContent);

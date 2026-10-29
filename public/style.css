@@ -366,7 +366,6 @@ button { cursor: pointer; font-family: inherit; }
 .brand h1 { font-size: 1.15rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; line-height: 1.1; }
 /* the ₹ of ₹egret */
 .brand-mark { color: var(--accent); }
-.brand-sub { margin: 0.1rem 0 0; font-size: 0.75rem; color: var(--muted); }
 .topbar-right {
   display: flex;
   align-items: center;
