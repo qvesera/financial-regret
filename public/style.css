@@ -1456,5 +1456,308 @@ td.cell-platform { white-space: nowrap; }
   .source-action { padding: 0.45rem 0.6rem; }
 }
 
+/* ============================================================
+   ATTRACT MODE — arcade skin, landing page only.
+   Scoped to .onboarding so the dashboard keeps its calm chrome.
+
+   Three rules govern everything below:
+   1. Tokens, never hardcoded fills — the light theme at the top of this file
+      must keep working, and the tier colours are already contrast-audited.
+   2. Motion is load-time choreography that finishes inside 5 seconds, never an
+      infinite loop, so nothing needs a pause control. The reduced-motion block
+      at line 163 collapses all of it for anyone who asks.
+   3. No existing class, count or hook is renamed: 85 tests assert them.
+   ============================================================ */
+
+@font-face {
+  font-family: "Press Start 2P";
+  src: url("fonts/press-start-2p-latin.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  /* SIL Open Font License 1.1 — full text beside it: public/fonts/OFL.txt.
+     Self-hosted because style-src 'self' forbids any CDN font. */
+}
+
+.onboarding {
+  position: relative;
+  background-image:
+    radial-gradient(75% 40% at 50% 0%, rgba(110, 231, 183, 0.13), transparent 65%),
+    repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.20) 0 1px, transparent 1px 4px);
+}
+
+/* The marquee. Pixel face only here and on the HUD labels — body copy stays in
+   the system stack, because a pixel font at paragraph length is a legibility
+   problem dressed up as a style choice. */
+.hero-title {
+  display: inline-block;
+  font-family: "Press Start 2P", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: clamp(0.78rem, 2.3vw, 1.3rem);
+  line-height: 1.75;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.9rem;
+  border: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--tier-worth-tint);
+  box-shadow: 0 0 0 3px var(--bg), 0 0 22px -6px var(--accent),
+              inset 0 0 20px -12px var(--accent);
+  animation: attract-in 620ms var(--ease) both,
+             attract-glow 4.4s ease-in-out 400ms 1;
+}
+
+@keyframes attract-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* One brightening pass on load, then it holds still — the arcade wakes up for
+   you and stops showing off. */
+@keyframes attract-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 3px var(--bg), 0 0 22px -6px var(--accent),
+                inset 0 0 20px -12px var(--accent);
+  }
+  45% {
+    box-shadow: 0 0 0 3px var(--bg), 0 0 46px -4px var(--accent),
+                inset 0 0 26px -10px var(--accent);
+  }
+}
+
+/* HUD tags: pixel face at a size that stays readable. */
+.onboarding .pc-tag {
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 0.62rem;   /* pixel face has no hinting: 10px is the floor */
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.3rem 0.4rem;
+}
+
+/* Cabinet button: chunky, presses down, with a decorative caret. The caret is
+   a pseudo-element so the label text — which tests assert — is untouched. */
+.onboarding .button.primary {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: 2px solid var(--accent);
+  box-shadow: 0 3px 0 0 var(--border);
+  transition: transform var(--dur-fast) var(--ease),
+              box-shadow var(--dur-fast) var(--ease);
+}
+.onboarding .button.primary::before { content: "\25B6\00a0"; color: var(--accent); }
+.onboarding .button.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 0 0 var(--border), 0 0 18px -5px var(--accent);
+}
+.onboarding .button.primary:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 0 var(--border);
+}
+
+/* Cartridge slots. Presentation only — .platform-card keeps its class, its
+   position in the grid and its steps, because the tests count them. */
+.onboarding .platform-card {
+  position: relative;
+  background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 60%);
+  border-top: 3px solid var(--accent);
+  box-shadow: 0 5px 0 -2px var(--border);
+  transition: transform var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease),
+              border-color var(--dur) var(--ease);
+}
+
+/* Power LED. Decorative: it carries no state, so nothing is lost when the
+   reduced-motion block or a forced-colours mode flattens it. */
+.onboarding .platform-card::before {
+  content: "";
+  position: absolute;
+  top: 0.9rem;
+  right: 0.95rem;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tier-untouched);
+  box-shadow: 0 0 6px var(--tier-untouched);
+}
+.onboarding .platform-card.featured::before {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent), 0 0 18px -6px var(--accent);
+}
+
+/* Connector teeth along the bottom edge — the cart is always drawn seated. */
+.onboarding .platform-card::after {
+  content: "";
+  position: absolute;
+  left: 1.25rem;
+  right: 1.25rem;
+  bottom: -1px;
+  height: 5px;
+  border-radius: 0 0 3px 3px;
+  background: repeating-linear-gradient(90deg,
+    var(--tier-worth-tint) 0 7px, transparent 7px 15px);
+}
+
+.onboarding .platform-card:hover,
+.onboarding .platform-card:focus-within {
+  transform: translateY(-4px);
+  box-shadow: 0 9px 0 -3px var(--border), 0 0 26px -10px var(--accent);
+}
+.onboarding .platform-card.planned { border-top-color: var(--border); }
+.onboarding .platform-card.planned::before { box-shadow: none; opacity: 0.55; }
+
+/* ---------- the attract-mode verdict toy ---------- */
+
+.toy {
+  margin: 0 0 var(--space-6);
+  animation: attract-in 700ms var(--ease) 140ms both;
+}
+
+.toy-screen {
+  position: relative;
+  padding: var(--space-5);
+  border: 3px solid var(--accent);
+  border-radius: 6px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(110, 231, 183, 0.10), transparent 58%),
+    var(--surface);
+  box-shadow: inset 0 0 40px -20px var(--accent), 0 0 26px -14px var(--accent);
+}
+
+/* Glass sheen across the tube. */
+.toy-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(118deg, rgba(255, 255, 255, 0.07) 0 26%, transparent 44%);
+}
+
+.toy-kicker {
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  margin: 0 0 var(--space-3);
+}
+
+.toy-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.toy-title {
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: clamp(0.78rem, 2vw, 1rem);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Pixel-cut the pill into a cartridge label, and let a tier flip read as a
+   power surge. 180ms, one shot — it is a response, not an ambient loop. */
+.toy .badge {
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 0.7rem;   /* the verdict must be read, not decoded */
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.5rem 0.6rem;
+  border: 2px solid currentColor;
+  border-radius: 4px;
+  animation: badge-pop 180ms var(--ease);
+}
+@keyframes badge-pop {
+  from { transform: scale(0.9); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
+
+.toy-stats {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+.toy-rate {
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: clamp(0.85rem, 3vw, 1.45rem);
+  color: var(--accent);
+  margin: 0;
+  text-shadow: 0 0 14px rgba(110, 231, 183, 0.45);
+}
+.toy-note { margin: 0; color: var(--muted); font-size: 0.85rem; }
+
+.toy-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  font-family: "Press Start 2P", ui-monospace, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: var(--space-3);
+}
+.toy-out { color: var(--accent); font-size: 0.85rem; }
+
+/* Slider: square thumb, phosphor trail — a cabinet fader, not a iOS switch. */
+.toy-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  background: repeating-linear-gradient(90deg,
+    rgba(255, 255, 255, 0.06) 0 10px, transparent 10px 20px);
+  cursor: ew-resize;
+}
+.toy-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 26px;
+  border: 3px solid var(--bg);
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(110, 231, 183, 0.75);
+}
+.toy-range::-moz-range-thumb {
+  width: 22px;
+  height: 26px;
+  border: 3px solid var(--bg);
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(110, 231, 183, 0.75);
+}
+.toy-range:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.toy-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: var(--space-2);
+}
+
+.toy-hint {
+  margin: var(--space-4) 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+@media (max-width: 600px) {
+  .toy-screen { padding: var(--space-4); }
+  .toy-head { gap: var(--space-2); }
+}
+
+
+
 
 

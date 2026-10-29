@@ -1,6 +1,7 @@
 /** DOM builders. textContent only — never innerHTML with user data. */
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
 import { TIER_LABEL, coverHue, headline as buildHeadline, whatIf } from "./verdict.js";
+import { renderVerdictToy } from "./arcade.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -455,6 +456,11 @@ export const view = {
     wrap.appendChild(this.el("h1", "hero-title", "What is your library actually worth?"));
     wrap.appendChild(this.el("p", "hero-sub",
       "Link a store. We price every game you own at today's cheapest price and show what each hour of play has cost you — including the ones you never opened."));
+
+    // The pitch, playable before the ask: run the real verdict engine on a
+    // sample library so the judgement is felt rather than described. Sits above
+    // the store cards because it is the reason to scroll to them.
+    wrap.appendChild(renderVerdictToy());
 
     const cards = this.el("div", "platform-cards");
     for (const p of PLATFORMS) {

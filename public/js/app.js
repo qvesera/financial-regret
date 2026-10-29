@@ -10,6 +10,7 @@ import * as api from "./api.js";
 import { view } from "./view.js";
 import { computeRegret } from "./regret.js";
 import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
+import { paintVerdictToy } from "./arcade.js";
 
 /** UI state worth keeping across reloads — filters and the what-if setting.
  *  `view_mode` stays in its own key: several tests assert it by name. */
@@ -792,6 +793,11 @@ function onInput(e) {
     state.simHours = Number(t.value) || 10;
     saveUiState({ simHours: state.simHours });
     renderAll();
+  } else if (t.dataset.action === "toy") {
+    // Attract-mode toy on the landing page. Repaints in place and never
+    // re-renders: rebuilding the onboarding mid-drag would take the thumb out
+    // from under the pointer (the same reason buildSim is built once).
+    paintVerdictToy(Number(t.value));
   }
 }
 
