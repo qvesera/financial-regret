@@ -133,6 +133,9 @@ export function cardSpec(state, kind = "wrapped") {
     eyebrow: "YOUR LIBRARY, JUDGED",
     currency: cur,
     at: Date.now(),
+    // Who made it: the Steam display name where one is known — a card is
+    // signed by a person, not by whichever hostname served the page.
+    who: state.steamPersona || null,
     src: currentHost(),
   };
 

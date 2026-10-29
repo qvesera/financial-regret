@@ -82,6 +82,9 @@ let state = {
   // #card= link — the snapshot another visitor shared.
   exportKind: "wrapped",
   sharedSpec: null,
+  // The visitor's Steam display name — signs shared cards. Filled by the
+  // scan, kept across reloads via the snapshot.
+  steamPersona: null,
   // derived: filled in by renderAll before anything reads them
   bench: { samples: 0, p25: null, p50: null, p75: null, p90: null, max: null },
   verdicts: new Map(),
@@ -348,7 +351,13 @@ async function scan() {
   // One step per linked source; each flips to done/failed as its promise
   // settles, so the list is honest about which store is slow or broken.
   const specs = [
-    acc.steam && ["Steam", () => api.fetchSteamGames(localStorage.getItem("steam_id"))],
+    acc.steam && ["Steam", async () => {
+      const { games, persona } = await api.fetchSteamGames(localStorage.getItem("steam_id"));
+      // Signs shared cards with the visitor's Steam name rather than a
+      // hostname. Snapshot-restored sessions keep it from the last scan.
+      if (persona) state.steamPersona = persona;
+      return games;
+    }],
     acc.gog && ["GOG", () => api.fetchGogGames()],
     acc.epic && ["Epic", () => fetchAllEpicGames()],
     acc.amazon && ["Amazon Luna", () => api.fetchAmazonGames()],
@@ -406,7 +415,7 @@ async function scan() {
       .filter((r) => r.status === "rejected")
       .map((r) => (r.reason && r.reason.message) || String(r.reason));
     state.scanError = errors.length ? errors.join(" · ") : null;
-    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency });
+    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency, persona: state.steamPersona });
   } catch (e) {
     state.scanError = (e && e.message) || String(e);
   } finally {
@@ -447,7 +456,7 @@ async function reprice(nextCurrency) {
       high: highs[g.id] ?? null,
       low: lows[g.id] ?? null,
     }));
-    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency });
+    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency, persona: state.steamPersona });
     localStorage.setItem("currency", state.currency);
   } catch {
     state.currency = prev;   // keep prior prices labelled correctly
@@ -1045,6 +1054,7 @@ export async function boot() {
   if (snap) {
     state.games = snap.games || [];
     state.prices = snap.prices || {};
+    state.steamPersona = snap.persona || null;
   }
   // A shared card link (#card=…) renders the snapshot it carries, before the
   // visitor is asked for anything. A malformed payload boots normally — a

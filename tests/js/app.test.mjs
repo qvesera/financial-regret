@@ -1506,6 +1506,7 @@ test("the Share button waits for a library", async () => {
 test("a shared card link shows the snapshot, not a signup wall", async () => {
   const payload = {
     v: 1, kind: "wrapped", title: "WRAPPED", src: "friend.example", at: Date.now(),
+    who: "Sir Regrets",
     eyebrow: "YOUR LIBRARY, JUDGED", badge: "12 GAMES", stats: [], rows: [], footnote: "",
   };
   const { env, mod } = await boot({ seed: (e) => {
@@ -1515,8 +1516,11 @@ test("a shared card link shows the snapshot, not a signup wall", async () => {
 
   assert.equal(mod.getState().phase, "shared", "the link decides the phase");
   assert.ok(env.root.querySelector(".shared-card"), "the card lands full size");
-  assert.ok(env.root.querySelector(".shared-note").textContent.includes("friend.example"),
-    "and says who made it");
+  const note = env.root.querySelector(".shared-note").textContent;
+  assert.ok(note.includes("Sir Regrets"),
+    "signed with the sharer's Steam name — not the hostname they happened to use");
+  assert.ok(!note.includes("friend.example"),
+    "the hostname only stands in when no name was known");
   assert.ok(env.document.getElementById("shared-canvas"), "the snapshot is drawn, not described");
   const makeOwn = env.root.querySelectorAll("button")
     .find((b) => b.dataset.action === "make-own");

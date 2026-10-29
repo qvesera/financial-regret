@@ -88,6 +88,33 @@ class TestSteamShape(unittest.TestCase):
         self.assertEqual(first["platform"], "Steam")
         self.assertEqual(second["id"], "Steam:730")
         self.assertEqual(second["hours"], 0.0)
+        self.assertIsNone(body["persona"],
+                          "no summaries answer, no name — never a broken body")
+
+    def test_carries_the_persona_for_shared_cards(self):
+        # The shared-card caption signs the sharer's Steam name rather than a
+        # hostname, so /api/steam_games reports it beside the games.
+        import steam_games
+        fake = mock.MagicMock()
+        fake.path = "/api/steam_games?steamid=42"
+        owned = _resp({"response": {"games": [
+            {"appid": 10, "name": "Counter-Strike", "playtime_forever": 120},
+        ]}})
+        summaries = _resp({"response": {"players": [{"personaname": "Sir Regrets"}]}})
+
+        def fake_get(url, **kw):
+            return summaries if "GetPlayerSummaries" in url else owned
+
+        with mock.patch.dict(os.environ, {"STEAM_API_KEY": "k"}), \
+                mock.patch.object(steam_games, "requests") as rq, \
+                mock.patch.object(steam_games, "send_json") as sj:
+            rq.get.side_effect = fake_get
+            steam_games.handler.do_GET(fake)
+
+        body = sj.call_args.args[2]
+        self.assertEqual(body["persona"], "Sir Regrets")
+        self.assertEqual(body["games"][0]["id"], "Steam:10",
+                         "the games ride along, untouched by the name fetch")
 
 
 class TestGogShape(unittest.TestCase):

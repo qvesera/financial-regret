@@ -25,7 +25,8 @@ export async function fetchSteamGames(steamId) {
   if (!resp.ok) throw new Error(`steam_games ${resp.status}`);
   const data = await resp.json();
   if (data.error) throw new Error(data.error);
-  return data.games || [];
+  // persona: the account's display name, for signing shared cards.
+  return { games: data.games || [], persona: data.persona || null };
 }
 
 export async function fetchGogGames() {

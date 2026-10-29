@@ -1490,8 +1490,9 @@ export const view = {
     head.appendChild(mark);
     head.appendChild(this.el("span", null, "egret, shared"));
     wrap.appendChild(head);
+    const who = spec.who || spec.src || "Someone";
     wrap.appendChild(this.el("p", "shared-note",
-      `${spec.src || "Someone"} made this card`
+      `${who} made this card`
       + `${spec.at ? ` on ${new Date(spec.at).toISOString().slice(0, 10)}` : ""}.`));
     const cv = this.el("canvas");
     cv.id = "shared-canvas";

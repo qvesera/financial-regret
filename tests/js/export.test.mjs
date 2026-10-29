@@ -116,7 +116,9 @@ test("the view card carries the live filters", () => {
 });
 
 test("a share link round-trips and refuses anything else", () => {
-  const spec = cardSpec(makeState(), "wrapped");
+  const spec = cardSpec(makeState({ steamPersona: "Sir Regrets" }), "wrapped");
+  assert.equal(spec.who, "Sir Regrets",
+    "the card is signed by the Steam name, not the hostname");
   const encoded = encodeCard(spec);
   assert.deepEqual(decodeCard(`#card=${encoded}`), spec, "byte-for-byte after JSON");
   assert.equal(decodeCard("#card=!!!not-base64!!!"), null);

@@ -72,4 +72,23 @@ class handler(BaseHTTPRequestHandler):
             "platform": "Steam",
         } for g in data["games"]]
 
-        send_json(self, 200, {"games": games})
+        # The account's display name rides along: the shared-card caption
+        # signs the sharer's persona rather than a hostname. Best-effort —
+        # a summaries hiccup must never cost the library.
+        persona = None
+        try:
+            s = requests.get(
+                f"{STEAM_API_BASE}/ISteamUser/GetPlayerSummaries/v2/",
+                params={"key": api_key, "steamids": steam_id},
+                timeout=10,
+            )
+            if s.status_code == 200:
+                players = s.json().get("response", {}).get("players") or []
+                name = players[0].get("personaname") if players else None
+                # str() guard: a test double (or a mangled upstream) must not
+                # reach the JSON body as anything else.
+                persona = name if isinstance(name, str) and name.strip() else None
+        except (requests.RequestException, ValueError):
+            pass
+
+        send_json(self, 200, {"games": games, "persona": persona})
