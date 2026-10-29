@@ -61,8 +61,8 @@ rule, and `tests/test_logging.py` pins the consequence.
   preflight header list is checked against the real client headers by
   `tests/test_cors.py`, so the two cannot drift.
 * **A strict CSP ships.** `default-src 'self'`, no webfonts, no inline scripts —
-  from `server.py` when self-hosted, and from the generated `public/_headers`
-  when on Netlify.
+  from `server.py` when self-hosted, and from the `headers` block in
+  `vercel.json` on Vercel.
 * **Paths cannot escape `public/`.** Every dot segment is rejected up front and
   the resolved path is checked against the resolved root.
 * **Per-IP rate limiting** on every endpoint, including `OPTIONS`.

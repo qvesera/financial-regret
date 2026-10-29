@@ -1,5 +1,6 @@
-# Backend API for the split deploy. The static frontend lives on Netlify; this
-# runs server.py from the Dockerfile at the repo root.
+# Optional long-running backend. Vercel serves the site and /api by default;
+# this runs server.py from the Dockerfile at the repo root instead, for scans
+# that outgrow Vercel's 300-second function cap.
 #
 # Render's free tier creates services with no payment information on file --
 # its FAQ is written for that case: with no payment method on file, a service
@@ -31,6 +32,7 @@ services:
         value: "1"
       - key: RATE_LIMIT_PER_MIN
         value: "120"
-      # The deployed Netlify site. Without it every cross-origin call is refused.
+      # The deployed site, should the frontend be pointed here via API_BASE.
+      # Without it every cross-origin call is refused.
       - key: CORS_ALLOWED_ORIGINS
-        value: "https://financial-regret.netlify.app"
+        value: "https://financial-regret.vercel.app"

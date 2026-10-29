@@ -7,7 +7,6 @@
 .git
 .env
 .env.*
-.netlify
 .venv
 **/__pycache__
 *.pyc

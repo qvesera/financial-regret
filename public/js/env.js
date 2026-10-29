@@ -1,10 +1,12 @@
 /**
- * Deploy-time configuration -- written by scripts/gen_env.sh, do not edit.
+ * Checked-in API origin — no generator and no build step stand behind it.
  *
- * Left empty in the repo so the default stays "same origin": server.py serves
- * public/ and /api from one process, so there is nothing to point at. A public
- * split deploy (static site on a CDN, API elsewhere) rewrites this line from
- * BACKEND_URL at build time.
+ * Empty means "same origin", which is how this app ships: Vercel serves
+ * public/ and /api from one deployment (vercel.json rewrites /api/* to the
+ * single Python function), so there is never a cross-origin hop to name.
+ *
+ * Edit only if you deliberately split the halves onto different hosts; then
+ * this becomes the API origin with no trailing slash.
  *
  * This file holds a URL only. Never put a key here: the bundle ships to
  * everyone, and it is not a secret store.

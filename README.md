@@ -45,7 +45,7 @@ docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
 | `EPIC_CLIENT_ID` | No | Epic OAuth client ID. Defaults to public PKCE client. |
 | `PORT` | No | Port to listen on (default 3000; `run.sh` passes 8089). |
 | `HOST` | No | Host to bind (default 0.0.0.0). |
-| `CORS_ALLOWED_ORIGINS` | No | Comma-separated origins allowed to call this API cross-origin, e.g. `https://your-site.netlify.app`. Empty — the default — means same-origin only. Wildcards are discarded rather than honoured. |
+| `CORS_ALLOWED_ORIGINS` | No | Comma-separated origins allowed to call this API cross-origin, e.g. `https://your-app.vercel.app`. Empty — the default — means same-origin only. Wildcards are discarded rather than honoured. |
 | `REQUIRE_USER_KEYS` | No | `1` to ignore the server's `STEAM_API_KEY` / `ITAD_API_KEY` / `PLATPRICES_API_KEY` / `SGDB_API_KEY` and require every visitor to bring their own. Set this on any public deployment. |
 | `TRUST_PROXY` | No | `1` to read the client IP from `X-Forwarded-For`. Only behind a reverse proxy you control — otherwise the per-IP rate limit is trivially bypassed. |
 | `RATE_LIMIT_PER_MIN` | No | Per-IP requests per minute (default 120). |
@@ -53,40 +53,41 @@ docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
 
 ## Going public
 
-Netlify cannot run this backend: its Functions support TypeScript, JavaScript
-and Go, and there is no Python runtime. The two halves therefore deploy
-separately.
+One deployment serves everything: Vercel runs the static site and the API
+from the same origin.
 
 ```
-browser ──► Netlify          public/ only (html, js, css)
-   └──────► Render           server.py + api/ (Dockerfile)
+browser ──► Vercel   public/ (html, js, css)
+   └─ /api/* ──► api/index.py ──► backend/   (one Python function)
 ```
 
-The frontend reaches the API **directly** rather than through Netlify's
-`/api/*` proxy rewrite. That rewrite caps requests at 26 seconds, which a cold
-price scan can exceed, and it would place every visitor behind Netlify's edge
-IP and defeat the backend's per-IP rate limiting.
+**Deploy** — connect the repo in the Vercel dashboard, or run the CLI:
 
-**Backend** — `render.yaml` is provided. Render creates services without
-payment information on file, and the existing `Dockerfile` deploys unchanged:
+```bash
+vercel deploy --prod
+```
 
-1. Push the repo, then connect it to Render (New → Blueprint).
-2. Render reads `render.yaml`, which already sets `HOST`, `REQUIRE_USER_KEYS`
-   and `CORS_ALLOWED_ORIGINS`, and binds `/api/health` as the health check.
-3. Note the resulting `*.onrender.com` URL — it goes in `BACKEND_URL` below.
+`vercel.json` declares the rest: `outputDirectory` is `public/`, `/api/*`
+rewrites to the single Python function (300-second budget — a cold price scan
+fits), and the security headers (`nosniff`, `Referrer-Policy`, frame denial,
+strict CSP) ship on every response. Same origin by construction: no CORS
+surface, no `BACKEND_URL` to configure, and the per-IP rate limit sees real
+client IPs instead of an edge proxy's.
 
-Free-tier caveat: the instance spins down after 15 idle minutes and takes about
-a minute to wake, and Render may restart it at any time. Nothing depends on
-surviving a restart; the server keeps no state on disk.
+**Optional long-running backend** — `render.yaml` plus the root `Dockerfile`
+run `server.py` as a persistent service, for libraries so large that a scan
+outgrows Vercel's function cap. Push the repo, then connect it to Render
+(New → Blueprint); it reads `HOST`, `REQUIRE_USER_KEYS` and
+`CORS_ALLOWED_ORIGINS` from the blueprint and health-checks `/api/health`.
+Free-tier caveat: the instance spins down after 15 idle minutes and takes
+about a minute to wake, and Render may restart it at any time — nothing
+depends on surviving a restart, the server keeps no state on disk. To point
+the frontend at it, set `API_BASE` in `public/js/env.js` to that
+`*.onrender.com` origin and name the same origin in `CORS_ALLOWED_ORIGINS`.
 
-Set `PLATPRICES_API_KEY` and friends as Render env vars only if you want a
-shared server-side key. With `REQUIRE_USER_KEYS=1` they are a fallback, and
+Set `PLATPRICES_API_KEY` and friends as env vars only if you want a shared
+server-side key. With `REQUIRE_USER_KEYS=1` they are a fallback, and
 bring-your-own-key is the intended public posture.
-
-**Frontend** — set `BACKEND_URL` in the Netlify UI (Site configuration →
-Environment variables) to the API origin. The build rewrites `public/js/env.js`
-and emits `public/_headers` with a CSP naming that host, so `BACKEND_URL` is
-the only thing to configure.
 
 Before inviting anyone, read **[SECURITY.md](SECURITY.md)**. Two things
 especially: `REQUIRE_USER_KEYS=1` is what stops every visitor spending your API
