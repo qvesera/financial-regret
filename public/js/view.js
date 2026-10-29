@@ -1228,10 +1228,21 @@ export const view = {
   updateInsights(state) {
     if (!this.rankLists) return;
     const cur = this.currency;
+    // Some stores report no playtime at all — Amazon pins hours to null by
+    // design, and Epic's playtime endpoint can fail mid-scan. When every
+    // visible row is one of those, neither list could ever fill, so the
+    // "nothing qualifies yet" copy would be a permanent fiction. Take the
+    // cards off the page instead; they return the moment one visible row
+    // carries hours.
+    const rows = state.rows || [];
+    const noHoursAnywhere = rows.length > 0 && rows.every((r) => r.hours == null);
     for (const kind of ["worst", "best"]) {
+      const card = this.rankCards && this.rankCards[kind];
+      if (card) card.hidden = noHoursAnywhere;
       const list = this.rankLists[kind];
       if (!list) continue;
       list.textContent = "";
+      if (noHoursAnywhere) continue;
       const items = (state.comparators && state.comparators[kind]) || [];
       if (!items.length) {
         // The list is empty either because nothing qualifies yet or because the

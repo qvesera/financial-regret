@@ -78,6 +78,29 @@ const withSteam = (env) => {
   routeScan(env);
 };
 
+// Amazon's launcher mirrors no playtime, so every Amazon row carries hours:
+// null by contract. Priced, so the rows survive to the table — only the
+// ranking has nothing to work with.
+const withSteamAndAmazon = (env) => {
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  env.localStorage.setItem("amazon_access_token", "amazon-seed-token");
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) return { json: steamFixture };
+    if (url.includes("/api/amazon_games")) return { json: { games: [
+      { id: "Amazon:p1", name: "Control", platform: "Amazon", hours: null, appid: null },
+      { id: "Amazon:p2", name: "Crysis", platform: "Amazon", hours: null, appid: null },
+    ] } };
+    if (url.includes("/api/gog_games")) return { json: { games: [] } };
+    if (url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/prices")) return { json: {
+      prices: { ...PRICE_MAP, "Amazon:p1": 1200, "Amazon:p2": 800 },
+      highs: { ...HIGH_MAP, "Amazon:p1": 1400, "Amazon:p2": 1000 },
+      lows: { ...LOW_MAP, "Amazon:p1": 700, "Amazon:p2": 500 },
+    } };
+    return null;
+  });
+};
+
 test("cold start shows onboarding, hides metrics chrome", async () => {
   const { env, mod } = await boot();
   assert.equal(mod.getState().phase, "onboarding");
@@ -1009,6 +1032,36 @@ test("a rank list emptied by a filter says so, and recovers when cleared", async
     .dispatch("click");
   await settle();
   assert.equal(worst().querySelectorAll(".rank-name").length, 1, "restores when cleared");
+});
+
+test("a store that never reports playtime takes both ranked lists with it", async () => {
+  const { env, mod } = await boot({ seed: withSteamAndAmazon });
+  await settle();
+
+  const cards = () => env.root.querySelectorAll(".rank-card");
+  assert.equal(cards().length, 2, "both lists ship");
+  assert.ok(cards().every((c) => !c.hidden), "visible while any store reports hours");
+
+  const amazon = env.root.querySelectorAll(".platform-row")
+    .find((r) => r.dataset.platform === "Amazon");
+  assert.ok(amazon, "the legend offers Amazon as a filter");
+  amazon.dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().platform, "Amazon", "the filter took");
+  const rows = mod.getState().rows;
+  assert.ok(rows.length > 0, "the store has games on the table");
+  assert.ok(rows.every((r) => r.hours == null), "…and not one of them carries playtime");
+  assert.ok(cards().every((c) => c.hidden),
+    "nothing here could ever rank, so the cards leave the page — "
+    + "'nothing qualifies yet' would be a promise they cannot keep");
+
+  amazon.dispatch("click");               // the toggle clears itself
+  await settle();
+  assert.equal(mod.getState().platform, "All");
+  assert.ok(cards().every((c) => !c.hidden), "the cards return");
+  assert.equal(env.root.querySelector(".rank-worst").querySelectorAll(".rank-name").length, 1,
+    "Hades ranks again once hours exist in view");
 });
 
 test("every dashboard metric carries a wired explanation chip", async () => {
