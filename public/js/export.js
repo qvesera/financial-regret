@@ -338,15 +338,14 @@ const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
 /** The rupee sign, hand-drawn. Press Start 2P ships no ₹ (latin subset
  *  only), and a mono fallback mid-pixel-word reads as a glitch — so the
- *  glyph is pixel art in the same face that draws everything else. The
- *  shape is the ₹ of Devanagari र with a strike: top bar, stem, middle
- *  bar, and a leg stepping down to the right. 5×7 blocks. */
+ *  glyph is pixel art. 5×5, one block per Press Start 2P design pixel
+ *  (the font is an 8px-grid face; caps are five), so at the same em size
+ *  the ₹ sits exactly level with the letters beside it: top bar, stem,
+ *  middle bar, and a leg stepping down to the right. */
 export const RUPEE = [
   "11111",
   "10000",
-  "10000",
   "11111",
-  "10100",
   "10010",
   "10001",
 ];
@@ -382,8 +381,25 @@ export function rupeeSvg() {
       if (row[c] === "1") cells.push(`<rect x="${c}" y="${r}" width="1" height="1"/>`);
     }
   });
-  return `<svg class="rupee-glyph" viewBox="0 0 5 7" fill="currentColor"`
+  return `<svg class="rupee-glyph" viewBox="0 0 5 5" fill="currentColor"`
     + ` preserveAspectRatio="none" aria-hidden="true">${cells.join("")}</svg>`;
+}
+
+/** Cap height of the pixel face as a fraction of em — measured from the
+ *  loaded font, not guessed, so the ₹ matches the letters beside it at
+ *  every size. Falls back to five of eight design pixels. */
+export async function pixelCapRatio() {
+  const FALLBACK = 0.625;
+  if (typeof document === "undefined" || !document.createElement) return FALLBACK;
+  try {
+    await loadArcadeFont();
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return FALLBACK;
+    ctx.font = `100px ${DISP}`;
+    const m = ctx.measureText("E");
+    const cap = m && m.actualBoundingBoxAscent;
+    return cap > 0 ? cap / 100 : FALLBACK;
+  } catch { return FALLBACK; }
 }
 
 /** Where the project lives — the watermark names the home, not whatever

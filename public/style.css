@@ -369,12 +369,14 @@ button { cursor: pointer; font-family: inherit; }
    The same 5×7 grid as public/js/export.js's RUPEE: canvas rects on the
    cards, this inline SVG in the DOM. */
 .brand-mark { color: var(--accent); }
+/* One block = one Press Start 2P design pixel (em/8); caps are five blocks,
+   so 0.625em square sits level with the letters beside it on the baseline. */
 .rupee-glyph {
   display: inline-block;
-  width: 0.5em;      /* five blocks */
-  height: 0.7em;     /* seven blocks */
+  width: 0.625em;
+  height: 0.625em;
   vertical-align: baseline;
-  margin-right: 0.15em;
+  margin-right: 0.125em;
 }
 .topbar-right {
   display: flex;

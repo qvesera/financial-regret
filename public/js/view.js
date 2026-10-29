@@ -2,7 +2,7 @@
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
 import { TIER_LABEL, coverHue, headline as buildHeadline, whatIf } from "./verdict.js";
 import { renderVerdictToy, repaintVerdictToy } from "./arcade.js";
-import { CARD_W, CARD_H, exportKinds, kindLabel, rupeeSvg } from "./export.js";
+import { CARD_W, CARD_H, exportKinds, kindLabel, rupeeSvg, pixelCapRatio } from "./export.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1485,8 +1485,14 @@ export const view = {
     // deliberate rather than broken.
     const head = this.el("h1", "hero-title");
     const mark = this.el("span", "brand-mark");
-    // The hand-drawn 5×7 pixel rupee — the same grid the exported cards use.
+    // The hand-drawn 5×5 pixel rupee — the same grid the exported cards use.
     mark.innerHTML = rupeeSvg();
+    // Sized to the letters' measured cap height, not a guessed em ratio:
+    // guessing once produced a glyph half the size of its neighbours.
+    pixelCapRatio().then((cap) => {
+      mark.style.height = `${cap}em`;
+      mark.style.width = `${cap}em`;
+    });
     head.appendChild(mark);
     head.appendChild(this.el("span", null, "egret, shared"));
     wrap.appendChild(head);
