@@ -1133,7 +1133,7 @@ class TestAmazonLibrary(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("client_id", payload["error"])
 
-    def test_games_emit_canonical_rows_and_drop_dlc(self):
+    def test_games_emit_canonical_rows_and_tag_dlc(self):
         import amazon_games
         fake = mock.MagicMock()
         fake.path = "/api/amazon_games"
@@ -1155,8 +1155,11 @@ class TestAmazonLibrary(unittest.TestCase):
 
         self.assertEqual(status, 200)
         rows = payload["games"]
-        self.assertEqual({g["id"] for g in rows}, {"Amazon:p1", "Amazon:p3"},
-                         "DLC dropped and duplicate product collapsed")
+        self.assertEqual({g["id"] for g in rows}, {"Amazon:p1", "Amazon:p2", "Amazon:p3"},
+                         "DLC kept as its own row and duplicate product collapsed")
+        dlc = next(g for g in rows if g["id"] == "Amazon:p2")
+        self.assertEqual(dlc.get("kind"), "dlc",
+                         "a title-matched add-on is tagged, not dropped")
         # The exact X-Amz-Target / operation Amazon requires (a wrong FQN yields
         # coral UnknownOperationException 404) — regression-guarded.
         sent = rq.post.call_args.kwargs
@@ -1165,7 +1168,8 @@ class TestAmazonLibrary(unittest.TestCase):
                          "AnimusEntitlementsService.GetEntitlements")
         self.assertEqual(sent["json"]["Operation"], "GetEntitlements")
         for g in rows:
-            self.assertEqual(set(g), CANONICAL_KEYS)
+            # Only add-on rows carry the tag; plain games stay exactly canonical.
+            self.assertEqual(set(g), CANONICAL_KEYS | {"kind"} if g.get("kind") else CANONICAL_KEYS)
             self.assertEqual(g["platform"], "Amazon")
             self.assertIsNone(g["hours"], "Amazon exposes no playtime")
             self.assertIsNone(g["appid"])
