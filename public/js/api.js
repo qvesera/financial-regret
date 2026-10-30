@@ -92,7 +92,7 @@ export async function fetchPrices(games, currency = "INR") {
   const psn = games.filter((g) => g.platform === "PlayStation" && g.titleId);
   const rest = psn.length ? games.filter((g) => !psn.includes(g)) : games;
 
-  const out = { prices: {}, highs: {}, lows: {}, currency, attribution: null, psnReason: null };
+  const out = { prices: {}, highs: {}, lows: {}, currency, attribution: null, psnReason: null, limited: {} };
   const merge = (part) => {
     if (!part) return;
     Object.assign(out.prices, part.prices || {});
@@ -105,6 +105,9 @@ export async function fetchPrices(games, currency = "INR") {
     // Why PlayStation pricing came back empty, if it did -- the difference
     // between "no key saved here" and "the store has no price for this".
     if (part.psnReason) out.psnReason = part.psnReason;
+    // Which shared key refused this batch, kept per provider: one call can
+    // report a spent ITAD key while its PlayStation half answered fine.
+    if (part.limited) Object.assign(out.limited, part.limited);
   };
 
   if (rest.length) merge(await fetchItadPrices(rest, currency));
@@ -131,6 +134,7 @@ export async function fetchPsnPrices(games, currency = "INR") {
   let actual = currency;
   let attribution = null;
   let reason = null;
+  const limited = {};
 
   const headers = { "Content-Type": "application/json" };
   // Same pattern as the ITAD key: a user-supplied key carries their own quota.
@@ -147,6 +151,7 @@ export async function fetchPsnPrices(games, currency = "INR") {
       headers,
       body: JSON.stringify({ games: batch, currency }),
     });
+    if (resp.status === 429) { limited.platprices = true; continue; }
     if (!resp.ok) continue;
     const data = await resp.json();
     Object.assign(prices, data.prices || {});
@@ -155,9 +160,10 @@ export async function fetchPsnPrices(games, currency = "INR") {
     if (data.currency) actual = data.currency;
     if (data.attribution) attribution = data.attribution;
     if (data.reason) reason = data.reason;
+    if (data.limited) Object.assign(limited, data.limited);
   }
 
-  return { prices, highs, lows, currency: actual, attribution, psnReason: reason };
+  return { prices, highs, lows, currency: actual, attribution, psnReason: reason, limited };
 }
 
 /** IsThereAnyDeal prices for the non-PlayStation stores. */
@@ -167,6 +173,7 @@ async function fetchItadPrices(games, currency = "INR") {
   const highs = {};
   const lows = {};
   let actual = currency;
+  const limited = {};
 
   for (let i = 0; i < games.length; i += BATCH_SIZE) {
     const batch = games.slice(i, i + BATCH_SIZE).map((g) => ({
@@ -183,6 +190,9 @@ async function fetchItadPrices(games, currency = "INR") {
       headers,
       body: JSON.stringify({ games: batch, currency }),
     });
+    // Our own per-IP limiter answers 429: that is a limit too, and silently
+    // dropping it would leave prices blank with no explanation at all.
+    if (resp.status === 429) { limited.itad = true; continue; }
     if (!resp.ok) continue;
     const data = await resp.json();
     Object.assign(prices, data.prices || {});
@@ -191,9 +201,10 @@ async function fetchItadPrices(games, currency = "INR") {
     // The server reports the currency the amounts are actually in (ITAD's own
     // label) so the UI symbol always matches the numbers.
     if (data.currency) actual = data.currency;
+    if (data.limited) Object.assign(limited, data.limited);
   }
 
-  return { prices, highs, lows, currency: actual };
+  return { prices, highs, lows, currency: actual, limited };
 }
 
 export async function exchangeGog(code, redirectUri) {

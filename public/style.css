@@ -10,23 +10,29 @@
   --warn: #e0b263;
   --danger: #f0776c;
   --info: #7aa2f7;
-  --pie-1: #6ee7b7;
-  --pie-2: #7aa2f7;
-  --pie-3: #e0b263;
-  --pie-4: #f0776c;
-  --pie-5: #a78bfa;
-  --pie-6: #38bdf8;
-  --pie-7: #f472b6;
-  --pie-8: #fbbf24;
+  /* Store brands: one token per store, keyed like BRAND_PATHS. The platform
+     pie and its legend wear the brand instead of a palette slot, so a store
+     keeps its colour wherever it ranks. Brands darker than the 3:1 chart-shape
+     floor on --surface are lifted (Steam's navy, Epic's black); PlayStation
+     wears white — the mark's own colour on dark — because PSN blue sat too
+     close to Steam's. Light mode reverts psn below: white cannot render on
+     white. */
+  --brand-epic: #6b6b6b;
+  --brand-steam: #2d66d0;
+  --brand-gog: #8b5cf6;
+  --brand-amazon: #ff9900;
+  --brand-psn: #ffffff;
+  --brand-xbox: #107c10;
 
   /* Verdict tiers: text colours measured ≥4.5:1 on a 10% self-tint over
-     --surface. Chart fills keep --pie-* (3:1 is enough for shapes). */
+     --surface, and reused as the verdict pie's chart fills (3:1 as shapes). */
   --tier-worth: #6ee7b7;
   --tier-fair: #e0b263;
   --tier-regret: #f0776c;
   --tier-untouched: #9aa1ac;
   --tier-nodata: #7aa2f7;
   --tier-free: #38bdf8;
+  --tier-unknown: #8b909a;
   /* badge fills at 10% over --surface — the alpha the contrast audit used */
   --tier-worth-tint: rgba(110, 231, 183, 0.10);
   --tier-fair-tint: rgba(224, 178, 99, 0.10);
@@ -98,22 +104,23 @@ body::after {
     --warn: #b57713;
     --danger: #c0392b;
     --info: #2563eb;
-    --pie-1: #0e8a66;
-    --pie-2: #2563eb;
-    --pie-3: #b57713;
-    --pie-4: #c0392b;
-    --pie-5: #7c3aed;
-    --pie-6: #0284c7;
-    --pie-7: #db2777;
-    --pie-8: #d97706;
+    /* amazon's smile orange can't hold 3:1 on white and darkens here; epic
+       gets closer to Epic black and steam to Steam's true navy; psn reverts
+       to PSN blue because white cannot render on white. gog/xbox clear white
+       as is and carry through unchanged */
+    --brand-epic: #333333;
+    --brand-steam: #2a475e;
+    --brand-amazon: #b45309;
+    --brand-psn: #0070d1;
 
-    /* the light-mode pie hexes are shape-safe but too pale for small text */
+    /* light-mode tier hexes are shape-safe but too pale for small text */
     --tier-worth: #0b6e51;
     --tier-fair: #8a5a0c;
     --tier-regret: #a13024;
     --tier-untouched: #4b5563;
     --tier-nodata: #1d4ed8;
     --tier-free: #0369a1;
+    --tier-unknown: #5c626a;
     --tier-worth-tint: rgba(11, 110, 81, 0.10);
     --tier-fair-tint: rgba(138, 90, 12, 0.10);
     --tier-regret-tint: rgba(161, 48, 36, 0.10);
@@ -678,28 +685,51 @@ tr.game-row:hover { background: var(--surface-2); }
   margin-bottom: 1rem;
 }
 .chart-card h3 { font-size: 0.9rem; color: var(--muted); margin: 0 0 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+/* Title + slide dots on the two-slide card: the head carries the bottom
+   margin the bare h3 used to, so the dots centre against the text. */
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.75rem; }
+.chart-head h3 { margin: 0; }
+.carousel-dots { display: flex; gap: 6px; }
+.carousel-dot { width: 8px; height: 8px; padding: 0; border: 1px solid var(--muted); background: transparent; cursor: pointer; }
+.carousel-dot.active { background: var(--accent); border-color: var(--accent); }
+.carousel-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .kpi-gauge { display: flex; align-items: center; gap: 0.6rem; }
 .kpi-ring { width: 44px; height: 44px; display: block; flex: 0 0 auto; }
 
+/* Shared by the platform and verdict cards: same pie box, same hover dim, same
+   legend rows. They differ only in vocabulary (store vs tier) and colour source
+   (brand token vs tier token), which each card's own classes supply. */
 .platform-list { display: flex; flex-direction: column; }
-.platform-pie { width: 100%; max-width: 150px; aspect-ratio: 1; display: block; margin: 0 auto; }
-.platform-pie path, .platform-pie circle { cursor: pointer; transition: opacity 150ms ease; }
-.platform-pie:hover path, .platform-pie:hover circle { opacity: 0.45; }
-.platform-pie path:hover, .platform-pie circle:hover { opacity: 1; }
-.platform-pie .is-active { stroke: var(--text); stroke-width: 2; }
-.platform-legend { display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.9rem; }
-.platform-row {
+/* The verdict card is the carousel viewport: it clips the track so the
+   incoming slide travels in instead of overflowing the card. The track node
+   survives renders (its transform is the on-screen slide), and each slide is
+   half of the doubled track, so -50% shows the second one. */
+.verdict-list { overflow: hidden; }
+.carousel-track { display: flex; width: 200%; transition: transform var(--dur) var(--ease); }
+.carousel-slide { flex: 0 0 50%; }
+.platform-pie, .verdict-pie { width: 100%; max-width: 150px; aspect-ratio: 1; display: block; margin: 0 auto; }
+.platform-pie path, .platform-pie circle,
+.verdict-pie path, .verdict-pie circle { cursor: pointer; transition: opacity 150ms ease; }
+.platform-pie:hover path, .platform-pie:hover circle,
+.verdict-pie:hover path, .verdict-pie:hover circle { opacity: 0.45; }
+.platform-pie path:hover, .platform-pie circle:hover,
+.verdict-pie path:hover, .verdict-pie circle:hover { opacity: 1; }
+.platform-pie .is-active, .verdict-pie .is-active { stroke: var(--text); stroke-width: 2; }
+.platform-legend, .verdict-legend { display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.9rem; }
+.platform-row, .verdict-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
 }
-.platform-swatch { width: 10px; height: 10px; border-radius: 0; flex: 0 0 auto; }
-.platform-name { flex: 1; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.platform-value { font-variant-numeric: tabular-nums; }
-.platform-legend .platform-row { cursor: pointer; }
-.platform-legend .platform-row:hover .platform-name { color: var(--text); }
-.platform-legend .platform-row.is-active .platform-name { color: var(--text); font-weight: 600; }
+.platform-swatch, .verdict-swatch { width: 10px; height: 10px; border-radius: 0; flex: 0 0 auto; }
+.platform-name, .verdict-name { flex: 1; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-value, .verdict-count { font-variant-numeric: tabular-nums; }
+.platform-legend .platform-row, .verdict-legend .verdict-row { cursor: pointer; }
+.platform-legend .platform-row:hover .platform-name,
+.verdict-legend .verdict-row:hover .verdict-name { color: var(--text); }
+.platform-legend .platform-row.is-active .platform-name,
+.verdict-legend .verdict-row.is-active .verdict-name { color: var(--text); font-weight: 600; }
 
 /* ---------- drawer ---------- */
 
@@ -743,33 +773,54 @@ tr.game-row:hover { background: var(--surface-2); }
 .drawer-row { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; font-size: 0.9rem; }
 .drawer-row span:first-child { color: var(--muted); }
 
-/* ---------- menu ---------- */
+/* ---------- forget my data ---------- */
 
-.menu {
+/* The one filled red button in the app, because it is the one that destroys.
+   Dark text on the warning red: white on this hue does not clear contrast. */
+.button.danger-solid {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #1a1b26;
+  font-weight: 700;
+}
+.button.danger-solid:hover { filter: brightness(1.06); }
+
+/* Confirmation for the only destructive action here. Deliberately no X — the
+   two buttons are the answers. Above everything: nothing may be clicked
+   behind a dialog that is deciding whether to delete the data. */
+.forget-modal {
   position: fixed;
-  top: 60px;
-  right: 1.5rem;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+.forget-modal.hidden { display: none; }
+.forget-card {
+  max-width: 30rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.75rem;
-  min-width: 160px;
+  padding: 1.25rem;
   box-shadow: var(--shadow);
-  z-index: 100;
 }
-.menu.hidden { display: none; }
-.menu button {
-  width: 100%;
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  background: none;
-  border: none;
-  color: var(--text);
+.forget-card h3 { margin: 0; }
+.forget-card p {
+  margin: 0.5rem 0 1rem;
+  color: var(--muted);
   font-size: 0.9rem;
-  cursor: pointer;
-  margin: 0.25rem 0;
+  line-height: 1.5;
 }
-.menu button:hover { background: var(--surface-2); }
+.forget-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+
+/* The way out, repeated in the footer for whoever looks there. */
+.footer-forget { margin-top: 0.8rem; }
+
+/* The landing page's receipt: the deletion itself has no other trace. */
+.forget-done { color: var(--danger); font-weight: 600; max-width: 56ch; }
 
 /* ---------- disclaimer ---------- */
 
@@ -802,6 +853,49 @@ tr.game-row:hover { background: var(--surface-2); }
   letter-spacing: 0.02em;
   opacity: 0.85;
 }
+
+/* A spent shared key blocks every price on the page, so this line sits a step
+   louder than the PlayStation note above it: accent border, and the fix is a
+   button rather than advice to act on later. */
+.disclaimer-limit-note {
+  margin-top: 0.8rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--accent);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+.disclaimer-limit-note .button { margin-left: 0.4rem; }
+
+/* The basis qualifier: present only while the visitor's own prices are in use,
+   because without it the "not what you actually paid" line above is a lie. */
+.disclaimer-basis {
+  margin-top: 0.8rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--border);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+/* Manual edits in the drawer: two boxes with Save and Reset, and the store's
+   own figure beside them. The placeholder carries the API value, so an empty
+   box always reads as "no override". */
+.edit-row { flex-wrap: wrap; }
+.edit-box { display: flex; gap: var(--space-2); align-items: center; margin-left: auto; }
+.edit-input {
+  width: 7rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.edit-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.edit-ref { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--muted); }
+.edit-note { margin: 0.25rem 0 0; font-size: 0.75rem; color: var(--muted); }
+.edit-error { margin: 0.35rem 0 0; font-size: 0.78rem; color: var(--danger); }
+.edit-error:empty { display: none; }
 
 /* Attribution: who built it and where the source lives. */
 .disclaimer-links {
@@ -911,14 +1005,6 @@ tr.game-row:hover { background: var(--surface-2); }
 
 .phase.is-scanning { color: var(--warn); }
 
-.menu-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 0;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.85rem;
-}
 
 /* ---------- panel side ---------- */
 
@@ -1225,18 +1311,24 @@ td.cell-platform { white-space: nowrap; }
   margin-top: var(--space-4);
 }
 .rank-card { margin: 0; }
+/* The three tracks are declared once for the whole list and shared by every
+   row through subgrid (.rank-item below). Rows used to be independent grids:
+   each row sized its auto columns from its own text, so a "171.1 h" row pushed
+   its rate column left relative to a "38.9 h" row and the rate/hours edges
+   wandered down the card. Shared tracks make each column one vertical line. */
 .rank {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  column-gap: var(--space-3);
 }
 .rank-item {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
   align-items: baseline;
-  gap: var(--space-3);
   padding: var(--space-2) var(--space-2);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -1253,15 +1345,21 @@ td.cell-platform { white-space: nowrap; }
 .rank-rate { font-size: 0.875rem; font-weight: 600; }
 .rank-hours { font-size: 0.78rem; color: var(--muted); }
 /* The rate and hours columns are numeric: right-align on tabular figures so the
-   digits stack down each column and the gap to the next stays constant. Left
+   digits stack down each column and the gutter to the next stays constant. Left
    alignment in an auto-width column let shorter values ("ZAR 8/h") drift, so
-   their /h and the hours beside them never lined up. */
+   their /h and the hours beside them never lined up. (Column edges themselves
+   are steadied by the shared tracks on .rank — right-align alone could not fix
+   a rate whose whole track moved with the row's own hours string.) */
 .rank-rate, .rank-hours { text-align: right; font-variant-numeric: tabular-nums; }
 .rank-empty {
   list-style: none;
   margin: 0;
   font-size: 0.85rem;
   color: var(--muted);
+  /* Span every track so the message runs the full card width even when the
+     numeric tracks are sized (empty and items never share a list, but the
+     span costs nothing and keeps the text off the narrow auto columns). */
+  grid-column: 1 / -1;
 }
 .rank-worst .rank-rate { color: var(--tier-regret); }
 .rank-best .rank-rate { color: var(--tier-worth); }
@@ -1442,7 +1540,7 @@ td.cell-platform { white-space: nowrap; }
 
 /* Add-on marker. Deliberately muted and separate from the verdict badges —
    "DLC" is a kind of thing, not a grade, so it never borrows a tier colour. */
-.dlc-chip {
+.dlc-chip, .dupe-chip, .edited-chip {
   display: inline-block;
   margin-left: var(--space-2);
   padding: 0 var(--space-1);
@@ -1457,6 +1555,12 @@ td.cell-platform { white-space: nowrap; }
   vertical-align: middle;
   white-space: nowrap;
 }
+
+/* Owned on another store too: the tersest marker available, in the warning red
+   because a second purchase is spend worth noticing. An outline rather than a
+   filled pill, so it never reads as the verdict badge beside it — which is the
+   same hue as the Regret tier. */
+.dupe-chip { border-color: var(--danger); color: var(--danger); }
 
 /* ---- cards: cover fallback, badges, hours, price band ---- */
 

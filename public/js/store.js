@@ -9,6 +9,25 @@ export const store = {
   remove(key) { localStorage.removeItem(key); },
   clearCredentials() { CRED_KEYS.forEach((k) => localStorage.removeItem(k)); },
 
+  /** Manual edits the visitor typed over a store's own figures:
+   *  {gameId: {price?, hours?, currency?}}. Their own key, so a snapshot
+   *  refresh never disturbs them and "forget" can take them with it. */
+  getEdits() {
+    try { return JSON.parse(localStorage.getItem("game_edits") || "{}"); }
+    catch { return {}; }
+  },
+  /** Patch one field of one edit. A null value deletes that field, and an edit
+   *  with nothing left in it disappears rather than lingering as a husk. */
+  setEdit(id, patch) {
+    const edits = this.getEdits();
+    const next = { ...(edits[id] || {}), ...patch };
+    for (const key of Object.keys(next)) if (next[key] == null) delete next[key];
+    if (Object.keys(next).length) edits[id] = next;
+    else delete edits[id];
+    localStorage.setItem("game_edits", JSON.stringify(edits));
+    return edits;
+  },
+
   /** Scan snapshot for instant render on refresh (v1 = canonical game shape) */
   setSnapshot(data) {
     localStorage.setItem("last_scan", JSON.stringify({ ...data, at: Date.now(), v: 1 }));
@@ -26,6 +45,7 @@ export const store = {
   forget() {
     this.clearCredentials();
     localStorage.removeItem("paid_overrides");   // legacy "what I paid" entries
+    localStorage.removeItem("game_edits");       // the visitor's own figures
     localStorage.removeItem("covers_cache");     // derived cover-art urls
     this.clearSnapshot();
   },

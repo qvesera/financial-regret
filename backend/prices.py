@@ -11,7 +11,8 @@ exact appid batch lookup first; everything else (including Steam misses) falls
 back to title lookup, deduplicated by normalised title so one ITAD id can serve
 multiple rows without being priced twice.
 
-Response: {"prices": {"Steam:730": 499.0, "GOG:123": null}, "resolved": {"Steam:730": "itad-id"}}
+Response: {"prices": {"Steam:730": 499.0, "GOG:123": null}, "resolved": {"Steam:730": "itad-id"},
+          "limited": {"itad": false}}
 """
 import json
 import re
@@ -123,13 +124,17 @@ def _price_key(country: str, currency: str, iid: str) -> str:
     return f"{country}:{currency}:{iid}"
 
 
-def _request_prices(api_key: str, ids: list[str], country: str, currency: str) -> list:
-    """POST /games/prices/v3 for `ids` and return the parsed list (or []).
+def _request_prices(api_key: str, ids: list[str], country: str, currency: str) -> tuple[list, bool]:
+    """POST /games/prices/v3 for `ids` -> (parsed list, whether ITAD refused us).
 
     Asks ITAD for `currency` within store region `country`. If ITAD answers
     400 (the `currency` parameter rejected/unsupported), retry region-only so
     the region's native denomination still yields prices instead of dropping
     them. 429/5xx are NOT retried -- that would just double-hit the rate limit.
+
+    The second element reports the 429 rather than folding it into the empty
+    list: "ITAD has no such game" and "ITAD refused this key" both leave a
+    blank price column, but only the second one is fixed by pasting a key.
     """
     url = f"{ITAD_API_BASE}/games/prices/v3"
     try:
@@ -142,16 +147,18 @@ def _request_prices(api_key: str, ids: list[str], country: str, currency: str) -
                 url, params={"key": api_key, "country": country},
                 json=ids, timeout=20,
             )
+        if resp.status_code == 429:
+            return [], True
         if resp.status_code != 200:
-            return []
+            return [], False
         data = resp.json()
-        return data if isinstance(data, list) else []
+        return (data if isinstance(data, list) else []), False
     except (requests.RequestException, ValueError):
-        return []
+        return [], False
 
 
-def _bulk_resolve_titles(api_key: str, titles: list[str]) -> dict[str, str | None]:
-    """Batched POST /lookup/id/title/v1 -> {title: itad_id or None}.
+def _bulk_resolve_titles(api_key: str, titles: list[str]) -> tuple[dict, bool]:
+    """Batched POST /lookup/id/title/v1 -> ({title: itad_id or None}, rate-limited).
 
     Resolves many titles in one request (ITAD matches case-insensitively and
     tolerates ®/™), so a big library doesn't spend one-or-two calls per game
@@ -162,6 +169,7 @@ def _bulk_resolve_titles(api_key: str, titles: list[str]) -> dict[str, str | Non
     batch simply omits its titles so they fall back too.
     """
     out: dict[str, str | None] = {}
+    limited = False
     for i in range(0, len(titles), TITLE_CHUNK):
         chunk = titles[i:i + TITLE_CHUNK]
         try:
@@ -171,14 +179,16 @@ def _bulk_resolve_titles(api_key: str, titles: list[str]) -> dict[str, str | Non
                 json=chunk,
                 timeout=20,
             )
-            if resp.status_code == 200:
+            if resp.status_code == 429:
+                limited = True
+            elif resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, dict):
                     for t in chunk:
                         out[t] = data.get(t) or None
         except (requests.RequestException, ValueError):
             pass  # leave these unresolved -> the fuzzy fallback covers them
-    return out
+    return out, limited
 
 
 def _resolve_title(api_key: str, title: str) -> tuple[str | None, bool]:
@@ -281,6 +291,11 @@ class handler(BaseHTTPRequestHandler):
         currency = _normalise_currency(payload.get("currency"))
         country = CURRENCY_COUNTRY.get(currency, DEFAULT_COUNTRY)
 
+        # Set when ITAD answers 429 anywhere below. Reported to the browser as
+        # "the shared key is rate-limited", which is a different message from a
+        # blank price column that looks like a missing price.
+        limited = False
+
         # --- Step 1: exact appid batch resolution for Steam games -------------
         steam_games = [g for g in games if g.get("appid") and str(g["appid"]).isdigit()]
         itad_id_by_game_id: dict[str, str] = {}
@@ -296,6 +311,8 @@ class handler(BaseHTTPRequestHandler):
                     json=shop_keys,
                     timeout=20,
                 )
+                if resp.status_code == 429:
+                    limited = True    # these fall through to the title lookup
                 if resp.status_code == 200:
                     mapping = resp.json()
                     for g in chunk:
@@ -331,7 +348,9 @@ class handler(BaseHTTPRequestHandler):
                 resolved_by_norm[norm] = cached
 
         if uncached:
-            for norm, itad_id in _bulk_resolve_titles(api_key, uncached).items():
+            bulk, bulk_limited = _bulk_resolve_titles(api_key, uncached)
+            limited = limited or bulk_limited
+            for norm, itad_id in bulk.items():
                 if itad_id:
                     _cache_set(_title_cache, norm, itad_id, TITLE_TTL)
                     resolved_by_norm[norm] = itad_id
@@ -386,7 +405,9 @@ class handler(BaseHTTPRequestHandler):
 
             if not to_fetch:
                 continue
-            for entry in _request_prices(api_key, to_fetch, country, currency):
+            entries, chunk_limited = _request_prices(api_key, to_fetch, country, currency)
+            limited = limited or chunk_limited
+            for entry in entries:
                 iid = entry.get("id")
                 deals = entry.get("deals", [])
                 price = high = low = None
@@ -431,4 +452,7 @@ class handler(BaseHTTPRequestHandler):
             "lows": lows,
             "resolved": resolved,
             "currency": actual_currency or currency,
+            # Which shared key ITAD refused. Empty object means nothing was
+            # rate-limited, so the browser can tell "no price" from "no quota".
+            "limited": {"itad": limited},
         })

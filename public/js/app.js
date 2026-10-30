@@ -13,6 +13,7 @@ import { currencyForCountry } from "./format.js";
 import { paintVerdictToy, repaintVerdictToy, setToyAnchor, TOY_GAME } from "./arcade.js";
 import { cardSpec, cardBlob, renderCardTo, shareUrl, decodeCard, exportKinds } from "./export.js";
 import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
+import { applyEdits, parseEdit } from "./edits.js";
 
 /** UI state worth keeping across reloads — filters and the what-if setting.
  *  `view_mode` stays in its own key: several tests assert it by name. */
@@ -29,6 +30,72 @@ const PSN_PRICING_NOTE = {
 };
 
 const psnNoteFor = (reason) => (reason ? PSN_PRICING_NOTE[reason] || null : null);
+
+/** Human wording for a rate-limited pricing source. Whose key is in play
+ *  changes what to do next: a shared key means "bring your own", their own
+ *  key means "wait". Providers are named one by one because pasting an ITAD
+ *  key cannot fix a spent PlatPrices quota. */
+const LIMIT_SHARED = {
+  // Cause-neutral on purpose: a 429 reaches us from a provider's quota or from
+  // this instance's own per-IP limiter, and both read the same way -- wait, and
+  // bring a key if it keeps happening.
+  itad: "Prices are rate-limited right now — wait a minute, then rescan. If it keeps happening, paste your own IsThereAnyDeal key under API keys.",
+  platprices: "PlayStation prices are rate-limited right now — wait a minute, then rescan. If it keeps happening, paste your own PlatPrices key under API keys.",
+};
+
+const limitNoteFor = (limited, hasOwnKey) => {
+  const names = Object.keys(limited || {});
+  if (!names.length) return null;
+  if (hasOwnKey) return "Your API key is being rate-limited — wait a few minutes, then rescan.";
+  const wording = names.map((n) => LIMIT_SHARED[n]).filter(Boolean);
+  return wording.length ? wording.join(" ") : null;
+};
+
+/** Whether the visitor brings a pricing key of their own. */
+const ownKeyPresent = () => Boolean(
+  localStorage.getItem("itad_api_key") || localStorage.getItem("platprices_api_key"),
+);
+
+/** Attribution, the PlayStation explanation and the rate-limit note all travel
+ *  on a pricing answer; one place applies them so a new call site cannot
+ *  forget one. Limits accumulate -- a chunk that holds no PlayStation rows
+ *  never asks PlatPrices, so its silence is not a clean bill of health. */
+function applyPricingNotes(priced) {
+  view.setPricingAttribution(priced.attribution);
+  view.setPsnPricingNote(psnNoteFor(priced.psnReason));
+  const incoming = priced.limited || {};
+  if (Object.keys(incoming).length) state.limited = { ...state.limited, ...incoming };
+  view.setLimitNote(limitNoteFor(state.limited, ownKeyPresent()));
+}
+
+/** A fresh pricing attempt starts clean: last attempt's rate-limit note must
+ *  not outlive the attempt that produced it. */
+function beginPricingAttempt() {
+  state.limited = {};
+  view.setLimitNote(null);
+}
+
+/** Save — or, with an empty box, clear — one manual figure for one title.
+ *
+ *  The box is read back from the view rather than passed in: the drawer is
+ *  rebuilt on every render, so a node captured at click time would be one that
+ *  no longer exists. Buttons rather than autosave for the same reason — an
+ *  unsaved box would be wiped mid-typing. */
+function saveEdit(id, field, raw) {
+  const input = view.editInput(field);
+  const parsed = parseEdit(field, raw !== undefined ? raw : (input ? input.value : ""));
+  if (!parsed.ok) { view.setEditError(parsed.why); return; }
+  view.setEditError(null);
+  // The currency travels with a price: there is no FX in the app, so a number
+  // entered in another currency must be labelled rather than relabelled.
+  state.edits = store.setEdit(id, {
+    [field]: parsed.value,
+    ...(field === "price"
+      ? { currency: parsed.value === null ? null : state.currency }
+      : {}),
+  });
+  renderAll();
+}
 
 function loadUiState() {
   try {
@@ -73,6 +140,7 @@ let state = {
   filter: "All",
   platform: "All",
   tier: "All",
+  verdictSlide: "games",
   viewMode: "list",
   sort: "price-desc",
   search: "",
@@ -88,6 +156,22 @@ let state = {
   // derived: filled in by renderAll before anything reads them
   bench: { samples: 0, p25: null, p50: null, p75: null, p90: null, max: null },
   verdicts: new Map(),
+  // Which shared pricing key refused the last attempt: {itad: true} or
+  // {platprices: true}. Cleared when a new attempt starts, so the note it
+  // drives never outlives its own cause.
+  limited: {},
+  // Titles held on more than one store: {gameId: [other copies]}. Derived from
+  // identity alone, so it is recomputed wherever the game list is rebuilt
+  // rather than persisted with the snapshot.
+  dupes: new Map(),
+  // What the visitor typed over a store's own figures: {id: {price?, hours?}}.
+  // Read from localStorage at boot and replaced wholesale after a save, so a
+  // reload never resurrects a stale copy.
+  edits: {},
+  // The price map with the edits layered in — what every view consumer of a
+  // price reads. state.prices stays the raw store answer, which is what the
+  // snapshot persists and what Reset restores from.
+  pricesEff: {},
   comparators: { worst: [], best: [] },
   simTarget: savedUi.simTarget || null,
   simHours: Number(savedUi.simHours) || 10,
@@ -97,6 +181,10 @@ let state = {
   // the fetch fails.
   server: null,
   page: 1,                 // 1-based library page; never persisted
+  // Set by forget(): the landing page shows one line confirming that the
+  // browser's copy of everything is gone. Not persisted — it describes a
+  // moment, not a setting.
+  forgot: false,
   tabCounts: { All: 0, Unplayed: 0, Played: 0, "No data": 0 },
 };
 
@@ -267,6 +355,13 @@ function renderAll() {
   if (state.platform && state.platform !== "All" && !state.games.some((g) => g.platform === state.platform)) {
     state.platform = "All";   // selected platform vanished (rescan / unlink)
   }
+  // Manual edits layer over the store's own figures first: everything below
+  // reads the edited library, so a price the visitor typed moves the verdict,
+  // the benchmark, the KPIs, the pies and the export without any of them
+  // knowing overrides exist.
+  const eff = applyEdits(state.games, state.prices, state.edits, state.currency);
+  state.games = eff.games;
+  state.pricesEff = eff.prices;
   // Verdicts are derived from the whole library, not the filtered rows: a
   // filter must not redefine the benchmark it filters against. That holds
   // however the table is filtered — what varies is *which* games get ranked,
@@ -278,10 +373,13 @@ function renderAll() {
   state.bench = benchmark(scored);
   state.verdicts = verdictMap(scored, state.bench);
   state.rows = computeRows();
-  // Ranked from the visible rows, so the hall of shame and best value follow
-  // the filters: hide a store and its games leave the lists with it. Rates and
-  // verdicts are untouched — they were computed above against the whole library.
-  state.comparators = rankGames(state.rows.filter((g) => g.kind !== "dlc"));
+  // Claims about the library are made from the library, never from the browsing
+  // subset: a search for one title must not make it "the worst buy", restate the
+  // regret score as that title's own, or shrink "your whole library" to one row.
+  // A filter is a question about what to look at, not a question about the
+  // library's worth. Add-ons stay out: they carry no independent playtime, so
+  // their spend is read from the Add-on value KPI instead (see computeRegret).
+  state.comparators = rankGames(scored);
   if (!state.comparators.worst.some((t) => t.id === state.simTarget)) {
     state.simTarget = state.comparators.worst.length ? state.comparators.worst[0].id : null;
   }
@@ -295,8 +393,14 @@ function renderAll() {
     "No data": statusPool.filter((x) => x.hours == null).length,
   };
   state.counts = countByPlatform(state.games);
-  state.metrics = computeRegret(state.rows);
+  // Library-wide too, for the same reason as the cards above — and `state.games`
+  // rather than `scored`, because computeRegret pulls add-ons out of the game
+  // metrics itself to report them as their own KPI.
+  state.metrics = computeRegret(state.games);
   state.coverageText = coverageLine();
+  // The footer's "not what you actually paid" line is a half-truth once the
+  // visitor has entered prices of their own, so say so — only while it is true.
+  view.setBasisNote(state.games.filter((g) => g.edited).length);
   view.render(state);
   if (state.phase === "ready" && state.viewMode === "grid") {
     applyCovers();
@@ -329,6 +433,12 @@ async function fetchAllEpicGames() {
   return games;
 }
 
+/** Alnum-folded title: case, symbol and spacing variants of one display name
+ *  collapse, so "DOOM (2016)" and "doom 2016" are one title. Shared by
+ *  dedupeGames and findDuplicates so the two can never disagree about what
+ *  counts as the same game. */
+const foldName = (name) => (name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
 /** Collapse duplicate entitlements of the same game. Epic returns the base
  *  title plus each DLC/expansion as separate records that share a sandbox, so
  *  they all surface under one display name; keep the copy with the most
@@ -337,12 +447,45 @@ async function fetchAllEpicGames() {
 export function dedupeGames(games) {
   const best = new Map();
   for (const g of games) {
-    // alnum-fold the name so symbol/case variants of one title collapse too
-    const key = `${g.platform}\u0000${g.kind || "game"}\u0000${(g.name || "").toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+    const key = `${g.platform}\u0000${g.kind || "game"}\u0000${foldName(g.name)}`;
     const prev = best.get(key);
     if (!prev || (g.hours || 0) > (prev.hours || 0)) best.set(key, g);
   }
   return [...best.values()];
+}
+
+/** Titles held on more than one store: {id: [the other copies' rows]}.
+ *
+ *  Two purchases of one game are a regret the dashboard otherwise cannot see:
+ *  each copy is its own row with its own price and nothing ties them together.
+ *  Matching is folded-title equality only, so it is deliberately conservative
+ *  — an edition suffix ("Deluxe") never matches its base game, while a real
+ *  name collision (DOOM 1993 vs 2016) does. The UI therefore claims "also on
+ *  Epic", never "you paid twice".
+ *
+ *  Add-ons are skipped: they carry no verdict of their own and the base game
+ *  is the purchase. Same-store pairs cannot occur — dedupeGames has already
+ *  collapsed them — and the platform guard keeps that true regardless. */
+export function findDuplicates(games) {
+  const byTitle = new Map();
+  for (const g of games) {
+    if (g.kind === "dlc") continue;
+    const key = foldName(g.name);
+    if (!key) continue;
+    if (!byTitle.has(key)) byTitle.set(key, []);
+    byTitle.get(key).push(g);
+  }
+  const dupes = new Map();
+  for (const group of byTitle.values()) {
+    if (group.length < 2) continue;
+    for (const g of group) {
+      // Only a copy on a *different* store counts; the id/platform guards make
+      // "two stores, one game" the sole condition, not a near-miss.
+      const others = group.filter((o) => o.id !== g.id && o.platform !== g.platform);
+      if (others.length) dupes.set(g.id, others);
+    }
+  }
+  return dupes;
 }
 
 async function scan() {
@@ -353,6 +496,7 @@ async function scan() {
   state.scanning = true;
   state.phase = "loading";
   state.scanError = null;
+  beginPricingAttempt();   // a fresh scan re-asks every provider
   // One step per linked source; each flips to done/failed as its promise
   // settles, so the list is honest about which store is slow or broken.
   const specs = [
@@ -381,6 +525,10 @@ async function scan() {
     state.games = state.games.map((g) => ({
       ...g,
       price: state.prices[g.id] ?? null,
+      // Captured beside the price so an override can be cleared with no
+      // re-fetch, and refreshed here — wherever raw prices land — never by
+      // applyEdits, which would otherwise latch onto its own output.
+      apiPrice: state.prices[g.id] ?? null,
       high: highs[g.id] ?? null,
       low: lows[g.id] ?? null,
     }));
@@ -391,6 +539,8 @@ async function scan() {
       if (!prev || (g.hours || 0) > (prev.hours || 0)) seen.set(g.id, g);
     }
     state.games = dedupeGames([...seen.values()]);
+    // Identity-only, so recompute whenever the list changes — never persisted.
+    state.dupes = findDuplicates(state.games);
     state.phase = "ready";          // real rows beat skeletons the instant they exist
     renderAll();
     try {
@@ -399,8 +549,7 @@ async function scan() {
       highs = { ...highs, ...(priced.highs || {}) };
       lows = { ...lows, ...(priced.lows || {}) };
       if (priced.currency) state.currency = priced.currency;
-      view.setPricingAttribution(priced.attribution);
-      view.setPsnPricingNote(psnNoteFor(priced.psnReason));
+      applyPricingNotes(priced);
       bake();
       renderAll();
     } catch {
@@ -448,16 +597,17 @@ async function reprice(nextCurrency) {
   if (state.scanning) { renderAll(); return; }
   const prev = state.currency;
   state.currency = nextCurrency || prev;
+  beginPricingAttempt();   // reprice re-asks every provider too
   try {
     const priced = await api.fetchPrices(state.games, state.currency);
     state.prices = priced.prices;
     if (priced.currency) state.currency = priced.currency;
-    view.setPricingAttribution(priced.attribution);
-    view.setPsnPricingNote(psnNoteFor(priced.psnReason));
+    applyPricingNotes(priced);
     const highs = priced.highs || {}, lows = priced.lows || {};
     state.games = state.games.map((g) => ({
       ...g,
       price: state.prices[g.id] ?? null,
+      apiPrice: state.prices[g.id] ?? null,   // see bake(): the raw copy Reset restores
       high: highs[g.id] ?? null,
       low: lows[g.id] ?? null,
     }));
@@ -517,6 +667,8 @@ function goToKeysCard() {
 }
 
 function linkPlatform(platform) {
+  // The receipt is spent the moment a new link begins.
+  state.forgot = false;
   // The gate: no key this browser has ever been given, no login flow started.
   // Clicking Connect would otherwise open a store login the visitor could not
   // finish usefully — send them to the keys card instead.
@@ -557,20 +709,66 @@ function linkPlatform(platform) {
   }
 }
 
-function unlinkPlatform(platform) {
+/** Everything one account brought: its rows, its prices, its manual edits and
+ *  its share of the scan snapshot. Called on unlink so a different account can
+ *  be linked next without inheriting this one's library — the in-memory stores
+ *  and the on-disk snapshot must all agree, or a reload quietly restores what
+ *  was just deleted. */
+function dropStoreData(name) {
+  const dropped = new Set(
+    state.games.filter((g) => g.platform === name).map((g) => g.id));
+  state.games = state.games.filter((g) => g.platform !== name);
+  state.dupes = findDuplicates(state.games);
+  const prices = {};
+  for (const [id, p] of Object.entries(state.prices || {})) {
+    if (!dropped.has(id)) prices[id] = p;
+  }
+  state.prices = prices;
+  // A manual figure is keyed by game id — and Steam ids are appids, so an edit
+  // made for this account's Hades would silently apply to the next account's.
+  // It leaves with the account that made it.
+  const edits = store.getEdits();
+  let touched = false;
+  for (const id of dropped) {
+    if (id in edits) { delete edits[id]; touched = true; }
+  }
+  if (touched) {
+    localStorage.setItem("game_edits", JSON.stringify(edits));
+    state.edits = edits;
+  }
+  const snap = store.getSnapshot();
+  if (snap) {
+    const games = (snap.games || []).filter((g) => g.platform !== name);
+    if (games.length) store.setSnapshot({ ...snap, games, prices });
+    else store.clearSnapshot();
+  }
+}
+
+function unlinkPlatform(platform, displayName) {
   for (const k of KEY_STORES[platform] || []) localStorage.removeItem(k);
+  // This account's own data leaves with it either way. Relinking a different
+  // account must never inherit this one's library.
+  if (displayName) dropStoreData(displayName);
   const acc = linkedAccounts();
   if (!anyLinked(acc)) {
     state.phase = "onboarding";
     state.games = [];
+    state.dupes = new Map();
     state.rows = [];
+    state.prices = {};
     state.metrics = null;
     state.counts = {};
     state.epicScanned = 0;
     state.epicFiltered = 0;
     state.coverageText = "";
     state.scanError = null;
+    // The snapshot goes with the last account too. Boot only scans when the
+    // library is empty, so a surviving snapshot would show the old account's
+    // games under the new one until somebody pressed Scan by hand.
+    store.clearSnapshot();
     closeDrawer();
+  } else if (state.openId && !state.games.some((g) => g.id === state.openId)) {
+    closeDrawer();   // the open drawer belonged to the account just removed
   }
   renderAll();
 }
@@ -703,7 +901,7 @@ function openDrawer(id) {
   // Remember where focus came from so closing can put it back.
   lastFocus = document.activeElement && document.activeElement.focus
     ? document.activeElement : null;
-  view.renderDrawer(view.drawerBody, game, state.prices[id], state);
+  view.renderDrawer(view.drawerBody, game, (state.pricesEff || state.prices)[id], state);
   view.drawer.classList.remove("hidden");
   applyCovers();                                // stamp the art if its url is cached
   if (!coversCache.has(id)) queueCovers([id]);  // else fetch it — someone wants to look at it
@@ -828,6 +1026,7 @@ function forget() {
   store.forget();
   coversCache.clear();
   state.games = [];
+  state.dupes = new Map();
   state.rows = [];
   state.prices = {};
   state.counts = {};
@@ -835,6 +1034,9 @@ function forget() {
   state.epicFiltered = 0;
   state.metrics = null;
   state.phase = "onboarding";
+  // So the landing page can say it worked: the deletion itself leaves no other
+  // visible trace the moment it happens.
+  state.forgot = true;
   state.scanError = null;
   state.search = "";
   state.filter = "All";
@@ -879,7 +1081,6 @@ function closestAction(el) {
 function onClick(e) {
   const t = closestAction(e.target);
   if (!t) {
-    if (view.menu && !view.menu.classList.contains("hidden")) view.menu.classList.add("hidden");
     // The drawer's scrim is its own ::before, so a click landing on the
     // drawer element itself (not its content) is a click "outside".
     if (view.drawer && e.target === view.drawer
@@ -894,13 +1095,17 @@ function onClick(e) {
     // bubble up to data-action="open" and open the drawer. Showing the text is
     // entirely CSS, so there is nothing to do here.
     case "info": break;
-    case "unlink": unlinkPlatform(platform); break;
+    case "unlink": unlinkPlatform(platform, t.dataset.name); break;
     case "scan": scan(); break;
     case "filter": state.filter = t.dataset.filter; state.page = 1; renderAll(); break;
     case "tier":
       state.tier = t.dataset.tier || "All";
       state.page = 1;
       saveUiState({ tier: state.tier });
+      renderAll();
+      break;
+    case "verdict-slide":
+      state.verdictSlide = t.dataset.slide === "value" ? "value" : "games";
       renderAll();
       break;
     case "clear-filters":
@@ -950,14 +1155,22 @@ function onClick(e) {
     case "export-share": shareExport(); break;
     case "export-copy": copyExportLink(); break;
     case "make-own": makeYourOwn(); break;
-    case "toggle-menu":
-      if (view.menu) view.menu.classList.toggle("hidden");
+    // Forget my data is the only destructive action in the app, so it asks
+    // first: the menu this used to hide behind is gone, and the confirmation
+    // has no X — the two answers are the buttons.
+    case "confirm-forget": view.showForgetModal(true); break;
+    case "cancel-forget": view.showForgetModal(false); break;
+    case "do-forget":
+      view.showForgetModal(false);
+      forget();
       break;
     case "submit-gog": submitPaste("gog"); break;
     case "submit-epic": submitPaste("epic"); break;
     case "submit-amazon": submitPaste("amazon"); break;
     case "submit-psn": submitPaste("psn"); break;
     case "save-key": saveApiKey(t.dataset.kind); break;
+    case "save-edit": saveEdit(t.dataset.id, t.dataset.field); break;
+    case "reset-edit": saveEdit(t.dataset.id, t.dataset.field, ""); break;
     case "show-keys":
       state.phase = "onboarding";
       renderAll();
@@ -1043,7 +1256,6 @@ function onKeydown(e) {
   }
   if (e.key === "Escape") {
     if (state.openId) closeDrawer();
-    else if (view.menu && !view.menu.classList.contains("hidden")) view.menu.classList.add("hidden");
     return;
   }
   // Cards and rows carry data-action="open" but are not <button>s: give them
@@ -1113,10 +1325,14 @@ export async function boot() {
   state.viewMode = savedView === "grid" || (savedView == null && window.innerWidth < 700)
     ? "grid" : "list";
   state.tier = savedUi.tier || "All";
+  state.edits = store.getEdits();
   loadCoversCache();
   const snap = store.getSnapshot();
   if (snap) {
     state.games = snap.games || [];
+    // Recomputed on every boot: a snapshot carries only rows and prices, so a
+    // restored session must find its cross-store copies again.
+    state.dupes = findDuplicates(state.games);
     state.prices = snap.prices || {};
     state.steamPersona = snap.persona || null;
   }

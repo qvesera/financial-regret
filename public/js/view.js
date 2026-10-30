@@ -80,19 +80,6 @@ function tierNote(tier) {
   return "No price recorded, so there is nothing to judge.";
 }
 
-/** Is the table narrower than the library? Distinguishes "your filters hid
- *  everything" from "you have no qualifying games yet" — two very different
- *  things to say to someone looking at an empty hall of shame. */
-function filtersActive(state) {
-  if (!state) return false;
-  return Boolean(
-    (state.tier && state.tier !== "All") ||
-    (state.filter && state.filter !== "All") ||
-    (state.platform && state.platform !== "All") ||
-    (state.search || "").trim()
-  );
-}
-
 /** What the keys card says, read from what /api/config reported. Pure, so
  *  the builder and the updater that runs later cannot drift into two
  *  different stories about the same instance: the card builds before the
@@ -280,7 +267,18 @@ function brandIcon(platform, size = 14) {
   return svg;
 }
 
-/** SVG arc path for a pie slice spanning angles a0→a1 (radians; -π/2 = top). */
+/** The store's brand colour — `var(--brand-<key>)`, one token per store keyed
+ *  like BRAND_PATHS, so the same store wears the same colour in every chart
+ *  and in every render (the palette index it replaces followed value rank and
+ *  reshuffled whenever the ranking did). Unknown stores fall back to muted
+ *  grey: an unresolved var in an SVG fill would paint black. */
+const brandColor = (platform) => {
+  const key = BRAND_KEY.get(String(platform || "").toLowerCase())
+    || String(platform || "").toLowerCase();
+  return BRAND_PATHS[key] ? `var(--brand-${key})` : "var(--muted)";
+};
+
+/** SVG arc path for a pie slice spanning angles a0→a1 (radians, -π/2 = top). */
 function pieSlice(cx, cy, r, a0, a1) {
   const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
   const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
@@ -291,6 +289,10 @@ function pieSlice(cx, cy, r, a0, a1) {
 export const view = {
   /** Active display currency (ISO 4217); synced from state in render(). */
   currency: "INR",
+
+  /** Titles held on another store, refreshed in updateReady(). Default exists
+   *  so the row and card builders can read it before the first ready render. */
+  dupes: new Map(),
 
   el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -374,12 +376,10 @@ export const view = {
     const keysBtn = this.el("button", "button ghost", "API keys");
     keysBtn.type = "button";
     keysBtn.dataset.action = "show-keys";
-    const menuBtn = this.el("button", "button ghost icon");
-    menuBtn.type = "button";
-    menuBtn.dataset.action = "toggle-menu";
-    menuBtn.setAttribute("aria-label", "Menu");
-    menuBtn.setAttribute("aria-haspopup", "true");
-    menuBtn.appendChild(icon("dots", 18));
+    const forgetBtn = this.el("button", "button danger-solid", "Forget my data");
+    forgetBtn.type = "button";
+    forgetBtn.dataset.action = "confirm-forget";
+    forgetBtn.setAttribute("aria-label", "Forget my data");
     // The Wrapped-style share deck. Ready-phase only, like Scan: there is
     // nothing to share until a library exists.
     const exportBtn = this.el("button", "button ghost", "Share");
@@ -388,7 +388,7 @@ export const view = {
     actions.appendChild(scanBtn);
     actions.appendChild(keysBtn);
     actions.appendChild(exportBtn);
-    actions.appendChild(menuBtn);
+    actions.appendChild(forgetBtn);
 
     right.appendChild(sources);
     // One currency picker for the whole app, living in the header: the
@@ -408,13 +408,34 @@ export const view = {
 
     const phaseEl = this.el("div", "phase");
 
-    const menu = this.el("div", "menu hidden");
-    const forget = this.el("button", null, "Forget my data");
-    forget.dataset.action = "forget";
-    const closeMenu = this.el("button", null, "Close");
-    closeMenu.dataset.action = "toggle-menu";
-    menu.appendChild(forget);
-    menu.appendChild(closeMenu);
+    // Confirmation for the only destructive action here: it takes every
+    // credential, library, price and manual figure out of this browser, so it
+    // asks first. Deliberately no X — the two answers are the buttons.
+    const forgetModal = this.el("div", "forget-modal hidden");
+    forgetModal.hidden = true;
+    forgetModal.setAttribute("role", "dialog");
+    forgetModal.setAttribute("aria-modal", "true");
+    forgetModal.setAttribute("aria-labelledby", "forget-title");
+    const forgetCard = this.el("div", "forget-card");
+    const forgetTitle = this.el("h3", null, "Forget my data?");
+    forgetTitle.id = "forget-title";
+    forgetCard.appendChild(forgetTitle);
+    forgetCard.appendChild(this.el("p", null,
+      "This deletes everything this browser holds about your libraries: linked "
+      + "accounts, scanned games, prices, cover art and any price or playtime "
+      + "you entered yourself. It cannot be undone. Nothing is sent anywhere — "
+      + "it is all local to this browser."));
+    const forgetActions = this.el("div", "forget-actions");
+    const doForget = this.el("button", "button danger-solid", "Forget my data");
+    doForget.type = "button";
+    doForget.dataset.action = "do-forget";
+    const cancelForget = this.el("button", "button ghost", "Cancel");
+    cancelForget.type = "button";
+    cancelForget.dataset.action = "cancel-forget";
+    forgetActions.appendChild(doForget);
+    forgetActions.appendChild(cancelForget);
+    forgetCard.appendChild(forgetActions);
+    forgetModal.appendChild(forgetCard);
 
     const drawer = this.el("aside", "drawer hidden");
     drawer.setAttribute("role", "dialog");
@@ -451,6 +472,23 @@ export const view = {
     const psnNote = this.el("p", "disclaimer-psn-note");
     psnNote.hidden = true;
     footer.appendChild(psnNote);
+    // Shown only while the visitor's own prices are in use: without it the
+    // "not what you actually paid" line above reads as a lie.
+    const basisNote = this.el("p", "disclaimer-basis");
+    basisNote.hidden = true;
+    footer.appendChild(basisNote);
+    // A spent shared key is the one pricing failure the visitor can fix
+    // themselves, so this line carries the way out as well as the news. Hidden
+    // until a scan actually reports a limit.
+    const limitNote = this.el("p", "disclaimer-limit-note");
+    limitNote.hidden = true;
+    const limitText = this.el("span");
+    limitNote.appendChild(limitText);
+    const limitBtn = this.el("button", "button small ghost", "Use your own key");
+    limitBtn.type = "button";
+    limitBtn.dataset.action = "show-keys";
+    limitNote.appendChild(limitBtn);
+    footer.appendChild(limitNote);
 
     // Attribution: who built this and where to find it. Both links come from the
     // repo's own remote, so they are never guessed.
@@ -480,6 +518,14 @@ export const view = {
     credit.appendChild(contrib);
     footer.appendChild(credit);
 
+    // Also down here, out from behind a menu: the way out of the app sits where
+    // someone who has read this far will look for it.
+    const footerForget = this.el("button", "button small ghost footer-forget",
+      "Forget my data");
+    footerForget.type = "button";
+    footerForget.dataset.action = "confirm-forget";
+    footer.appendChild(footerForget);
+
     // A statement of solidarity, kept as its own line so it stands apart from
     // the fine print above it.
     footer.appendChild(this.el("p", "disclaimer-stand", "This project stands with Palestine. Free Palestine."));
@@ -487,11 +533,11 @@ export const view = {
     main.appendChild(topbar);
     main.appendChild(phaseEl);
     main.appendChild(footer);
-    main.appendChild(menu);
+    main.appendChild(forgetModal);
     main.appendChild(drawer);
     root.appendChild(main);
 
-    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, exportBtn, menuBtn, menu, phaseEl, drawer, drawerTitle, drawerBody, footer, attribution, psnNote });
+    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, exportBtn, forgetBtn, forgetModal, phaseEl, drawer, drawerTitle, drawerBody, footer, footerForget, attribution, psnNote, basisNote, limitNote, limitText });
     this._builtPhase = null;
     return this;
   },
@@ -510,6 +556,62 @@ export const view = {
     if (!this.psnNote) return;
     this.psnNote.textContent = text || "";
     this.psnNote.hidden = !text;
+  },
+
+  /** Say the shared pricing key is rate-limited -- or hide it once a scan
+   *  prices normally again, so the warning never outlives its cause. The
+   *  button beside it is built once in shell(), so only the words are set. */
+  setLimitNote(text) {
+    if (!this.limitNote || !this.limitText) return;
+    this.limitText.textContent = text ? `${text} ` : "";
+    this.limitNote.hidden = !text;
+  },
+
+  /** The box for one manual field, parked by renderDrawer so the delegated
+   *  save handler can read it back — the drawer is rebuilt on every render,
+   *  so nothing may be captured at click time. */
+  editInput(field) {
+    return (this.editInputs || {})[field] || null;
+  },
+
+  /** Show a rejected figure beside the boxes, or clear it. */
+  setEditError(text) {
+    if (!this.editError) return;
+    this.editError.textContent = text || "";
+    this.editError.hidden = !text;
+  },
+
+  /** The footer's "not what you actually paid" line is a half-truth once the
+   *  visitor has entered prices of their own — so say so, and only while any
+   *  edit is actually applied to a row that still exists. */
+  setBasisNote(count) {
+    if (!this.basisNote) return;
+    this.basisNote.textContent = count
+      ? `Your own prices are used for ${count} ${count === 1 ? "title" : "titles"} and `
+        + "count as what you paid — every other title is today's cheapest price."
+      : "";
+    this.basisNote.hidden = !count;
+  },
+
+  /** Show or dismiss the forget-my-data confirmation. Built once in shell();
+   *  it has no X because the two buttons are the only answers worth giving. */
+  showForgetModal(show) {
+    if (!this.forgetModal) return;
+    this.forgetModal.hidden = !show;
+  },
+
+  /** The chip a row or card wears when the same title is owned on another
+   *  store. It reads "DUP", not the store's name: the platform is already its
+   *  own column in the list and its own corner label on every card, so naming
+   *  it here would state the obvious twice. The tooltip and the drawer are
+   *  where the detail lives — the chip's job is the claim, not the evidence. */
+  dupeChip(others) {
+    const names = [...new Set(others.map((o) => o.platform))];
+    const chip = this.el("span", "dupe-chip", "DUP");
+    const claim = `Also owned on ${names.join(", ")}`;
+    chip.title = claim;
+    chip.setAttribute("aria-label", claim);
+    return chip;
   },
 
   /** Compact per-platform strip in the topbar (ready/loading phases). */
@@ -536,6 +638,9 @@ export const view = {
       const btn = this.el("button", "source-action", linked ? "Forget" : "Link");
       btn.dataset.action = linked ? "unlink" : "link";
       btn.dataset.platform = p.key;
+      // The display name rides along so unlink can take that store's rows out:
+      // rows are keyed by "Steam"/"PlayStation", not by the key.
+      btn.dataset.name = p.platform;
       btn.setAttribute("aria-label", `${linked ? "Forget" : "Link"} ${p.name}`);
       chip.appendChild(btn);
 
@@ -649,6 +754,14 @@ export const view = {
     wrap.appendChild(this.el("h1", "hero-title", "What is your library actually worth?"));
     wrap.appendChild(this.el("p", "hero-sub",
       "Link a store. We price every game you own at today's cheapest price and show what each hour of play has cost you — including the ones you never opened."));
+    // After forget(): one line that says it worked. The deletion itself leaves
+    // no other trace on the page the visitor lands on.
+    if (state.forgot) {
+      wrap.appendChild(this.el("p", "forget-done",
+        "Everything this browser was holding about your libraries has been "
+        + "deleted — accounts, games, prices and anything you entered yourself. "
+        + "Link a store to start again."));
+    }
 
     // The pitch, playable before the ask: run the real verdict engine on a
     // sample library so the judgement is felt rather than described. Sits above
@@ -1080,6 +1193,32 @@ export const view = {
     const platformList = this.el("div", "platform-list");
     platCard.appendChild(platformList);
     sidebar.appendChild(platCard);
+    // The same picture cut the other way: how the library divides by verdict —
+    // a two-slide carousel (games by verdict / value by verdict) over one shared
+    // tier vocabulary, both cut from state.verdicts so chart, chips and table
+    // can never disagree. The head holds the title and the slide dots; the
+    // title text follows whichever slide is showing (renderVerdicts).
+    const verdictCard = this.el("div", "chart-card");
+    const verdictHead = this.el("div", "chart-head");
+    const verdictTitle = this.el("h3", null, "Games by verdict");
+    const verdictDots = this.el("div", "carousel-dots");
+    verdictDots.setAttribute("role", "group");
+    verdictDots.setAttribute("aria-label", "Verdict chart slide");
+    for (const [key, label] of [["games", "Games by verdict"], ["value", "Value by verdict"]]) {
+      const dot = this.el("button", "carousel-dot");
+      dot.type = "button";
+      dot.dataset.action = "verdict-slide";
+      dot.dataset.slide = key;
+      dot.setAttribute("aria-label", label);
+      dot.setAttribute("aria-pressed", String(key === "games"));
+      verdictDots.appendChild(dot);
+    }
+    verdictHead.appendChild(verdictTitle);
+    verdictHead.appendChild(verdictDots);
+    verdictCard.appendChild(verdictHead);
+    const verdictList = this.el("div", "verdict-list");
+    verdictCard.appendChild(verdictList);
+    sidebar.appendChild(verdictCard);
 
     bodyEl.appendChild(panel);
     bodyEl.appendChild(sidebar);
@@ -1087,7 +1226,7 @@ export const view = {
 
     // `kpi` is the scope renderKpis queries: it must reach #kpi-regret now
     // that the regret card has moved out of the row.
-    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, filterBar, search, sort, platformSelect, headerCells, pagers: [topPager, bottomPager], panel };
+    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, verdictList, verdictTitle, verdictDots, filterBar, search, sort, platformSelect, headerCells, pagers: [topPager, bottomPager], panel };
   },
 
   /** Called on every state change. Rebuilds the phase only when it changes. */
@@ -1105,8 +1244,11 @@ export const view = {
     this.scanBtn.hidden = !showChrome;
     if (this.exportBtn) this.exportBtn.hidden = !showChrome;
     // On onboarding the keys card is already on screen — a second shortcut
-    // to it in the header would just be noise.
+    // to it in the header would just be noise. Forget is hidden too: there is
+    // nothing to forget before anything is linked.
     if (this.keysBtn) this.keysBtn.hidden = !showChrome;
+    if (this.forgetBtn) this.forgetBtn.hidden = !showChrome;
+    if (this.footerForget) this.footerForget.hidden = !showChrome;
 
     // A config that lands after the landing page was built repaints the keys
     // card in place here — the onboarding branch below is one-shot by design
@@ -1142,7 +1284,9 @@ export const view = {
         kpi: r.kpi, tabs: r.tabs, tbody: r.tbody, tableWrap: r.tableWrap,
         gridWrap: r.gridWrap, viewToggle: r.viewToggle,
         emptyState: r.empty, coverage: r.coverage, ringSvg: r.ringSvg,
-        platformList: r.platformList, filterBar: r.filterBar, search: r.search, sort: r.sort,
+        platformList: r.platformList, verdictList: r.verdictList,
+        verdictTitle: r.verdictTitle, verdictDots: r.verdictDots,
+        filterBar: r.filterBar, search: r.search, sort: r.sort,
         platformSelect: r.platformSelect, headerCells: r.headerCells,
         pagers: r.pagers, panel: r.panel,
       });
@@ -1154,9 +1298,16 @@ export const view = {
 
   updateReady(state) {
     const { rows, scanning, metrics } = state;
+    // Which titles are held on another store — read once per render so the row
+    // and card builders take it from here instead of each growing an argument.
+    this.dupes = state.dupes || new Map();
+    // Prices with the visitor's own figures layered in: the table, the pies and
+    // the cards must show the same numbers the metrics were computed from.
+    const prices = state.pricesEff || state.prices;
     this.renderKpis(this.kpi, metrics);
     this.renderRegretRing(this.ringSvg, metrics.regretScore);
-    this.renderPlatforms(this.platformList, state.games, state.prices, state.platform);
+    this.renderPlatforms(this.platformList, state.games, prices, state.platform);
+    this.renderVerdicts(this.verdictList, state);
     this.updateHero(state);
     if (this.distBox) this.renderDistribution(state);
     this.updateSim(state);
@@ -1170,8 +1321,8 @@ export const view = {
     const cur = Math.min(page, pages);          // clamp after a filter shrinks the set
     const start = (cur - 1) * PAGE_SIZE;
     const pageRows = rows.slice(start, start + PAGE_SIZE);
-    if (gridMode) this.renderGrid(this.gridWrap, pageRows, state.prices, scanning, state.verdicts);
-    else this.renderTable(this.tbody, pageRows, state.prices, scanning, state.verdicts);
+    if (gridMode) this.renderGrid(this.gridWrap, pageRows, prices, scanning, state.verdicts);
+    else this.renderTable(this.tbody, pageRows, prices, scanning, state.verdicts);
     if (this.pagers) {
       const many = rows.length > PAGE_SIZE;      // one page? no pager clutter
       for (const p of this.pagers) {
@@ -1468,35 +1619,31 @@ export const view = {
   updateInsights(state) {
     if (!this.rankLists) return;
     const cur = this.currency;
-    // Some stores report no playtime at all — Amazon pins hours to null by
-    // design, and Epic's playtime endpoint can fail mid-scan. The two rate
-    // lists could never fill from such a view, so their cards leave the page
-    // rather than promising forever that something "qualifies yet". Untouched
-    // is exempt: it ranks by price, and a no-playtime store is exactly where
-    // it earns its keep.
-    const rows = state.rows || [];
-    const noHoursAnywhere = rows.length > 0 && rows.every((r) => r.hours == null);
-    // Every row free: nothing was paid, so Hall of shame has nothing to shame
+    // These three lists are claims about the library, so they are gated on the
+    // library's own composition — never on the facet, the play filter or the
+    // search box. A filter says what to browse; it does not decide whether the
+    // library contains a bad buy. (They used to read the filtered rows here,
+    // which let a search for one title empty "Hall of shame".)
+    const lib = (state.games || []).filter((r) => r.kind !== "dlc");
+    // No store reports playtime at all — Amazon pins hours to null by design,
+    // and Epic's playtime endpoint can fail mid-scan. The two rate lists could
+    // never fill, so their cards leave the page rather than promising forever
+    // that something "qualifies yet". Untouched is exempt: it ranks by price.
+    const noHoursAnywhere = lib.length > 0 && lib.every((r) => r.hours == null);
+    // Every game free: nothing was paid, so Hall of shame has nothing to shame
     // — hiding the card beats an empty one that implies a bad buy exists
     // somewhere. Best value keeps speaking: for free rows its value is hours.
-    const allFree = rows.length > 0 && rows.every((r) => r.price === 0);
-    // Each facet gets the lists whose metric it actually has. Rate lists need
-    // price ÷ hours, which an unopened game can never have: the Untouched
-    // facet holds only those, and Unpriced holds no prices at all, so neither
-    // rate list could ever fill there. The untouched list is the flip side —
-    // its rows exist only under "All verdicts" and the Untouched facet.
-    const tier = state.tier || "All";
-    const noRates = tier === "untouched" || tier === "nodata";
-    const noIdle = tier !== "All" && tier !== "untouched";
+    const allFree = lib.length > 0 && lib.every((r) => r.price === 0);
+    // The untouched list needs an unopened game with a price to show; without
+    // one it would promise spend the library never made.
+    const noIdle = !lib.some((r) => (r.hours == null || r.hours < 1) && r.price != null && r.price > 0);
     for (const kind of ["worst", "best", "untouched"]) {
       const card = this.rankCards && this.rankCards[kind];
       if (card) {
         card.hidden = kind === "worst"
-          ? noRates || allFree || noHoursAnywhere
+          ? noHoursAnywhere || allFree
           : kind === "best"
-            ? noRates || noHoursAnywhere
-            // Untouched ranks by price, so a no-playtime store is exempt —
-            // that is exactly where it earns its keep.
+            ? noHoursAnywhere
             : noIdle || allFree;
       }
       const list = this.rankLists[kind];
@@ -1505,22 +1652,14 @@ export const view = {
       if (kind !== "untouched" && noHoursAnywhere) continue;
       const items = (state.comparators && state.comparators[kind]) || [];
       if (!items.length) {
-        // The list is empty either because nothing qualifies yet or because the
-        // filters hid everything that did — say which, or the reader assumes
-        // the product is broken. Each kind names what *it* needs: the rate
-        // lists need an hour of play (or, in an all-free view, free play),
-        // the untouched list needs a price.
+        // Nothing in the library qualifies for this list. Each kind names what
+        // *it* needs: the rate lists need an hour of play (or, in an all-free
+        // library, free play), the untouched list needs a price.
         const empty = kind === "untouched"
-          ? (filtersActive(state)
-            ? "Nothing in this view is unopened with a price."
-            : "No unopened games with a price.")
+          ? "No unopened games with a price."
           : allFree
-            ? (filtersActive(state)
-              ? "Nothing in this view has an hour of play yet."
-              : "No free game here has been played for an hour yet.")
-            : (filtersActive(state)
-              ? "Nothing in this view has both an hour of play and a price."
-              : "No game has both an hour of play and a price yet.");
+            ? "No free game here has been played for an hour yet."
+            : "No game has both an hour of play and a price yet.";
         list.appendChild(this.el("li", "rank-empty", empty));
         continue;
       }
@@ -1767,6 +1906,14 @@ export const view = {
           const td = this.el("td", cls, text);
           // Add-on rows carry a small chip so DLC is legible in the list.
           if (i === 0 && game.kind === "dlc") td.appendChild(this.el("span", "dlc-chip", "DLC"));
+          // And one when the title is owned on another store, so buying a game
+          // twice shows in the list instead of only behind a click.
+          if (i === 0 && this.dupes.get(game.id)) {
+            td.appendChild(this.dupeChip(this.dupes.get(game.id)));
+          }
+          // And one for a figure the visitor typed over the store's own, so a
+          // price that differs from IsThereAnyDeal is visibly theirs.
+          if (i === 0 && game.edited) td.appendChild(this.el("span", "edited-chip", "Edited"));
           tr.appendChild(td);
           return;
         }
@@ -1840,6 +1987,12 @@ export const view = {
       const titleRow = this.el("p", "card-title", game.name);
       // Same add-on chip as the list, so a cover card reads as DLC too.
       if (game.kind === "dlc") titleRow.appendChild(this.el("span", "dlc-chip", "DLC"));
+      // Same again for an owned-elsewhere title: the grid must not be the view
+      // that hides the duplicate.
+      if (this.dupes.get(game.id)) titleRow.appendChild(this.dupeChip(this.dupes.get(game.id)));
+      // And for a figure of the visitor's own: the card shows the number, so it
+      // has to show whose number it is.
+      if (game.edited) titleRow.appendChild(this.el("span", "edited-chip", "Edited"));
       meta.appendChild(titleRow);
       // The band reads today's price against its own history, so it sits
       // directly under the name — above the row it explains.
@@ -1942,6 +2095,81 @@ export const view = {
     hoursRow.appendChild(this.el("strong", null, game.hours == null ? "unknown" : hours(game.hours)));
     drawerBody.appendChild(hoursRow);
 
+    // What the visitor says they paid, and how long they played. Placeholders
+    // rather than values, so an empty box always reads as "no override" and
+    // Reset is the only thing that can bring the store's figure back. Buttons
+    // rather than autosave: this drawer is rebuilt on every render, and an
+    // unsaved box would be wiped mid-typing.
+    const edit = (state.edits || {})[game.id] || {};
+    const apiPrice = game.apiPrice !== undefined ? game.apiPrice : price;
+    const apiHours = game.apiHours !== undefined ? game.apiHours : game.hours;
+    const editRow = (labelText, key, raw, fmt) => {
+      const row = this.el("div", "drawer-row edit-row");
+      row.appendChild(this.el("span", null, labelText));
+      const box = this.el("div", "edit-box");
+      const input = this.el("input", "edit-input");
+      input.type = "number";
+      input.min = "0";
+      input.step = key === "price" ? "0.01" : "0.5";
+      input.value = "";
+      input.placeholder = raw == null ? "—" : fmt(raw);
+      input.setAttribute("aria-label", labelText);
+      input.dataset.action = `edit-${key}`;
+      box.appendChild(input);
+      for (const [action, label] of [["save-edit", "Save"], ["reset-edit", "Reset"]]) {
+        const b = this.el("button", action === "save-edit" ? "button small" : "button small ghost", label);
+        b.type = "button";
+        b.dataset.action = action;
+        b.dataset.id = game.id;
+        b.dataset.field = key;
+        box.appendChild(b);
+      }
+      row.appendChild(box);
+      drawerBody.appendChild(row);
+      return input;
+    };
+    this.editInputs = {
+      price: editRow("Your price", "price", apiPrice, (v) => money(v, cur)),
+      hours: editRow("Playtime", "hours", apiHours, (v) => hours(v)),
+    };
+    this.editId = game.id;
+    // The reference the Reset button restores, and — when a price was entered
+    // in another currency — that currency's name, because there is no FX here
+    // to move the number and quietly relabelling it would be a lie.
+    drawerBody.appendChild(this.el("p", "muted edit-ref",
+      `API: ${apiPrice == null ? "—" : money(apiPrice, cur)} · `
+      + `${apiHours == null ? "unknown" : hours(apiHours)}`));
+    if (edit.price !== undefined) {
+      drawerBody.appendChild(this.el("p", "edit-note",
+        `Your price: ${money(edit.price, cur)}`
+        + (edit.currency && edit.currency !== cur ? ` (set in ${edit.currency})` : "")));
+    }
+    if (edit.hours !== undefined) {
+      drawerBody.appendChild(this.el("p", "edit-note", `Your playtime: ${hours(edit.hours)}`));
+    }
+    const editError = this.el("p", "edit-error");
+    editError.hidden = true;
+    drawerBody.appendChild(editError);
+    this.editError = editError;
+    drawerBody.appendChild(this.el("p", "muted edit-note",
+      "These move the quartiles every verdict is read against, so your other "
+      + "games may be re-graded."));
+
+    // Held on another store too: the drawer is where the detail belongs — each
+    // other copy's store, its price today and its own playtime, next to this
+    // one's. The whole row is absent when the title is owned once.
+    const others = state && state.dupes ? state.dupes.get(game.id) : null;
+    if (others && others.length) {
+      const dupeRow = this.el("div", "drawer-row");
+      dupeRow.appendChild(this.el("span", null, "Also owned on"));
+      dupeRow.appendChild(this.el("strong", null, others.map((o) => {
+        const otherPrice = state.pricesEff ? state.pricesEff[o.id] : (state.prices ? state.prices[o.id] : null);
+        const otherHours = o.hours == null ? "unknown" : hours(o.hours);
+        return `${o.platform} · ${typeof otherPrice === "number" ? money(otherPrice, cur) : "—"} · ${otherHours}`;
+      }).join("  /  ")));
+      drawerBody.appendChild(dupeRow);
+    }
+
     const vphRow = this.el("div", "drawer-row");
     vphRow.appendChild(this.el("span", null, `${symbol(cur)} / hour`));
     vphRow.appendChild(this.el("strong", null,
@@ -2013,9 +2241,9 @@ export const view = {
       return;
     }
     const total = entries.reduce((s, [, p]) => s + p.value, 0);
-    const colorFor = (i) => `var(--pie-${(i % 8) + 1})`;
 
-    // Pie: one slice per platform, coloured from the --pie-* palette.
+    // Pie: one slice per platform, painted with the store's brand colour
+    // (brandColor) — keyed by the store, not by its rank in this render.
     const NS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(NS, "svg");
     svg.setAttribute("class", "platform-pie");
@@ -2024,10 +2252,10 @@ export const view = {
     svg.setAttribute("aria-label", "Value by platform");
     const cx = 40, cy = 40, r = 36;
     let a0 = -Math.PI / 2;   // start at 12 o'clock
-    entries.forEach(([platform, data], i) => {
+    entries.forEach(([platform, data]) => {
       const frac = total ? data.value / total : 0;
       const a1 = a0 + frac * 2 * Math.PI;
-      const fill = colorFor(i);
+      const fill = brandColor(platform);
       const pct = total ? Math.round((data.value / total) * 100) : 0;
       let slice = null;
       if (frac >= 0.9999) {                       // single platform = full circle
@@ -2056,13 +2284,13 @@ export const view = {
 
     // Legend: colour swatch, platform, value.
     const legend = this.el("div", "platform-legend");
-    entries.forEach(([platform, data], i) => {
+    entries.forEach(([platform, data]) => {
       const row = this.el("div", "platform-row");
       row.dataset.action = "filter-platform";
       row.dataset.platform = platform;
       if (platform === active) row.classList.add("is-active");
       const swatch = this.el("span", "platform-swatch");
-      swatch.style.background = colorFor(i);
+      swatch.style.background = brandColor(platform);
       row.appendChild(swatch);
       const lmark = brandIcon(platform, 13);
       if (lmark) { lmark.classList.add("platform-mark"); row.appendChild(lmark); }
@@ -2071,6 +2299,131 @@ export const view = {
       legend.appendChild(row);
     });
     listEl.appendChild(legend);
+  },
+
+  /** The verdict card is a two-slide carousel: games (a count per verdict) and
+   *  value (today's price summed per verdict) — both cut from state.verdicts,
+   *  the map the facet chips count, so chart, chips and table always tell one
+   *  story. The track node survives renders: its transform is the slide on
+   *  screen, and only a stable node can animate. Add-ons carry no verdict, and
+   *  free/unpriced rows sum to nothing on the value slide — they stay listed at
+   *  ₹0 rather than silently vanishing. */
+  renderVerdicts(listEl, state) {
+    if (!listEl) return;
+    const verdicts = state.verdicts;
+    const onValue = state.verdictSlide === "value";
+    if (this.verdictTitle) this.verdictTitle.textContent = onValue ? "Value by verdict" : "Games by verdict";
+    const dots = this.verdictDots ? this.verdictDots.querySelectorAll(".carousel-dot") : [];
+    for (const d of dots) {
+      const on = (d.dataset.slide === "value") === onValue;
+      if (on) d.classList.add("active"); else d.classList.remove("active");
+      d.setAttribute("aria-pressed", String(on));
+    }
+
+    // Whole-library vocabulary in the facet chips' order; unknown trails — it
+    // only appears when the library is too small to form a benchmark.
+    const counts = {};
+    for (const t of verdicts ? verdicts.values() : []) counts[t] = (counts[t] || 0) + 1;
+    const order = ["regret", "untouched", "fair", "worth", "free", "nodata", "unknown"];
+    const tiers = order.filter((t) => counts[t]);
+    if (tiers.length === 0) {
+      listEl.textContent = "";
+      listEl.appendChild(this.el("p", "muted", "No games yet."));
+      return;
+    }
+
+    // Value buckets: today's price per game by its verdict — whole library
+    // (state.games, never the filtered rows) and the same price source the
+    // platform pie sums, so the two cards agree about what a library is worth.
+    const sums = {};
+    for (const t of tiers) sums[t] = 0;
+    for (const g of state.games || []) {
+      const t = verdicts ? verdicts.get(g.id) : null;
+      const p = (state.pricesEff || state.prices || {})[g.id];
+      if (t in sums && typeof p === "number") sums[t] += p;
+    }
+    const gamesTotal = tiers.reduce((s, t) => s + counts[t], 0);
+    const valueTotal = tiers.reduce((s, t) => s + sums[t], 0);
+
+    const fill = (host, mode) => {
+      host.textContent = "";
+      const isValue = mode === "value";
+      const vals = isValue ? sums : counts;
+      const total = isValue ? valueTotal : gamesTotal;
+      if (isValue && total === 0) {          // all free / all unpriced: no pie to draw
+        host.appendChild(this.el("p", "muted", "No priced games yet."));
+        return;
+      }
+      const colorFor = (t) => `var(--tier-${t})`;
+      const games = (n) => `${n} ${n === 1 ? "game" : "games"}`;
+      const NS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("class", "verdict-pie");
+      svg.setAttribute("viewBox", "0 0 80 80");
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", isValue ? "Value by verdict" : "Games by verdict");
+      const cx = 40, cy = 40, r = 36;
+      let a0 = -Math.PI / 2;   // start at 12 o'clock
+      for (const tier of tiers) {
+        const frac = total ? vals[tier] / total : 0;
+        const a1 = a0 + frac * 2 * Math.PI;
+        const pct = total ? Math.round((vals[tier] / total) * 100) : 0;
+        let slice = null;
+        if (frac >= 0.9999) {                       // one tier = full circle
+          slice = document.createElementNS(NS, "circle");
+          slice.setAttribute("cx", cx); slice.setAttribute("cy", cy); slice.setAttribute("r", r);
+          slice.setAttribute("fill", colorFor(tier));
+        } else if (frac > 0) {
+          slice = document.createElementNS(NS, "path");
+          slice.setAttribute("d", pieSlice(cx, cy, r, a0, a1));
+          slice.setAttribute("fill", colorFor(tier));
+          slice.setAttribute("stroke", "var(--surface)");   // separate slices
+          slice.setAttribute("stroke-width", "1");
+        }
+        if (slice) {
+          const title = document.createElementNS(NS, "title");   // native hover tooltip
+          title.textContent = isValue
+            ? `${TIER_LABEL[tier] || tier} — ${money(vals[tier], this.currency)} (${pct}%)`
+            : `${TIER_LABEL[tier] || tier} — ${games(vals[tier])} (${pct}%)`;
+          slice.appendChild(title);
+          slice.dataset.action = "tier";             // same filter as the facet chip
+          slice.dataset.tier = tier;
+          if (tier === state.tier && state.tier !== "All") slice.classList.add("is-active");
+          svg.appendChild(slice);
+        }
+        a0 = a1;
+      }
+      host.appendChild(svg);
+
+      const legend = this.el("div", "verdict-legend");
+      for (const tier of tiers) {
+        const row = this.el("div", "verdict-row");
+        row.dataset.action = "tier";
+        row.dataset.tier = tier;
+        if (tier === state.tier && state.tier !== "All") row.classList.add("is-active");
+        const swatch = this.el("span", "verdict-swatch");
+        swatch.style.background = colorFor(tier);
+        row.appendChild(swatch);
+        row.appendChild(this.el("span", "verdict-name", TIER_LABEL[tier] || tier));
+        row.appendChild(this.el("span", "verdict-count",
+          isValue ? money(vals[tier], this.currency) : games(vals[tier])));
+        legend.appendChild(row);
+      }
+      host.appendChild(legend);
+    };
+
+    let track = listEl.querySelector(".carousel-track");
+    if (!track) {
+      listEl.textContent = "";
+      track = this.el("div", "carousel-track");
+      track.appendChild(this.el("div", "carousel-slide"));
+      track.appendChild(this.el("div", "carousel-slide"));
+      listEl.appendChild(track);
+    }
+    const slides = track.querySelectorAll(".carousel-slide");
+    fill(slides[0], "games");
+    fill(slides[1], "value");
+    track.style.transform = onValue ? "translateX(-50%)" : "translateX(0)";
   },
 };
 

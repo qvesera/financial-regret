@@ -214,3 +214,28 @@ test("the shell builds the credit line, and setPricingAttribution toggles it", (
 
   view.attribution = null;   // do not leak into the next test
 });
+
+
+test("the shell builds the rate-limit note, and setLimitNote keeps its button", () => {
+  installEnv();
+  view.shell(document.createElement("div"));
+
+  const note = view.footer.querySelector(".disclaimer-limit-note");
+  assert.ok(note, "the rate-limit line is part of the disclaimer footer");
+  assert.equal(note.hidden, true, "hidden until a scan actually reports a limit");
+
+  view.setLimitNote("The shared price keys are rate-limited right now.");
+  assert.equal(note.hidden, false, "a spent key puts it up");
+  assert.ok(note.textContent.includes("rate-limited"));
+  const btn = note.querySelector("button");
+  assert.ok(btn, "the way out is a button, not advice to act on later");
+  assert.equal(btn.dataset.action, "show-keys", "it opens the API keys card");
+
+  view.setLimitNote(null);
+  assert.equal(note.hidden, true, "a clean scan hides it again");
+  assert.ok(note.querySelector("button"),
+    "hiding clears the words, never the button");
+
+  view.limitNote = null;   // do not leak into the next test
+  view.limitText = null;
+});

@@ -48,7 +48,7 @@ docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
 | `PORT` | No | Port to listen on (default 3000; `run.sh` passes 8089). |
 | `HOST` | No | Host to bind (default 0.0.0.0). |
 | `CORS_ALLOWED_ORIGINS` | No | Comma-separated origins allowed to call this API cross-origin, e.g. `https://your-app.vercel.app`. Empty — the default — means same-origin only. Wildcards are discarded rather than honoured. |
-| `REQUIRE_USER_KEYS` | No | `1` to ignore the server's `STEAM_API_KEY` / `ITAD_API_KEY` / `PLATPRICES_API_KEY` / `SGDB_API_KEY` and require every visitor to bring their own. Set this on any public deployment. |
+| `REQUIRE_USER_KEYS` | No | `1` to ignore the server's `STEAM_API_KEY` / `ITAD_API_KEY` / `PLATPRICES_API_KEY` / `SGDB_API_KEY` and require every visitor to bring their own. Unset — the default — a visitor's own key always wins and the server key fills in when they have none, so the instance works without setup. Set `1` on a public deployment where you would rather refuse than spend your quota. |
 | `TRUST_PROXY` | No | `1` to read the client IP from `X-Forwarded-For`. Only behind a reverse proxy you control — otherwise the per-IP rate limit is trivially bypassed. |
 | `RATE_LIMIT_PER_MIN` | No | Per-IP requests per minute (default 120). |
 | `PUBLIC_BASE_URL` | No | The URL the app is reached on. OAuth redirect URIs (GOG, Epic) must match what those providers have registered. |
@@ -99,14 +99,16 @@ depends on surviving a restart, the server keeps no state on disk. To point
 the frontend at it, set `API_BASE` in `public/js/env.js` to that
 `*.onrender.com` origin and name the same origin in `CORS_ALLOWED_ORIGINS`.
 
-Set `PLATPRICES_API_KEY` and friends as env vars only if you want a shared
-server-side key. With `REQUIRE_USER_KEYS=1` they are a fallback, and
-bring-your-own-key is the intended public posture.
+Set `PLATPRICES_API_KEY` and friends as env vars to give visitors a shared
+server-side key. A visitor's own key always wins, so theirs is spent first and
+the shared one only fills in; when the shared pool runs out the dashboard says
+so and points at API keys rather than leaving a blank price column. Set
+`REQUIRE_USER_KEYS=1` if you would rather refuse than share at all.
 
 Before inviting anyone, read **[SECURITY.md](SECURITY.md)**. Two things
-especially: `REQUIRE_USER_KEYS=1` is what stops every visitor spending your API
-quota, and PlayStation support means users paste a PSN session token into
-your site.
+especially: without `REQUIRE_USER_KEYS=1` every visitor spends your API quota
+(the rate-limit note is what tells them to bring their own), and PlayStation
+support means users paste a PSN session token into your site.
 
 ## Tests
 

@@ -122,3 +122,30 @@ test("a priced PSN batch reports no reason", async () => {
   assert.equal(out.psnReason, null);
   assert.equal(out.prices["PSN:PPSA00142_00"], 39.99);
 });
+
+test("fetchPrices reports which shared key refused it, per provider", async () => {
+  // A blank price column means two very different things: nothing to price,
+  // or no quota left. Only the second is fixed by pasting a key, so each
+  // provider's refusal has to survive the merge into one result.
+  stub({
+    "/api/prices": { json: { prices: {}, highs: {}, lows: {}, currency: "INR", limited: { itad: true } } },
+    "/api/psn_prices": { json: { prices: {}, highs: {}, lows: {}, currency: "INR", limited: { platprices: true } } },
+  });
+
+  const out = await fetchPrices([PSN, STEAM], "INR");
+  assert.deepEqual(out.limited, { itad: true, platprices: true },
+    "each half reports its own refusal, not one blended flag");
+
+  stub({ "/api/prices": { json: { prices: { steam_1: 19.99 }, highs: {}, lows: {}, currency: "INR", limited: {} } } });
+  const clean = await fetchPrices([STEAM], "INR");
+  assert.deepEqual(clean.limited, {}, "an answered scan reports nothing");
+});
+
+test("our own per-IP 429 is reported too, not swallowed by !ok", async () => {
+  stub({ "/api/prices": { ok: false, status: 429, json: { error: "Too many requests -- slow down" } } });
+
+  const out = await fetchPrices([STEAM], "INR");
+
+  assert.deepEqual(out.limited, { itad: true }, "the server's own limiter counts as a limit");
+  assert.equal(out.prices.steam_1, undefined, "still no prices, as before");
+});

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installEnv } from "./dom-stub.mjs";
 import { encodeCard } from "../../public/js/export.js";
+import { store } from "../../public/js/store.js";
 
 const settle = async () => { for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0)); };
 
@@ -422,8 +423,8 @@ test("regret gauge lives in its KPI card, not a second sidebar card", async () =
 
   const sidebar = env.root.querySelector(".sidebar");
   const headings = sidebar.querySelectorAll("h3").map((h) => h.textContent);
-  assert.deepEqual(headings, ["Value by platform"],
-    "the duplicate Regret card is gone from the sidebar");
+  assert.deepEqual(headings, ["Value by platform", "Games by verdict"],
+    "the two chart cards own the sidebar; the duplicate Regret card is gone");
 });
 
 test("filter tabs narrow the table", async () => {
@@ -893,6 +894,109 @@ test("value by platform renders as a pie chart", async () => {
   assert.deepEqual(names, ["Epic", "Steam"], "legend lists both platforms");
 });
 
+test("platform slices wear the store's brand colour, not a palette slot", async () => {
+  // The old palette painted by rank index, so a store changed colour whenever
+  // the ranking reshuffled. The colour now belongs to the store itself: Epic
+  // stays Epic grey whether it ranks first or last.
+  const { env } = await boot({ seed: mixedSeed });
+  await settle();
+
+  const legendRow = (name) => env.root.querySelector(".platform-legend")
+    .querySelectorAll(".platform-row").find((r) => r.dataset.platform === name);
+  assert.equal(legendRow("Epic").querySelector(".platform-swatch").style.background,
+    "var(--brand-epic)", "Epic swatch");
+  assert.equal(legendRow("Steam").querySelector(".platform-swatch").style.background,
+    "var(--brand-steam)", "Steam swatch");
+
+  const fills = env.root.querySelector(".platform-pie").querySelectorAll("path")
+    .map((p) => p.getAttribute("fill"));
+  assert.ok(fills.includes("var(--brand-epic)"), "Epic slice painted Epic grey");
+  assert.ok(fills.includes("var(--brand-steam)"), "Steam slice painted Steam blue");
+});
+
+// Seven games chosen so each verdict lands exactly once (twice for Regret):
+// four priced+played rates (1000, 50, 30, 10 → p25=25, p50=40) split into
+// regret/fair/worth, plus one untouched, one free and one unpriced row.
+const verdictSeed = (env) => {
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) return { json: { games: [
+      { id: "Steam:1", name: "Ripoff", platform: "Steam", hours: 1, appid: 1 },
+      { id: "Steam:2", name: "Steep", platform: "Steam", hours: 10, appid: 2 },
+      { id: "Steam:3", name: "Okay", platform: "Steam", hours: 10, appid: 3 },
+      { id: "Steam:4", name: "Steal", platform: "Steam", hours: 10, appid: 4 },
+      { id: "Steam:5", name: "Shelfwarmer", platform: "Steam", hours: 0, appid: 5 },
+      { id: "Steam:6", name: "Gem", platform: "Steam", hours: 5, appid: 6 },
+      { id: "Steam:7", name: "Mystery", platform: "Steam", hours: 8, appid: 7 },
+    ] } };
+    if (url.includes("/api/gog_games")) return { json: { games: [] } };
+    if (url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/prices")) {
+      const p = { "Steam:1": 1000, "Steam:2": 500, "Steam:3": 300, "Steam:4": 100, "Steam:5": 200, "Steam:6": 0 };
+      return { json: { prices: p, highs: p, lows: p } };
+    }
+    return null;
+  });
+};
+
+test("the verdict pie splits the library by verdict and filters on click", async () => {
+  const { env, mod } = await boot({ seed: verdictSeed });
+  await settle();
+
+  const pie = env.root.querySelector(".verdict-pie");
+  assert.ok(pie, "verdict pie rendered");
+  assert.equal(pie.getAttribute("role"), "img");
+  assert.equal(pie.getAttribute("aria-label"), "Games by verdict");
+  assert.equal(pie.querySelectorAll("path").length, 6, "one slice per verdict present");
+
+  const legend = env.root.querySelector(".verdict-legend");
+  const names = legend.querySelectorAll(".verdict-name").map((n) => n.textContent);
+  assert.deepEqual(names, ["Regret", "Untouched", "Fair", "Worth it", "Free", "Unpriced"],
+    "the facet chips' vocabulary, in the facet chips' order");
+  const counts = legend.querySelectorAll(".verdict-count").map((c) => c.textContent);
+  assert.deepEqual(counts, ["2 games", "1 game", "1 game", "1 game", "1 game", "1 game"],
+    "every game counted exactly once");
+
+  const regretRow = legend.querySelectorAll(".verdict-row").find((r) => r.dataset.tier === "regret");
+  assert.equal(regretRow.querySelector(".verdict-swatch").style.background, "var(--tier-regret)",
+    "swatch wears the tier colour the badges use");
+
+  regretRow.dispatch("click");
+  await settle();
+  assert.equal(mod.getState().tier, "regret", "click drives the same action as the chip");
+  assert.equal(mod.getState().rows.length, 2, "table narrowed to the regretted pair");
+  const chip = env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "regret");
+  assert.equal(chip.getAttribute("aria-pressed"), "true", "the facet chip agrees with the chart");
+});
+
+test("the verdict card's carousel swaps to value by verdict", async () => {
+  const { env, mod } = await boot({ seed: verdictSeed });
+  await settle();
+
+  const card = env.root.querySelector(".verdict-list").parentNode;
+  assert.equal(card.querySelector("h3").textContent, "Games by verdict", "first slide counts games");
+  const dots = card.querySelectorAll(".carousel-dot");
+  assert.equal(dots.length, 2, "one dot per slide");
+
+  dots.find((d) => d.dataset.slide === "value").dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().verdictSlide, "value", "the slide choice lives in state");
+  assert.equal(card.querySelector("h3").textContent, "Value by verdict", "the title follows the slide");
+  const active = dots.find((d) => d.classList.contains("active"));
+  assert.equal(active && active.dataset.slide, "value", "the dot agrees");
+  assert.equal(env.root.querySelector(".carousel-track").style.transform, "translateX(-50%)",
+    "the track slid to the second slide");
+
+  // Value slide: today's price summed per verdict — Regret holds ₹1,500
+  // (₹1,000 + ₹500), Untouched ₹200, and the free/unpriced tiers hold nothing.
+  const legends = env.root.querySelectorAll(".verdict-legend");
+  assert.equal(legends.length, 2, "both slides stay in the deck");
+  const values = legends[1].querySelectorAll(".verdict-count").map((c) => c.textContent);
+  assert.deepEqual(values, ["₹1,500.00", "₹200.00", "₹300.00", "₹100.00", "₹0.00", "₹0.00"],
+    "spend per verdict, in the chips' order");
+});
+
 test("clicking a pie slice filters the table to that platform", async () => {
   const { env, mod } = await boot({ seed: mixedSeed });
   await settle();
@@ -969,7 +1073,9 @@ test("the header offers each control exactly once, in plain words", async () => 
   const { env } = await boot({ seed: withSteam });
   await settle();
 
-  const keysBtns = env.root.querySelectorAll("button")
+  // Scoped to the topbar: the rate-limit note in the footer offers the same
+  // destination under different words, and only while a key is actually spent.
+  const keysBtns = env.root.querySelector(".topbar").querySelectorAll("button")
     .filter((b) => b.dataset.action === "show-keys");
   assert.equal(keysBtns.length, 1, "one API-keys control, not two with two names");
   assert.equal(keysBtns[0].textContent, "API keys");
@@ -1102,7 +1208,7 @@ test("PSN connect opens the sign-in page, never the NPSSO endpoint", async () =>
     "signing in comes before fetching the NPSSO");
 });
 
-test("filtering to a store takes the other stores' games out of the ranked lists", async () => {
+test("filtering a store leaves the ranked lists and the headline alone", async () => {
   const { env, mod } = await boot({ seed: withSteamAndGog });
   await settle();
 
@@ -1111,9 +1217,11 @@ test("filtering to a store takes the other stores' games out of the ranked lists
     return list.querySelectorAll(".rank-name").map((n) => n.textContent);
   };
 
-  const worst = names(".rank-worst");
-  assert.ok(worst.includes("Hades") && worst.includes("Disco Elysium"),
-    `both stores rank before filtering: ${worst}`);
+  const worstBefore = names(".rank-worst");
+  const bestBefore = names(".rank-best");
+  const metricsBefore = { ...mod.getState().metrics };
+  assert.ok(worstBefore.includes("Hades") && worstBefore.includes("Disco Elysium"),
+    `both stores rank unfiltered: ${worstBefore}`);
   const benchBefore = mod.getState().bench;
 
   // The spend-by-platform legend filters TO a store, which hides every other
@@ -1125,62 +1233,60 @@ test("filtering to a store takes the other stores' games out of the ranked lists
   await settle();
 
   assert.equal(mod.getState().platform, "GOG", "the filter took");
-  const after = names(".rank-worst");
-  assert.ok(!after.includes("Hades"), "the hidden store's game is gone");
-  assert.ok(after.includes("Disco Elysium"), "the visible store's game survives");
-  assert.deepEqual(names(".rank-best"), ["Disco Elysium"],
-    "best value re-ranks from what is still visible, not from a stale list");
-
-  // Scoring must not follow the filter — only selection does. A filter that
-  // redefined the benchmark would move every verdict on screen.
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Disco Elysium"],
+    "the table narrowed to the store");
+  assert.deepEqual(names(".rank-worst"), worstBefore,
+    "the ranked lists still describe the whole library, not this view of it");
+  assert.deepEqual(names(".rank-best"), bestBefore);
+  assert.deepEqual(mod.getState().metrics, metricsBefore,
+    "and so do the KPIs, the hero and the coverage line");
   assert.deepEqual(mod.getState().bench, benchBefore, "benchmark is untouched");
 
   gog.dispatch("click");   // the toggle clears itself
   await settle();
   assert.equal(mod.getState().platform, "All");
-  const restored = names(".rank-worst");
-  assert.ok(restored.includes("Disco Elysium") && restored.includes("Hades"),
-    "both return when the filter clears");
+  assert.deepEqual(mod.getState().rows.map((r) => r.name).sort(),
+    ["Cyberpunk 2077", "Disco Elysium", "Elden Ring", "Hades"], "the table comes back");
 });
 
-test("a rank list emptied by a filter says so, and recovers when cleared", async () => {
-  const { env } = await boot({ seed: withSteam });
+test("a filter that empties the table does not empty the insight cards", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
   await settle();
 
   const worst = () => env.root.querySelector(".rank-worst");
-  assert.equal(worst().querySelectorAll(".rank-name").length, 1, "Hades ranks unfiltered");
+  const worstNames = () => worst().querySelectorAll(".rank-name").map((n) => n.textContent);
+  assert.deepEqual(worstNames(), ["Hades"], "Hades ranks unfiltered");
 
   env.root.querySelectorAll(".tab").find((t) => t.dataset.filter === "Unplayed")
     .dispatch("click");
   await settle();
 
-  assert.equal(worst().querySelectorAll(".rank-name").length, 0,
-    "unplayed games are not evidence about value, so nothing ranks");
-  const empty = worst().querySelector(".rank-empty");
-  assert.ok(empty, "the empty list explains itself");
-  assert.ok(empty.textContent.includes("Nothing in this view"),
-    "a filtered-empty list must not claim you have no qualifying games");
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Cyberpunk 2077"],
+    "the table narrowed to the unplayed row");
+  assert.deepEqual(worstNames(), ["Hades"],
+    "the card still names the library's worst buy — it never spoke about the view");
+  assert.ok(!worst().querySelector(".rank-empty"),
+    "and it is not hiding behind an empty state that would now be a lie");
 
   env.root.querySelectorAll(".tab").find((t) => t.dataset.filter === "All")
     .dispatch("click");
   await settle();
-  assert.equal(worst().querySelectorAll(".rank-name").length, 1, "restores when cleared");
+  assert.equal(mod.getState().rows.length, 3, "the table comes back");
 });
 
-test("a store with no playtime takes the rate lists — untouched rides on", async () => {
+test("filtering to a no-playtime store leaves the rate lists standing", async () => {
   const { env, mod } = await boot({ seed: withSteamAndAmazon });
   await settle();
 
   const cards = () => env.root.querySelectorAll(".rank-card");
-  const untouchedCard = () => cards().find((c) => c.querySelector(".rank-untouched"));
   const names = (sel) => env.root.querySelector(sel)
     .querySelectorAll(".rank-name").map((n) => n.textContent);
 
   assert.equal(cards().length, 3, "three ranked cards ship");
-  assert.ok(cards().every((c) => !c.hidden), "visible while any store reports hours");
-  assert.deepEqual(names(".rank-untouched"),
-    ["Cyberpunk 2077", "Elden Ring", "Control", "Crysis"],
-    "unopened, dearest first — ranked by price, not by a rate they cannot have");
+  assert.ok(cards().every((c) => !c.hidden), "the library reports hours, so all three speak");
+  const untouchedBefore = names(".rank-untouched");
+  assert.deepEqual(untouchedBefore, ["Cyberpunk 2077", "Elden Ring", "Control", "Crysis"],
+    "unopened, dearest first — the library's ordering, not the view's");
 
   const amazon = env.root.querySelectorAll(".platform-row")
     .find((r) => r.dataset.platform === "Amazon");
@@ -1190,31 +1296,20 @@ test("a store with no playtime takes the rate lists — untouched rides on", asy
 
   assert.equal(mod.getState().platform, "Amazon", "the filter took");
   const rows = mod.getState().rows;
-  assert.ok(rows.length > 0, "the store has games on the table");
+  assert.equal(rows.length, 2, "two Amazon rows on the table");
   assert.ok(rows.every((r) => r.hours == null), "…and not one of them carries playtime");
-
-  const rateCards = cards().filter((c) => !c.querySelector(".rank-untouched"));
-  assert.equal(rateCards.length, 2, "the two rate lists are still on the page…");
-  assert.ok(rateCards.every((c) => c.hidden),
-    "…but hidden: nothing here could ever rank per hour, and 'nothing qualifies "
-    + "yet' would be a promise they cannot keep");
-  assert.ok(untouchedCard() && !untouchedCard().hidden,
-    "the untouched list stays — it ranks by price, and a store that never "
-    + "reports playtime is exactly where it earns its keep");
-  assert.deepEqual(untouchedCard().querySelectorAll(".rank-name").map((n) => n.textContent),
-    ["Control", "Crysis"], "its own dearest-first ordering, from this view only");
-  assert.equal(untouchedCard().querySelectorAll(".rank-hours").length, 0,
-    "no hours column: an unopened game has no playtime worth printing");
+  assert.ok(cards().every((c) => !c.hidden),
+    "the cards do not follow: the library still has hours, whatever the store shows");
+  assert.deepEqual(names(".rank-untouched"), untouchedBefore,
+    "and the untouched list still ranks the whole library");
 
   amazon.dispatch("click");               // the toggle clears itself
   await settle();
   assert.equal(mod.getState().platform, "All");
-  assert.ok(cards().every((c) => !c.hidden), "the cards return");
-  assert.equal(env.root.querySelector(".rank-worst").querySelectorAll(".rank-name").length, 1,
-    "Hades ranks again once hours exist in view");
+  assert.equal(cards().length, 3, "nothing about the cards depended on the filter");
 });
 
-test("the Free facet ranks Best value by hours and drops Hall of shame", async () => {
+test("the Free facet filters the table without rewriting the library's claims", async () => {
   const { env, mod } = await boot({ seed: (e) => {
     e.localStorage.setItem("steam_id", "76561198000000000");
     e.fetchRoutes.push((url) => {
@@ -1235,26 +1330,412 @@ test("the Free facet ranks Best value by hours and drops Hall of shame", async (
   } });
   await settle();
 
+  const names = (sel) => env.root.querySelector(sel)
+    .querySelectorAll(".rank-name").map((n) => n.textContent);
+  const worstBefore = names(".rank-worst");
+  const bestBefore = names(".rank-best");
+  assert.deepEqual(worstBefore, ["Paid Title"], "one paid game is the library's only bad buy");
+  assert.deepEqual(bestBefore, ["Paid Title"], "…and also its best rate, at ₹25/h");
+
   env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "free")
     .dispatch("click");
   await settle();
 
   assert.equal(mod.getState().rows.length, 3,
     "the facet selects only played free games — unplayed free reads Untouched");
+  assert.deepEqual(names(".rank-worst"), worstBefore,
+    "Hall of shame still ranks the library, not the facet");
+  assert.deepEqual(names(".rank-best"), bestBefore,
+    "and Best value is a library claim too: a paid game beats every free rate");
+  const cards = () => env.root.querySelectorAll(".rank-card");
+  const untouched = cards().find((c) => c.querySelector(".rank-untouched"));
+  assert.ok(untouched && untouched.hidden,
+    "the untouched list leaves because the library has no unopened game with a "
+    + "price — a fact about the library, not about the facet");
+});
+
+test("an all-free library ranks Best value by hours and drops Hall of shame", async () => {
+  const { env } = await boot({ seed: (e) => {
+    e.localStorage.setItem("steam_id", "76561198000000000");
+    e.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) return { json: { games: [
+        { id: "Steam:1", name: "Long One", platform: "Steam", hours: 300, appid: 1 },
+        { id: "Steam:2", name: "Quick One", platform: "Steam", hours: 5, appid: 2 },
+        { id: "Steam:3", name: "Mid One", platform: "Steam", hours: 40, appid: 3 },
+      ] } };
+      if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+      if (url.includes("/api/prices")) return { json: { prices: {
+        "Steam:1": 0, "Steam:2": 0, "Steam:3": 0,
+      } } };
+      return null;
+    });
+  } });
+  await settle();
+
   const cards = () => env.root.querySelectorAll(".rank-card");
   const find = (cls) => cards().find((c) => c.querySelector(cls));
-
-  assert.equal(find(".rank-worst").hidden, true,
-    "no hall of shame in free — nothing was paid, so nothing can be a bad buy");
+  assert.ok(find(".rank-worst").hidden,
+    "nothing was paid, so nothing can be a bad buy — the card leaves rather than promise one");
   const best = find(".rank-best");
-  assert.ok(best && !best.hidden, "Best value still speaks, about play");
+  assert.ok(best && !best.hidden, "Best value keeps speaking, about play");
   assert.deepEqual(best.querySelectorAll(".rank-name").map((n) => n.textContent),
-    ["Marathon F2P", "Mid F2P", "Quick F2P"], "most hours first");
+    ["Long One", "Mid One", "Quick One"], "most hours first");
   assert.equal(best.querySelector(".rank-rate").textContent, "₹0/h",
     "the rate column stays honest about what free costs per hour");
-  assert.equal(find(".rank-untouched").hidden, true,
-    "no unopened paid games can exist in free, so the card leaves rather "
-    + "than explaining its own absence forever");
+  assert.ok(find(".rank-untouched").hidden,
+    "an all-free library has no spend to rank untouched by either");
+});
+
+test("a search narrows the table without touching the headline", async () => {
+  const { env, mod } = await boot({ seed: withSteamAndGog });
+  await settle();
+
+  const metricsBefore = { ...mod.getState().metrics };
+  const worstBefore = mod.getState().comparators.worst.map((t) => t.id);
+
+  const input = env.root.querySelectorAll("input")
+    .find((i) => i.dataset.action === "search");
+  assert.ok(input, "the filter bar offers a search box");
+  input.value = "Hades";
+  input.dispatch("input");
+  await settle();
+
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Hades"],
+    "the table found the one title");
+  assert.deepEqual(mod.getState().metrics, metricsBefore,
+    "the KPIs, the hero and the coverage line are claims about the library, not the search");
+  assert.deepEqual(mod.getState().comparators.worst.map((t) => t.id), worstBefore,
+    "so is the hall of shame");
+  assert.equal(env.root.querySelector(".rank-worst").querySelectorAll(".rank-name").length,
+    worstBefore.length, "and the card still lists every one of them");
+});
+
+test("the coverage line counts one scope", async () => {
+  const { env, mod } = await boot({ seed: withSteamAndAmazon });
+  await settle();
+
+  const line = () => env.root.querySelector(".coverage").textContent;
+  assert.ok(line().includes("2 / 5 games have playtime"), line());
+
+  env.root.querySelectorAll(".platform-row")
+    .find((r) => r.dataset.platform === "Amazon")
+    .dispatch("click");
+  await settle();
+
+  assert.deepEqual(mod.getState().rows.map((r) => r.platform), ["Amazon", "Amazon"],
+    "the table narrowed");
+  assert.ok(line().includes("2 / 5 games have playtime"),
+    "numerator and denominator come from the library, so a filter cannot make them disagree");
+});
+
+// ---------- manual price and playtime ----------
+
+/** Five titles, enough played-and-priced ones to form a benchmark, plus the
+ *  two shapes an override has to handle: never opened, and never priced. */
+const editSeed = (env) => {
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) return { json: { games: [
+      { id: "Steam:1", name: "Hades", platform: "Steam", hours: 20, appid: 1145360 },
+      { id: "Steam:4", name: "Bargain", platform: "Steam", hours: 10, appid: 4 },
+      { id: "Steam:5", name: "Pricy", platform: "Steam", hours: 5, appid: 5 },
+      { id: "Steam:2", name: "Idle Game", platform: "Steam", hours: 0, appid: 2 },
+      { id: "Steam:3", name: "Fresh Game", platform: "Steam", hours: null, appid: 3 },
+    ] } };
+    if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/prices")) return { json: { prices: {
+      "Steam:1": 1000, "Steam:4": 200, "Steam:5": 900, "Steam:2": 400, "Steam:3": 600,
+    } } };
+    return null;
+  });
+};
+
+const editBox = (env, field) => [...env.root.querySelectorAll(".edit-input")]
+  .find((i) => i.dataset.action === `edit-${field}`);
+const editButton = (env, action, field) => [...env.root.querySelectorAll("button")]
+  .find((b) => b.dataset.action === action && b.dataset.field === field);
+
+async function openTitle(env, name) {
+  const row = [...env.root.querySelectorAll(".game-row")]
+    .find((r) => r.querySelector(".cell-name").textContent.startsWith(name));
+  assert.ok(row, `${name} is on the table`);
+  row.dispatch("click");
+  await settle();
+}
+
+async function saveFigure(env, field, value) {
+  const box = editBox(env, field);
+  assert.ok(box, `the drawer offers a ${field} box`);
+  box.value = String(value);
+  editButton(env, "save-edit", field).dispatch("click");
+  await settle();
+}
+
+test("a price typed in the drawer moves every figure that quotes it", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  assert.equal(env.document.getElementById("kpi-library").textContent, "₹3,100.00",
+    "the library starts at the store's own prices");
+  const tierBefore = mod.getState().verdicts.get("Steam:1");
+
+  await openTitle(env, "Hades");
+  await saveFigure(env, "price", 100);
+
+  assert.equal(env.document.getElementById("kpi-library").textContent, "₹2,200.00",
+    "library value follows the number the visitor typed (3,100 − 900)");
+  assert.equal(mod.getState().pricesEff["Steam:1"], 100, "the price map agrees");
+  assert.notEqual(mod.getState().verdicts.get("Steam:1"), tierBefore,
+    "and the verdict moved with it — the benchmark is built from these rates");
+  const row = [...env.root.querySelectorAll(".game-row")]
+    .find((r) => r.querySelector(".cell-name").textContent.startsWith("Hades"));
+  assert.ok(row.querySelector(".edited-chip"), "the row says whose number it is");
+  assert.equal(row.querySelectorAll("td")[2].textContent, "₹100.00",
+    "the table shows the number the metrics used");
+  assert.deepEqual([...env.root.querySelectorAll(".platform-value")]
+    .map((n) => n.textContent), ["₹2,200.00"],
+    "and the platform pie totals the same money");
+});
+
+test("Reset puts the store's own price back, chip and all", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  await openTitle(env, "Hades");
+  await saveFigure(env, "price", 100);
+  assert.equal(mod.getState().pricesEff["Steam:1"], 100, "the edit took");
+
+  editButton(env, "reset-edit", "price").dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().pricesEff["Steam:1"], 1000, "back to what the store said");
+  assert.equal(env.document.getElementById("kpi-library").textContent, "₹3,100.00",
+    "and so is the library value, with no re-fetch");
+  const row = [...env.root.querySelectorAll(".game-row")]
+    .find((r) => r.querySelector(".cell-name").textContent.startsWith("Hades"));
+  assert.equal(row.querySelector(".edited-chip"), null, "the marker leaves with the edit");
+});
+
+test("a playtime entered by hand moves a game out of Untouched", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  assert.equal(mod.getState().verdicts.get("Steam:2"), "untouched",
+    "never opened reads untouched to begin with");
+  const playedBefore = mod.getState().tabCounts.Played;
+
+  await openTitle(env, "Idle Game");
+  await saveFigure(env, "hours", 12);
+
+  assert.notEqual(mod.getState().verdicts.get("Steam:2"), "untouched",
+    "with hours on the record the verdict is earned, not assumed");
+  assert.equal(mod.getState().tabCounts.Played, playedBefore + 1,
+    "the play-status tabs follow the same hours");
+  assert.equal(mod.getState().comparators.untouched.some((t) => t.id === "Steam:2"), false,
+    "and it drops out of the untouched list, which ranked it by spend");
+});
+
+test("a figure that is not a figure is refused, and nothing moves", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  await openTitle(env, "Hades");
+  const box = editBox(env, "price");
+  box.value = "-5";
+  editButton(env, "save-edit", "price").dispatch("click");
+  await settle();
+
+  const err = [...env.root.querySelectorAll(".edit-error")].pop();
+  assert.ok(err && !err.hidden, "the drawer explains the refusal");
+  assert.ok(err.textContent.includes("0 or more"), err.textContent);
+  assert.equal(mod.getState().pricesEff["Steam:1"], 1000, "the store's price stands");
+  assert.equal(env.document.getElementById("kpi-library").textContent, "₹3,100.00",
+    "and no headline moved on a rejected number");
+});
+
+test("an edit survives a reload, because it is stored and the rows are not", async () => {
+  const seed = (env) => {
+    editSeed(env);
+    // What a browser would already hold after a previous visit.
+    env.localStorage.setItem("game_edits",
+      JSON.stringify({ "Steam:1": { price: 100, currency: "INR" } }));
+  };
+  const { env, mod } = await boot({ seed });
+  await settle();
+
+  assert.equal(mod.getState().pricesEff["Steam:1"], 100, "the edit applied on boot");
+  assert.equal(env.document.getElementById("kpi-library").textContent, "₹2,200.00");
+  const basis = env.root.querySelector(".disclaimer-basis");
+  assert.equal(basis.hidden, false, "the footer owns up to the changed basis");
+  assert.ok(basis.textContent.includes("1 title"), basis.textContent);
+});
+
+test("a price entered in another currency keeps its number and its name", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  await openTitle(env, "Hades");
+  await saveFigure(env, "price", 500);
+
+  const sel = env.root.querySelector(".header-currency");
+  sel.value = "USD";
+  sel.dispatch("change");
+  await settle();
+
+  assert.equal(mod.getState().currency, "USD", "the display currency moved");
+  assert.equal(mod.getState().pricesEff["Steam:1"], 500,
+    "the number did not — there is no FX in the app to move it with");
+  await openTitle(env, "Hades");
+  const notes = [...env.root.querySelectorAll(".edit-note")]
+    .map((n) => n.textContent).join(" ");
+  assert.ok(notes.includes("set in INR"), `the drawer names the currency: ${notes}`);
+});
+
+test("forget takes the visitor's own figures with everything else", async () => {
+  const { env } = await boot({ seed: editSeed });
+  await settle();
+  await openTitle(env, "Hades");
+  await saveFigure(env, "price", 100);
+  assert.ok(env.localStorage.getItem("game_edits"), "the edit is stored");
+
+  store.forget();
+
+  assert.equal(env.localStorage.getItem("game_edits"), null, "gone with the credentials");
+  assert.deepEqual(store.getEdits(), {}, "and nothing left to re-apply");
+});
+
+// ---------- forgetting one account ----------
+
+const unlinkButton = (env) => env.root.querySelectorAll(".source-action")
+  .find((b) => b.dataset.action === "unlink" && b.dataset.platform === "steam");
+
+test("forgetting one store takes that store's data, not everyone's", async () => {
+  const { env, mod } = await boot({ seed: withSteamAndGog });
+  await settle();
+  assert.equal(mod.getState().rows.length, 4, "three Steam games and one GOG game");
+  env.localStorage.setItem("game_edits", JSON.stringify({ "GOG:12345": { price: 99 } }));
+
+  const steam = unlinkButton(env);
+  assert.ok(steam, "the Steam chip offers Forget");
+  steam.dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().accounts.steam, false, "the credential is gone");
+  assert.equal(mod.getState().accounts.gog, true, "the other store is untouched");
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Disco Elysium"],
+    "only GOG's game remains on the table");
+  assert.equal(mod.getState().prices["Steam:730"], undefined, "and its prices with it");
+  assert.equal(mod.getState().prices["GOG:12345"], 900, "the survivor's price stands");
+  assert.deepEqual(store.getEdits(), { "GOG:12345": { price: 99 } },
+    "a manual figure for a surviving title survives too");
+  const snap = JSON.parse(env.localStorage.getItem("last_scan"));
+  assert.ok(snap && snap.games.every((g) => g.platform === "GOG"),
+    "the snapshot no longer carries the account that left");
+});
+
+test("forgetting the only store clears the snapshot, not just the rows", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
+  await settle();
+  assert.equal(mod.getState().rows.length, 3);
+
+  unlinkButton(env).dispatch("click");
+  await settle();
+
+  assert.equal(env.localStorage.getItem("last_scan"), null,
+    "the snapshot goes with the last account: boot only scans when the library is empty, "
+    + "so a surviving one would be restored under the next account forever");
+  assert.equal(mod.getState().games.length, 0, "and the rows with it");
+  assert.equal(mod.getState().phase, "onboarding");
+});
+
+test("linking a different Steam account works without forgetting everything", async () => {
+  const oldAccount = (env) => {
+    env.localStorage.setItem("steam_id", "76561198000000000");
+    env.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) return { json: { games: [
+        { id: "Steam:900", name: "Old Account Game", platform: "Steam", hours: 5, appid: 900 },
+      ] } };
+      if (url.includes("/api/prices")) return { json: { prices: { "Steam:900": 500 } } };
+      if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+      return null;
+    });
+  };
+  const { env, mod } = await boot({ seed: oldAccount });
+  await settle();
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Old Account Game"],
+    "the first account's library");
+
+  unlinkButton(env).dispatch("click");
+  await settle();
+  assert.equal(env.localStorage.getItem("last_scan"), null, "the snapshot went with it");
+  assert.equal(mod.getState().games.length, 0, "so did the library");
+
+  // What the OpenID callback does next: a new id, a new library, and the
+  // cross-window signal that a credential changed.
+  env.localStorage.setItem("steam_id", "76561198000000001");
+  env.fetchRoutes.length = 0;
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) return { json: { games: [
+      { id: "Steam:901", name: "New Account Game", platform: "Steam", hours: 7, appid: 901 },
+    ] } };
+    if (url.includes("/api/prices")) return { json: { prices: { "Steam:901": 700 } } };
+    if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+    return null;
+  });
+  env.window.emit("storage", { key: "steam_id" });
+  await settle();
+
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["New Account Game"],
+    "the new account's library — not the previous one's, and no Scan button needed");
+});
+
+test("the header carries forget my data, and it asks before it acts", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
+  await settle();
+
+  assert.equal(env.root.querySelector(".menu"), null, "the hamburger menu is gone");
+  assert.ok(![...env.root.querySelectorAll("button")]
+    .some((b) => b.dataset.action === "toggle-menu"), "and nothing behind it remains");
+
+  const header = [...env.root.querySelectorAll("button")]
+    .find((b) => b.dataset.action === "confirm-forget" && b.classList.contains("danger-solid"));
+  assert.ok(header, "a filled red Forget my data button sits in the header");
+  const footer = env.root.querySelector(".footer-forget");
+  assert.ok(footer, "and the footer repeats it, for whoever looks there");
+  assert.equal(footer.dataset.action, "confirm-forget", "both ask first");
+
+  const modal = env.root.querySelector(".forget-modal");
+  assert.equal(modal.hidden, true, "hidden until asked for");
+  header.dispatch("click");
+  await settle();
+
+  assert.equal(modal.hidden, false, "the confirmation opens");
+  assert.ok(modal.querySelector("h3").textContent.includes("Forget"),
+    "and names what it is about to do");
+  assert.ok([...modal.querySelectorAll("button")].some((b) => b.dataset.action === "do-forget"),
+    "with the destructive action offered");
+  assert.ok(![...modal.querySelectorAll("button")].some((b) => b.classList.contains("icon")),
+    "but no X to reach for: the two answers are the buttons");
+
+  [...modal.querySelectorAll("button")].find((b) => b.dataset.action === "cancel-forget")
+    .dispatch("click");
+  await settle();
+  assert.equal(modal.hidden, true, "Cancel dismisses it");
+  assert.equal(mod.getState().accounts.steam, true, "and nothing was forgotten");
+
+  header.dispatch("click");
+  await settle();
+  [...modal.querySelectorAll("button")].find((b) => b.dataset.action === "do-forget")
+    .dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().phase, "onboarding", "the data is gone");
+  assert.equal(env.localStorage.getItem("steam_id"), null, "credentials cleared");
+  assert.equal(env.localStorage.getItem("last_scan"), null, "so is the library");
+  assert.equal(modal.hidden, true, "the dialog dismisses itself once it has done the job");
+  const done = env.root.querySelector(".forget-done");
+  assert.ok(done && !done.hidden, "and the landing page says it worked");
+  assert.ok(done.textContent.includes("deleted"), done.textContent);
 });
 
 test("the visitor's region defaults the currency until they choose one", async () => {
@@ -1290,55 +1771,59 @@ test("the visitor's region defaults the currency until they choose one", async (
   assert.equal(chosen.mod.getState().currency, "JPY", "the saved choice wins");
 });
 
-test("the Untouched facet swaps in the untouched list and drops the rate cards", async () => {
-  const { env } = await boot({ seed: withSteam });
+test("the Untouched facet filters the table and leaves the cards alone", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
   await settle();
 
   const cards = () => env.root.querySelectorAll(".rank-card");
   const find = (cls) => cards().find((c) => c.querySelector(cls));
-  assert.ok(cards().every((c) => !c.hidden),
-    "all three lists start under All verdicts");
+  const names = (cls) => find(cls).querySelectorAll(".rank-name").map((n) => n.textContent);
+  assert.ok(cards().every((c) => !c.hidden), "all three lists start under All verdicts");
+  const worstBefore = names(".rank-worst");
+  const untouchedBefore = names(".rank-untouched");
 
   env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "untouched")
     .dispatch("click");
   await settle();
 
-  assert.equal(find(".rank-worst").hidden, true,
-    "an unopened game has no rate, so Hall of shame cannot speak here");
-  assert.equal(find(".rank-best").hidden, true, "nor can Best value");
-  const untouched = find(".rank-untouched");
-  assert.ok(untouched && !untouched.hidden,
-    "the untouched list takes their place — the only ranking this facet has");
-  assert.deepEqual(untouched.querySelectorAll(".rank-name").map((n) => n.textContent),
-    ["Cyberpunk 2077", "Elden Ring"], "dearest unopened first, from this view");
-  assert.equal(env.root.querySelector(".insights").hidden, false,
-    "a survivor on the page means the row stays");
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Cyberpunk 2077", "Elden Ring"],
+    "the facet narrowed the table to the unopened games");
+  assert.ok(cards().every((c) => !c.hidden),
+    "the cards do not follow: a facet is a browsing choice, not a claim");
+  assert.deepEqual(names(".rank-worst"), worstBefore, "Hall of shame still ranks the library");
+  assert.deepEqual(names(".rank-untouched"), untouchedBefore,
+    "and the untouched list still ranks the library's unopened games");
 
   env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "All")
     .dispatch("click");
   await settle();
-  assert.ok(cards().every((c) => !c.hidden), "clearing the facet restores all three");
+  assert.equal(mod.getState().rows.length, 3, "clearing the facet restores the table");
 });
 
-test("a facet nothing can rank takes the whole insights row away", async () => {
-  const { env } = await boot({ seed: withSteam });
-  await settle();
-
-  // Unpriced = no price on any row, and every list needs money of some kind.
-  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "nodata")
-    .dispatch("click");
+test("a library nothing can rank takes the whole insights row away", async () => {
+  // Every game free and never opened: no bad buy (nothing was paid), no rate
+  // (no hours), nothing unopened-with-a-price to rank by spend. All three cards
+  // are structurally silent, so the row leaves rather than showing three gaps.
+  // This used to be triggered by picking a facet — which was the bug: a facet
+  // is a browsing choice, not a claim about the library.
+  const { env } = await boot({ seed: (e) => {
+    e.localStorage.setItem("steam_id", "76561198000000000");
+    e.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) return { json: { games: [
+        { id: "Steam:1", name: "Free One", platform: "Steam", hours: null, appid: 1 },
+        { id: "Steam:2", name: "Free Two", platform: "Steam", hours: null, appid: 2 },
+      ] } };
+      if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+      if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 0, "Steam:2": 0 } } };
+      return null;
+    });
+  } });
   await settle();
 
   const cards = env.root.querySelectorAll(".rank-card");
-  assert.ok(cards.every((c) => c.hidden), "no card can speak without a price");
+  assert.ok(cards.every((c) => c.hidden), "no card can speak without a price or an hour");
   assert.equal(env.root.querySelector(".insights").hidden, true,
     "three empty cards in a row of gaps beats nothing; the row leaves instead");
-
-  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "All")
-    .dispatch("click");
-  await settle();
-  assert.equal(env.root.querySelector(".insights").hidden, false,
-    "and returns the moment something can rank again");
 });
 
 test("every dashboard metric carries a wired explanation chip", async () => {
@@ -1676,4 +2161,172 @@ test("the wordmark takes you back to the landing page", async () => {
   await settle();
   assert.equal(mod.getState().phase, "onboarding",
     "already home — clicking again does nothing dramatic");
+});
+
+const limitedSeed = (extra = {}) => (env) => {
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  Object.entries(extra).forEach(([k, v]) => env.localStorage.setItem(k, v));
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) {
+      return { json: { games: [{ id: "Steam:1", name: "Hades", platform: "Steam", hours: 20, appid: 1145360 }] } };
+    }
+    if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 500 }, limited: { itad: true } } };
+    return null;
+  });
+};
+
+test("a rate-limited shared key tells the visitor to bring their own", async () => {
+  const { env } = await boot({ seed: limitedSeed() });
+  await settle();
+
+  const note = env.root.querySelector(".disclaimer-limit-note");
+  assert.ok(note, "the rate-limit note is in the footer");
+  assert.equal(note.hidden, false, "a spent shared key puts it up");
+  assert.ok(note.textContent.includes("rate-limited"), note.textContent);
+  assert.ok(note.textContent.includes("IsThereAnyDeal"),
+    "it names the key to paste, not just that something failed");
+  assert.equal(note.querySelector("button").dataset.action, "show-keys",
+    "the fix is one click from the news");
+});
+
+test("with a key of their own, the note says wait rather than paste", async () => {
+  const { env } = await boot({ seed: limitedSeed({ itad_api_key: "mine" }) });
+  await settle();
+
+  const note = env.root.querySelector(".disclaimer-limit-note");
+  assert.ok(note.textContent.includes("wait a few minutes"), note.textContent);
+  assert.ok(!note.textContent.includes("paste your own"),
+    "a visitor who already brought a key is told to wait, not to bring one");
+});
+
+test("a scan that prices normally leaves no rate-limit note", async () => {
+  const { env } = await boot({
+    seed: (e) => {
+      e.localStorage.setItem("steam_id", "76561198000000000");
+      e.fetchRoutes.push((url) => {
+        if (url.includes("/api/steam_games")) {
+          return { json: { games: [{ id: "Steam:1", name: "Hades", platform: "Steam", hours: 20, appid: 1145360 }] } };
+        }
+        if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 500 }, limited: {} } };
+        return null;
+      });
+    },
+  });
+  await settle();
+
+  assert.equal(env.root.querySelector(".disclaimer-limit-note").hidden, true,
+    "nothing was refused, so nothing is said");
+});
+
+test("findDuplicates flags a title held on two stores, and only that", async () => {
+  const { mod } = await boot();
+  const out = mod.findDuplicates([
+    { id: "Steam:1", name: "Hades", platform: "Steam", hours: 40 },
+    { id: "Epic:9", name: "Hades", platform: "Epic", hours: 3 },
+    { id: "GOG:5", name: "Hades II", platform: "GOG", hours: 1 },
+    { id: "Steam:7", name: "Doom", platform: "Steam", hours: 0, kind: "dlc" },
+    { id: "Epic:7", name: "Doom", platform: "Epic", hours: 0, kind: "dlc" },
+  ]);
+
+  assert.equal(out.size, 2, "both copies of Hades are marked, nothing else");
+  assert.deepEqual(out.get("Steam:1").map((o) => o.id), ["Epic:9"], "the Steam copy names Epic");
+  assert.deepEqual(out.get("Epic:9").map((o) => o.id), ["Steam:1"], "and Epic names Steam back");
+  assert.ok(!out.has("GOG:5"), "Hades II is a different game, not a duplicate");
+  assert.ok(!out.has("Steam:7") && !out.has("Epic:7"),
+    "add-ons are never matched: the base game is the purchase");
+});
+
+test("two rows on one store are not a cross-library duplicate", async () => {
+  const { mod } = await boot();
+  // dedupeGames has already collapsed these within a platform; the platform
+  // guard keeps the claim honest even if a pair ever survives it.
+  const out = mod.findDuplicates([
+    { id: "Steam:1", name: "Hades", platform: "Steam", hours: 40 },
+    { id: "Steam:2", name: "Hades", platform: "Steam", hours: 3 },
+  ]);
+  assert.equal(out.size, 0, "one store holding a title twice says nothing");
+});
+
+test("a title match cannot tell two different games apart — the known ceiling", async () => {
+  const { mod } = await boot();
+  // DOOM (1993) and DOOM (2016) share a display name, and the data carries no
+  // year or cross-store id to separate them, so they are flagged. Pinned on
+  // purpose: the matcher claims "also on", never "you paid twice", and this
+  // assertion should be the one to fail when a real identity source lands.
+  const out = mod.findDuplicates([
+    { id: "Steam:239160", name: "DOOM", platform: "Steam", hours: 10 },
+    { id: "Epic:doom2016", name: "DOOM", platform: "Epic", hours: 0 },
+  ]);
+  assert.equal(out.size, 2, "flagged, because the matcher only sees the name");
+});
+
+test("a title owned on two stores is flagged in the list and explained in the drawer", async () => {
+  const seed = (env) => {
+    env.localStorage.setItem("steam_id", "76561198000000000");
+    env.localStorage.setItem("epic_access_token", "epic-tok");
+    env.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) {
+        return { json: { games: [{ id: "Steam:1", name: "Hades", platform: "Steam", hours: 40, appid: 1145360 }] } };
+      }
+      if (url.includes("/api/epic_games")) {
+        return { json: { games: [{ id: "Epic:9", name: "Hades", platform: "Epic", hours: 3 }] } };
+      }
+      if (url.includes("/api/gog_games")) return { json: { games: [] } };
+      if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 500, "Epic:9": 300 } } };
+      return null;
+    });
+  };
+  const { env } = await boot({ seed });
+  await settle();
+
+  const rows = [...env.root.querySelectorAll(".game-row")];
+  assert.equal(rows.length, 2, "each copy keeps its own row and its own price");
+  const chips = rows.map((r) => r.querySelector(".dupe-chip"));
+  assert.ok(chips.every(Boolean), "every copy points at the other store");
+  assert.deepEqual(chips.map((c) => c.textContent).sort(), ["DUP", "DUP"],
+    "the chip claims the fact, not the store — the column beside it already says that");
+  assert.deepEqual(chips.map((c) => c.getAttribute("aria-label")).sort(),
+    ["Also owned on Epic", "Also owned on Steam"],
+    "the tooltip still names each store, since nothing else does");
+
+  // The drawer spells the other copy out: store, its price today, its playtime.
+  rows[0].dispatch("click");
+  await settle();
+  const dupeRow = [...env.root.querySelectorAll(".drawer-row")]
+    .find((r) => r.querySelector("span").textContent === "Also owned on");
+  assert.ok(dupeRow, "the drawer explains the overlap instead of hiding it");
+  assert.equal(dupeRow.querySelector("strong").textContent, "Epic · ₹300.00 · 3.0 h",
+    "the other copy's store, price and playtime, beside this one's");
+});
+
+test("a library from one store wears no duplicate chip", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  assert.equal(env.root.querySelectorAll(".dupe-chip").length, 0,
+    "nothing to compare against — the chip would be noise");
+});
+
+test("a restored snapshot finds its cross-store copies again", async () => {
+  // The snapshot stores only rows and prices, so duplicates must be recomputed
+  // on boot or a page refresh silently loses every chip.
+  const seed = (env) => {
+    env.localStorage.setItem("steam_id", "76561198000000000");
+    env.localStorage.setItem("last_scan", JSON.stringify({
+      v: 1, at: Date.now(), currency: "INR",
+      games: [
+        { id: "Steam:1", name: "Hades", platform: "Steam", hours: 40 },
+        { id: "Epic:9", name: "Hades", platform: "Epic", hours: 3 },
+      ],
+      prices: { "Steam:1": 500, "Epic:9": 300 },
+    }));
+  };
+  const { env, mod } = await boot({ seed });
+  await settle();
+
+  assert.equal(mod.getState().phase, "ready", "the snapshot alone makes it ready");
+  assert.equal(env.root.querySelectorAll(".game-row").length, 2,
+    "rows came from the snapshot, not a fresh scan");
+  assert.equal(env.root.querySelectorAll(".dupe-chip").length, 2,
+    "a refresh keeps the flags");
 });
