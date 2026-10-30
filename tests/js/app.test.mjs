@@ -1604,6 +1604,140 @@ test("forget takes the visitor's own figures with everything else", async () => 
   assert.deepEqual(store.getEdits(), {}, "and nothing left to re-apply");
 });
 
+// ---------- forgetting one account ----------
+
+const unlinkButton = (env) => env.root.querySelectorAll(".source-action")
+  .find((b) => b.dataset.action === "unlink" && b.dataset.platform === "steam");
+
+test("forgetting one store takes that store's data, not everyone's", async () => {
+  const { env, mod } = await boot({ seed: withSteamAndGog });
+  await settle();
+  assert.equal(mod.getState().rows.length, 4, "three Steam games and one GOG game");
+  env.localStorage.setItem("game_edits", JSON.stringify({ "GOG:12345": { price: 99 } }));
+
+  const steam = unlinkButton(env);
+  assert.ok(steam, "the Steam chip offers Forget");
+  steam.dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().accounts.steam, false, "the credential is gone");
+  assert.equal(mod.getState().accounts.gog, true, "the other store is untouched");
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Disco Elysium"],
+    "only GOG's game remains on the table");
+  assert.equal(mod.getState().prices["Steam:730"], undefined, "and its prices with it");
+  assert.equal(mod.getState().prices["GOG:12345"], 900, "the survivor's price stands");
+  assert.deepEqual(store.getEdits(), { "GOG:12345": { price: 99 } },
+    "a manual figure for a surviving title survives too");
+  const snap = JSON.parse(env.localStorage.getItem("last_scan"));
+  assert.ok(snap && snap.games.every((g) => g.platform === "GOG"),
+    "the snapshot no longer carries the account that left");
+});
+
+test("forgetting the only store clears the snapshot, not just the rows", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
+  await settle();
+  assert.equal(mod.getState().rows.length, 3);
+
+  unlinkButton(env).dispatch("click");
+  await settle();
+
+  assert.equal(env.localStorage.getItem("last_scan"), null,
+    "the snapshot goes with the last account: boot only scans when the library is empty, "
+    + "so a surviving one would be restored under the next account forever");
+  assert.equal(mod.getState().games.length, 0, "and the rows with it");
+  assert.equal(mod.getState().phase, "onboarding");
+});
+
+test("linking a different Steam account works without forgetting everything", async () => {
+  const oldAccount = (env) => {
+    env.localStorage.setItem("steam_id", "76561198000000000");
+    env.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) return { json: { games: [
+        { id: "Steam:900", name: "Old Account Game", platform: "Steam", hours: 5, appid: 900 },
+      ] } };
+      if (url.includes("/api/prices")) return { json: { prices: { "Steam:900": 500 } } };
+      if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+      return null;
+    });
+  };
+  const { env, mod } = await boot({ seed: oldAccount });
+  await settle();
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Old Account Game"],
+    "the first account's library");
+
+  unlinkButton(env).dispatch("click");
+  await settle();
+  assert.equal(env.localStorage.getItem("last_scan"), null, "the snapshot went with it");
+  assert.equal(mod.getState().games.length, 0, "so did the library");
+
+  // What the OpenID callback does next: a new id, a new library, and the
+  // cross-window signal that a credential changed.
+  env.localStorage.setItem("steam_id", "76561198000000001");
+  env.fetchRoutes.length = 0;
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) return { json: { games: [
+      { id: "Steam:901", name: "New Account Game", platform: "Steam", hours: 7, appid: 901 },
+    ] } };
+    if (url.includes("/api/prices")) return { json: { prices: { "Steam:901": 700 } } };
+    if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+    return null;
+  });
+  env.window.emit("storage", { key: "steam_id" });
+  await settle();
+
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["New Account Game"],
+    "the new account's library — not the previous one's, and no Scan button needed");
+});
+
+test("the header carries forget my data, and it asks before it acts", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
+  await settle();
+
+  assert.equal(env.root.querySelector(".menu"), null, "the hamburger menu is gone");
+  assert.ok(![...env.root.querySelectorAll("button")]
+    .some((b) => b.dataset.action === "toggle-menu"), "and nothing behind it remains");
+
+  const header = [...env.root.querySelectorAll("button")]
+    .find((b) => b.dataset.action === "confirm-forget" && b.classList.contains("danger-solid"));
+  assert.ok(header, "a filled red Forget my data button sits in the header");
+  const footer = env.root.querySelector(".footer-forget");
+  assert.ok(footer, "and the footer repeats it, for whoever looks there");
+  assert.equal(footer.dataset.action, "confirm-forget", "both ask first");
+
+  const modal = env.root.querySelector(".forget-modal");
+  assert.equal(modal.hidden, true, "hidden until asked for");
+  header.dispatch("click");
+  await settle();
+
+  assert.equal(modal.hidden, false, "the confirmation opens");
+  assert.ok(modal.querySelector("h3").textContent.includes("Forget"),
+    "and names what it is about to do");
+  assert.ok([...modal.querySelectorAll("button")].some((b) => b.dataset.action === "do-forget"),
+    "with the destructive action offered");
+  assert.ok(![...modal.querySelectorAll("button")].some((b) => b.classList.contains("icon")),
+    "but no X to reach for: the two answers are the buttons");
+
+  [...modal.querySelectorAll("button")].find((b) => b.dataset.action === "cancel-forget")
+    .dispatch("click");
+  await settle();
+  assert.equal(modal.hidden, true, "Cancel dismisses it");
+  assert.equal(mod.getState().accounts.steam, true, "and nothing was forgotten");
+
+  header.dispatch("click");
+  await settle();
+  [...modal.querySelectorAll("button")].find((b) => b.dataset.action === "do-forget")
+    .dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().phase, "onboarding", "the data is gone");
+  assert.equal(env.localStorage.getItem("steam_id"), null, "credentials cleared");
+  assert.equal(env.localStorage.getItem("last_scan"), null, "so is the library");
+  assert.equal(modal.hidden, true, "the dialog dismisses itself once it has done the job");
+  const done = env.root.querySelector(".forget-done");
+  assert.ok(done && !done.hidden, "and the landing page says it worked");
+  assert.ok(done.textContent.includes("deleted"), done.textContent);
+});
+
 test("the visitor's region defaults the currency until they choose one", async () => {
   const geo = (country) => (e) => {
     e.fetchRoutes.push((url) => (url.includes("/api/config") ? { json: {

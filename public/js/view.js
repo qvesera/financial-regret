@@ -376,12 +376,10 @@ export const view = {
     const keysBtn = this.el("button", "button ghost", "API keys");
     keysBtn.type = "button";
     keysBtn.dataset.action = "show-keys";
-    const menuBtn = this.el("button", "button ghost icon");
-    menuBtn.type = "button";
-    menuBtn.dataset.action = "toggle-menu";
-    menuBtn.setAttribute("aria-label", "Menu");
-    menuBtn.setAttribute("aria-haspopup", "true");
-    menuBtn.appendChild(icon("dots", 18));
+    const forgetBtn = this.el("button", "button danger-solid", "Forget my data");
+    forgetBtn.type = "button";
+    forgetBtn.dataset.action = "confirm-forget";
+    forgetBtn.setAttribute("aria-label", "Forget my data");
     // The Wrapped-style share deck. Ready-phase only, like Scan: there is
     // nothing to share until a library exists.
     const exportBtn = this.el("button", "button ghost", "Share");
@@ -390,7 +388,7 @@ export const view = {
     actions.appendChild(scanBtn);
     actions.appendChild(keysBtn);
     actions.appendChild(exportBtn);
-    actions.appendChild(menuBtn);
+    actions.appendChild(forgetBtn);
 
     right.appendChild(sources);
     // One currency picker for the whole app, living in the header: the
@@ -410,13 +408,34 @@ export const view = {
 
     const phaseEl = this.el("div", "phase");
 
-    const menu = this.el("div", "menu hidden");
-    const forget = this.el("button", null, "Forget my data");
-    forget.dataset.action = "forget";
-    const closeMenu = this.el("button", null, "Close");
-    closeMenu.dataset.action = "toggle-menu";
-    menu.appendChild(forget);
-    menu.appendChild(closeMenu);
+    // Confirmation for the only destructive action here: it takes every
+    // credential, library, price and manual figure out of this browser, so it
+    // asks first. Deliberately no X — the two answers are the buttons.
+    const forgetModal = this.el("div", "forget-modal hidden");
+    forgetModal.hidden = true;
+    forgetModal.setAttribute("role", "dialog");
+    forgetModal.setAttribute("aria-modal", "true");
+    forgetModal.setAttribute("aria-labelledby", "forget-title");
+    const forgetCard = this.el("div", "forget-card");
+    const forgetTitle = this.el("h3", null, "Forget my data?");
+    forgetTitle.id = "forget-title";
+    forgetCard.appendChild(forgetTitle);
+    forgetCard.appendChild(this.el("p", null,
+      "This deletes everything this browser holds about your libraries: linked "
+      + "accounts, scanned games, prices, cover art and any price or playtime "
+      + "you entered yourself. It cannot be undone. Nothing is sent anywhere — "
+      + "it is all local to this browser."));
+    const forgetActions = this.el("div", "forget-actions");
+    const doForget = this.el("button", "button danger-solid", "Forget my data");
+    doForget.type = "button";
+    doForget.dataset.action = "do-forget";
+    const cancelForget = this.el("button", "button ghost", "Cancel");
+    cancelForget.type = "button";
+    cancelForget.dataset.action = "cancel-forget";
+    forgetActions.appendChild(doForget);
+    forgetActions.appendChild(cancelForget);
+    forgetCard.appendChild(forgetActions);
+    forgetModal.appendChild(forgetCard);
 
     const drawer = this.el("aside", "drawer hidden");
     drawer.setAttribute("role", "dialog");
@@ -499,6 +518,14 @@ export const view = {
     credit.appendChild(contrib);
     footer.appendChild(credit);
 
+    // Also down here, out from behind a menu: the way out of the app sits where
+    // someone who has read this far will look for it.
+    const footerForget = this.el("button", "button small ghost footer-forget",
+      "Forget my data");
+    footerForget.type = "button";
+    footerForget.dataset.action = "confirm-forget";
+    footer.appendChild(footerForget);
+
     // A statement of solidarity, kept as its own line so it stands apart from
     // the fine print above it.
     footer.appendChild(this.el("p", "disclaimer-stand", "This project stands with Palestine. Free Palestine."));
@@ -506,11 +533,11 @@ export const view = {
     main.appendChild(topbar);
     main.appendChild(phaseEl);
     main.appendChild(footer);
-    main.appendChild(menu);
+    main.appendChild(forgetModal);
     main.appendChild(drawer);
     root.appendChild(main);
 
-    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, exportBtn, menuBtn, menu, phaseEl, drawer, drawerTitle, drawerBody, footer, attribution, psnNote, basisNote, limitNote, limitText });
+    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, exportBtn, forgetBtn, forgetModal, phaseEl, drawer, drawerTitle, drawerBody, footer, footerForget, attribution, psnNote, basisNote, limitNote, limitText });
     this._builtPhase = null;
     return this;
   },
@@ -566,6 +593,13 @@ export const view = {
     this.basisNote.hidden = !count;
   },
 
+  /** Show or dismiss the forget-my-data confirmation. Built once in shell();
+   *  it has no X because the two buttons are the only answers worth giving. */
+  showForgetModal(show) {
+    if (!this.forgetModal) return;
+    this.forgetModal.hidden = !show;
+  },
+
   /** The chip a row or card wears when the same title is owned on another
    *  store. It reads "DUP", not the store's name: the platform is already its
    *  own column in the list and its own corner label on every card, so naming
@@ -604,6 +638,9 @@ export const view = {
       const btn = this.el("button", "source-action", linked ? "Forget" : "Link");
       btn.dataset.action = linked ? "unlink" : "link";
       btn.dataset.platform = p.key;
+      // The display name rides along so unlink can take that store's rows out:
+      // rows are keyed by "Steam"/"PlayStation", not by the key.
+      btn.dataset.name = p.platform;
       btn.setAttribute("aria-label", `${linked ? "Forget" : "Link"} ${p.name}`);
       chip.appendChild(btn);
 
@@ -717,6 +754,14 @@ export const view = {
     wrap.appendChild(this.el("h1", "hero-title", "What is your library actually worth?"));
     wrap.appendChild(this.el("p", "hero-sub",
       "Link a store. We price every game you own at today's cheapest price and show what each hour of play has cost you — including the ones you never opened."));
+    // After forget(): one line that says it worked. The deletion itself leaves
+    // no other trace on the page the visitor lands on.
+    if (state.forgot) {
+      wrap.appendChild(this.el("p", "forget-done",
+        "Everything this browser was holding about your libraries has been "
+        + "deleted — accounts, games, prices and anything you entered yourself. "
+        + "Link a store to start again."));
+    }
 
     // The pitch, playable before the ask: run the real verdict engine on a
     // sample library so the judgement is felt rather than described. Sits above
@@ -1199,8 +1244,11 @@ export const view = {
     this.scanBtn.hidden = !showChrome;
     if (this.exportBtn) this.exportBtn.hidden = !showChrome;
     // On onboarding the keys card is already on screen — a second shortcut
-    // to it in the header would just be noise.
+    // to it in the header would just be noise. Forget is hidden too: there is
+    // nothing to forget before anything is linked.
     if (this.keysBtn) this.keysBtn.hidden = !showChrome;
+    if (this.forgetBtn) this.forgetBtn.hidden = !showChrome;
+    if (this.footerForget) this.footerForget.hidden = !showChrome;
 
     // A config that lands after the landing page was built repaints the keys
     // card in place here — the onboarding branch below is one-shot by design

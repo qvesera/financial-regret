@@ -773,33 +773,54 @@ tr.game-row:hover { background: var(--surface-2); }
 .drawer-row { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; font-size: 0.9rem; }
 .drawer-row span:first-child { color: var(--muted); }
 
-/* ---------- menu ---------- */
+/* ---------- forget my data ---------- */
 
-.menu {
+/* The one filled red button in the app, because it is the one that destroys.
+   Dark text on the warning red: white on this hue does not clear contrast. */
+.button.danger-solid {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #1a1b26;
+  font-weight: 700;
+}
+.button.danger-solid:hover { filter: brightness(1.06); }
+
+/* Confirmation for the only destructive action here. Deliberately no X — the
+   two buttons are the answers. Above everything: nothing may be clicked
+   behind a dialog that is deciding whether to delete the data. */
+.forget-modal {
   position: fixed;
-  top: 60px;
-  right: 1.5rem;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+.forget-modal.hidden { display: none; }
+.forget-card {
+  max-width: 30rem;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.75rem;
-  min-width: 160px;
+  padding: 1.25rem;
   box-shadow: var(--shadow);
-  z-index: 100;
 }
-.menu.hidden { display: none; }
-.menu button {
-  width: 100%;
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  background: none;
-  border: none;
-  color: var(--text);
+.forget-card h3 { margin: 0; }
+.forget-card p {
+  margin: 0.5rem 0 1rem;
+  color: var(--muted);
   font-size: 0.9rem;
-  cursor: pointer;
-  margin: 0.25rem 0;
+  line-height: 1.5;
 }
-.menu button:hover { background: var(--surface-2); }
+.forget-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+
+/* The way out, repeated in the footer for whoever looks there. */
+.footer-forget { margin-top: 0.8rem; }
+
+/* The landing page's receipt: the deletion itself has no other trace. */
+.forget-done { color: var(--danger); font-weight: 600; max-width: 56ch; }
 
 /* ---------- disclaimer ---------- */
 
@@ -984,14 +1005,6 @@ tr.game-row:hover { background: var(--surface-2); }
 
 .phase.is-scanning { color: var(--warn); }
 
-.menu-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 0;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.85rem;
-}
 
 /* ---------- panel side ---------- */
 

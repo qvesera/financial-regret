@@ -181,6 +181,10 @@ let state = {
   // the fetch fails.
   server: null,
   page: 1,                 // 1-based library page; never persisted
+  // Set by forget(): the landing page shows one line confirming that the
+  // browser's copy of everything is gone. Not persisted — it describes a
+  // moment, not a setting.
+  forgot: false,
   tabCounts: { All: 0, Unplayed: 0, Played: 0, "No data": 0 },
 };
 
@@ -663,6 +667,8 @@ function goToKeysCard() {
 }
 
 function linkPlatform(platform) {
+  // The receipt is spent the moment a new link begins.
+  state.forgot = false;
   // The gate: no key this browser has ever been given, no login flow started.
   // Clicking Connect would otherwise open a store login the visitor could not
   // finish usefully — send them to the keys card instead.
@@ -703,21 +709,66 @@ function linkPlatform(platform) {
   }
 }
 
-function unlinkPlatform(platform) {
+/** Everything one account brought: its rows, its prices, its manual edits and
+ *  its share of the scan snapshot. Called on unlink so a different account can
+ *  be linked next without inheriting this one's library — the in-memory stores
+ *  and the on-disk snapshot must all agree, or a reload quietly restores what
+ *  was just deleted. */
+function dropStoreData(name) {
+  const dropped = new Set(
+    state.games.filter((g) => g.platform === name).map((g) => g.id));
+  state.games = state.games.filter((g) => g.platform !== name);
+  state.dupes = findDuplicates(state.games);
+  const prices = {};
+  for (const [id, p] of Object.entries(state.prices || {})) {
+    if (!dropped.has(id)) prices[id] = p;
+  }
+  state.prices = prices;
+  // A manual figure is keyed by game id — and Steam ids are appids, so an edit
+  // made for this account's Hades would silently apply to the next account's.
+  // It leaves with the account that made it.
+  const edits = store.getEdits();
+  let touched = false;
+  for (const id of dropped) {
+    if (id in edits) { delete edits[id]; touched = true; }
+  }
+  if (touched) {
+    localStorage.setItem("game_edits", JSON.stringify(edits));
+    state.edits = edits;
+  }
+  const snap = store.getSnapshot();
+  if (snap) {
+    const games = (snap.games || []).filter((g) => g.platform !== name);
+    if (games.length) store.setSnapshot({ ...snap, games, prices });
+    else store.clearSnapshot();
+  }
+}
+
+function unlinkPlatform(platform, displayName) {
   for (const k of KEY_STORES[platform] || []) localStorage.removeItem(k);
+  // This account's own data leaves with it either way. Relinking a different
+  // account must never inherit this one's library.
+  if (displayName) dropStoreData(displayName);
   const acc = linkedAccounts();
   if (!anyLinked(acc)) {
     state.phase = "onboarding";
     state.games = [];
     state.dupes = new Map();
     state.rows = [];
+    state.prices = {};
     state.metrics = null;
     state.counts = {};
     state.epicScanned = 0;
     state.epicFiltered = 0;
     state.coverageText = "";
     state.scanError = null;
+    // The snapshot goes with the last account too. Boot only scans when the
+    // library is empty, so a surviving snapshot would show the old account's
+    // games under the new one until somebody pressed Scan by hand.
+    store.clearSnapshot();
     closeDrawer();
+  } else if (state.openId && !state.games.some((g) => g.id === state.openId)) {
+    closeDrawer();   // the open drawer belonged to the account just removed
   }
   renderAll();
 }
@@ -983,6 +1034,9 @@ function forget() {
   state.epicFiltered = 0;
   state.metrics = null;
   state.phase = "onboarding";
+  // So the landing page can say it worked: the deletion itself leaves no other
+  // visible trace the moment it happens.
+  state.forgot = true;
   state.scanError = null;
   state.search = "";
   state.filter = "All";
@@ -1027,7 +1081,6 @@ function closestAction(el) {
 function onClick(e) {
   const t = closestAction(e.target);
   if (!t) {
-    if (view.menu && !view.menu.classList.contains("hidden")) view.menu.classList.add("hidden");
     // The drawer's scrim is its own ::before, so a click landing on the
     // drawer element itself (not its content) is a click "outside".
     if (view.drawer && e.target === view.drawer
@@ -1042,7 +1095,7 @@ function onClick(e) {
     // bubble up to data-action="open" and open the drawer. Showing the text is
     // entirely CSS, so there is nothing to do here.
     case "info": break;
-    case "unlink": unlinkPlatform(platform); break;
+    case "unlink": unlinkPlatform(platform, t.dataset.name); break;
     case "scan": scan(); break;
     case "filter": state.filter = t.dataset.filter; state.page = 1; renderAll(); break;
     case "tier":
@@ -1102,8 +1155,14 @@ function onClick(e) {
     case "export-share": shareExport(); break;
     case "export-copy": copyExportLink(); break;
     case "make-own": makeYourOwn(); break;
-    case "toggle-menu":
-      if (view.menu) view.menu.classList.toggle("hidden");
+    // Forget my data is the only destructive action in the app, so it asks
+    // first: the menu this used to hide behind is gone, and the confirmation
+    // has no X — the two answers are the buttons.
+    case "confirm-forget": view.showForgetModal(true); break;
+    case "cancel-forget": view.showForgetModal(false); break;
+    case "do-forget":
+      view.showForgetModal(false);
+      forget();
       break;
     case "submit-gog": submitPaste("gog"); break;
     case "submit-epic": submitPaste("epic"); break;
@@ -1197,7 +1256,6 @@ function onKeydown(e) {
   }
   if (e.key === "Escape") {
     if (state.openId) closeDrawer();
-    else if (view.menu && !view.menu.classList.contains("hidden")) view.menu.classList.add("hidden");
     return;
   }
   // Cards and rows carry data-action="open" but are not <button>s: give them
