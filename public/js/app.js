@@ -558,11 +558,34 @@ export function findDuplicates(games) {
   return dupes;
 }
 
+/** Which scan is allowed to write. A scan is a fan of promises that settle when
+ *  they settle, and a visitor can forget a store — or link a different one —
+ *  while those answers are still in flight. Unbound, they landed afterwards and
+ *  restored the very library that had just been deleted, wrote it back into the
+ *  snapshot, and left state.scanning holding the lock so the newly linked store
+ *  never scanned at all: only Forget my data broke the loop. */
+let scanEpoch = 0;
+
+/** Abandon the scan in flight — called on forget and on unlink. Both its writes
+ *  and its claim on state.scanning go, so a link made a second later can scan
+ *  instead of being turned away by a scan that no longer exists. Returns
+ *  whether anything was actually running, so the caller can refill without
+ *  rescanning a library that was never disturbed. */
+function invalidateScan() {
+  const wasScanning = state.scanning;
+  scanEpoch += 1;
+  state.scanning = false;
+  state.scanProgress = null;
+  state.scanSteps = null;
+  return wasScanning;
+}
+
 async function scan() {
   if (state.scanning) return;
   const acc = linkedAccounts();
   if (!anyLinked(acc)) { state.phase = "onboarding"; renderAll(); return; }
 
+  const epoch = ++scanEpoch;
   state.scanning = true;
   state.phase = "loading";
   state.scanError = null;
@@ -604,6 +627,7 @@ async function scan() {
     }));
   };
   const adopt = async (chunk) => {
+    if (epoch !== scanEpoch) return;   // this store was forgotten mid-flight
     for (const g of chunk) {
       const prev = seen.get(g.id);
       if (!prev || (g.hours || 0) > (prev.hours || 0)) seen.set(g.id, g);
@@ -615,6 +639,7 @@ async function scan() {
     renderAll();
     try {
       const priced = await api.fetchPrices(chunk, state.currency);
+      if (epoch !== scanEpoch) return;   // …and the pricing fetch outlived it too
       state.prices = { ...state.prices, ...priced.prices };
       highs = { ...highs, ...(priced.highs || {}) };
       lows = { ...lows, ...(priced.lows || {}) };
@@ -632,17 +657,30 @@ async function scan() {
     const results = await Promise.allSettled(specs.map(([, run], i) => Promise.resolve()
       .then(run)
       .then(
-        async (value) => { state.scanSteps[i].status = "done"; await adopt(value); return value; },
-        (err) => { state.scanSteps[i].status = "failed"; renderAll(); throw err; },
+        async (value) => {
+          if (epoch !== scanEpoch) return value;
+          if (state.scanSteps) state.scanSteps[i].status = "done";
+          await adopt(value);
+          return value;
+        },
+        (err) => {
+          if (epoch !== scanEpoch) throw err;
+          if (state.scanSteps) state.scanSteps[i].status = "failed";
+          renderAll();
+          throw err;
+        },
       )));
+    if (epoch !== scanEpoch) return;   // the library this wrote was forgotten
     const errors = results
       .filter((r) => r.status === "rejected")
       .map((r) => (r.reason && r.reason.message) || String(r.reason));
     state.scanError = errors.length ? errors.join(" · ") : null;
     store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency, persona: state.steamPersona });
   } catch (e) {
+    if (epoch !== scanEpoch) return;
     state.scanError = (e && e.message) || String(e);
   } finally {
+    if (epoch !== scanEpoch) return;   // a newer scan owns the state now
     state.scanning = false;
     state.scanProgress = null;
     state.scanSteps = null;   // the stepper is a loading affordance, not history
@@ -665,11 +703,13 @@ function scrollToPanel() {
  *  amounts remain honestly labelled; the change is only persisted on success. */
 async function reprice(nextCurrency) {
   if (state.scanning) { renderAll(); return; }
+  const epoch = scanEpoch;   // a forget during this fetch must not repaint old rows
   const prev = state.currency;
   state.currency = nextCurrency || prev;
   beginPricingAttempt();   // reprice re-asks every provider too
   try {
     const priced = await api.fetchPrices(state.games, state.currency);
+    if (epoch !== scanEpoch) return;
     state.prices = priced.prices;
     if (priced.currency) state.currency = priced.currency;
     applyPricingNotes(priced);
@@ -794,6 +834,10 @@ function dropStoreData(name) {
     if (!dropped.has(id)) prices[id] = p;
   }
   state.prices = prices;
+  // The cover art fetched for those titles is that library's too — otherwise a
+  // forgotten store keeps a cache of its box art in the browser forever.
+  for (const id of dropped) coversCache.delete(id);
+  if (dropped.size) persistCovers();
   // A manual figure is keyed by game id — and Steam ids are appids, so an edit
   // made for this account's Hades would silently apply to the next account's.
   // It leaves with the account that made it.
@@ -816,6 +860,10 @@ function dropStoreData(name) {
 
 function unlinkPlatform(platform, displayName) {
   for (const k of KEY_STORES[platform] || []) localStorage.removeItem(k);
+  // Whatever scan is running fetched data for credentials that may just have
+  // gone with it. Abandoning it is what stops its late answers from restoring
+  // the rows this function is about to delete.
+  const wasScanning = invalidateScan();
   // This account's own data leaves with it either way. Relinking a different
   // account must never inherit this one's library.
   if (displayName) dropStoreData(displayName);
@@ -841,6 +889,10 @@ function unlinkPlatform(platform, displayName) {
     closeDrawer();   // the open drawer belonged to the account just removed
   }
   renderAll();
+  // Only if a scan was actually abandoned: its surviving store's rows went with
+  // the epoch, so they have to be fetched again. Unlinking after a quiet scan
+  // leaves everything intact and rescans nothing.
+  if (wasScanning && anyLinked(acc)) scan();
 }
 
 function showFormError(kind, msg) {
@@ -1131,6 +1183,7 @@ function makeYourOwn() {
 let lastFocus = null;
 
 function forget() {
+  invalidateScan();   // an in-flight scan must not write the forgotten data back
   store.forget();
   coversCache.clear();
   state.games = [];

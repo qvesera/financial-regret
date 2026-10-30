@@ -1624,6 +1624,71 @@ test("forget clears every credential a single unlink clears", async () => {
   }
 });
 
+test("forget a store while its scan is still running, then link another", async () => {
+  // The reported flow, in one test: the answer arrives *after* the visitor has
+  // forgotten the account. Without an epoch, that late answer restored the old
+  // rows, wrote them back into the snapshot, and left state.scanning holding
+  // the lock — so the next link never scanned, and only Forget my data fixed it.
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const { env, mod } = await boot({
+    seed: (e) => {
+      e.localStorage.setItem("steam_id", "76561198000000000");
+      e.fetchRoutes.push((url) => {
+        if (url.includes("/api/steam_games")) {
+          return gate.then(() => ({ json: { games: [
+            { id: "Steam:1", name: "Old Library Game", platform: "Steam", hours: 5, appid: 1 },
+          ] } }));
+        }
+        // Nothing else is answered here: routes win in order, and a catch-all
+        // in the first one would starve the library linked afterwards.
+        return null;
+      });
+    },
+  });
+  await settle();
+  assert.equal(mod.getState().scanning, true, "the Steam scan is held open");
+
+  // Forget through the dialog, as a visitor would.
+  [...env.root.querySelectorAll("button")]
+    .find((b) => b.dataset.action === "confirm-forget").dispatch("click");
+  await settle();
+  [...env.root.querySelectorAll("button")]
+    .find((b) => b.dataset.action === "do-forget").dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().scanning, false,
+    "the scan in flight was abandoned instead of left holding the lock");
+  assert.equal(env.localStorage.getItem("last_scan"), null, "and it wrote no snapshot");
+
+  release();          // the forgotten library's answer lands now
+  await settle();
+
+  assert.equal(mod.getState().games.length, 0,
+    "the abandoned scan's rows must not resurrect what was forgotten");
+  assert.equal(env.localStorage.getItem("last_scan"), null,
+    "…nor be written back to the snapshot, which is what forced Forget my data before");
+
+  // Link a different library: it has to scan on its own.
+  env.localStorage.setItem("epic_access_token", "epic-tok");
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/epic_games")) return { json: { games: [
+      { id: "Epic:1", name: "New Library Game", platform: "Epic", hours: 7 },
+    ] } };
+    if (url.includes("/api/prices")) return { json: { prices: { "Epic:1": 700 } } };
+    if (url.includes("/api/gog_games") || url.includes("/api/steam_games")) return { json: { games: [] } };
+    return null;
+  });
+  env.window.emit("storage", { key: "epic_access_token" });
+  await settle();
+
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["New Library Game"],
+    "the new library scans by itself — no Forget-my-data round trip needed");
+  const snap = JSON.parse(env.localStorage.getItem("last_scan"));
+  assert.deepEqual(snap.games.map((g) => g.id), ["Epic:1"],
+    "and the snapshot holds the new library only");
+});
+
 // ---------- forgetting one account ----------
 
 const unlinkButton = (env) => env.root.querySelectorAll(".source-action")
