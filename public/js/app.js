@@ -13,6 +13,7 @@ import { currencyForCountry } from "./format.js";
 import { paintVerdictToy, repaintVerdictToy, setToyAnchor, TOY_GAME } from "./arcade.js";
 import { cardSpec, cardBlob, renderCardTo, shareUrl, decodeCard, exportKinds } from "./export.js";
 import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
+import { applyEdits, parseEdit } from "./edits.js";
 
 /** UI state worth keeping across reloads — filters and the what-if setting.
  *  `view_mode` stays in its own key: several tests assert it by name. */
@@ -72,6 +73,28 @@ function applyPricingNotes(priced) {
 function beginPricingAttempt() {
   state.limited = {};
   view.setLimitNote(null);
+}
+
+/** Save — or, with an empty box, clear — one manual figure for one title.
+ *
+ *  The box is read back from the view rather than passed in: the drawer is
+ *  rebuilt on every render, so a node captured at click time would be one that
+ *  no longer exists. Buttons rather than autosave for the same reason — an
+ *  unsaved box would be wiped mid-typing. */
+function saveEdit(id, field, raw) {
+  const input = view.editInput(field);
+  const parsed = parseEdit(field, raw !== undefined ? raw : (input ? input.value : ""));
+  if (!parsed.ok) { view.setEditError(parsed.why); return; }
+  view.setEditError(null);
+  // The currency travels with a price: there is no FX in the app, so a number
+  // entered in another currency must be labelled rather than relabelled.
+  state.edits = store.setEdit(id, {
+    [field]: parsed.value,
+    ...(field === "price"
+      ? { currency: parsed.value === null ? null : state.currency }
+      : {}),
+  });
+  renderAll();
 }
 
 function loadUiState() {
@@ -141,6 +164,14 @@ let state = {
   // identity alone, so it is recomputed wherever the game list is rebuilt
   // rather than persisted with the snapshot.
   dupes: new Map(),
+  // What the visitor typed over a store's own figures: {id: {price?, hours?}}.
+  // Read from localStorage at boot and replaced wholesale after a save, so a
+  // reload never resurrects a stale copy.
+  edits: {},
+  // The price map with the edits layered in — what every view consumer of a
+  // price reads. state.prices stays the raw store answer, which is what the
+  // snapshot persists and what Reset restores from.
+  pricesEff: {},
   comparators: { worst: [], best: [] },
   simTarget: savedUi.simTarget || null,
   simHours: Number(savedUi.simHours) || 10,
@@ -320,6 +351,13 @@ function renderAll() {
   if (state.platform && state.platform !== "All" && !state.games.some((g) => g.platform === state.platform)) {
     state.platform = "All";   // selected platform vanished (rescan / unlink)
   }
+  // Manual edits layer over the store's own figures first: everything below
+  // reads the edited library, so a price the visitor typed moves the verdict,
+  // the benchmark, the KPIs, the pies and the export without any of them
+  // knowing overrides exist.
+  const eff = applyEdits(state.games, state.prices, state.edits, state.currency);
+  state.games = eff.games;
+  state.pricesEff = eff.prices;
   // Verdicts are derived from the whole library, not the filtered rows: a
   // filter must not redefine the benchmark it filters against. That holds
   // however the table is filtered — what varies is *which* games get ranked,
@@ -356,6 +394,9 @@ function renderAll() {
   // metrics itself to report them as their own KPI.
   state.metrics = computeRegret(state.games);
   state.coverageText = coverageLine();
+  // The footer's "not what you actually paid" line is a half-truth once the
+  // visitor has entered prices of their own, so say so — only while it is true.
+  view.setBasisNote(state.games.filter((g) => g.edited).length);
   view.render(state);
   if (state.phase === "ready" && state.viewMode === "grid") {
     applyCovers();
@@ -480,6 +521,10 @@ async function scan() {
     state.games = state.games.map((g) => ({
       ...g,
       price: state.prices[g.id] ?? null,
+      // Captured beside the price so an override can be cleared with no
+      // re-fetch, and refreshed here — wherever raw prices land — never by
+      // applyEdits, which would otherwise latch onto its own output.
+      apiPrice: state.prices[g.id] ?? null,
       high: highs[g.id] ?? null,
       low: lows[g.id] ?? null,
     }));
@@ -558,6 +603,7 @@ async function reprice(nextCurrency) {
     state.games = state.games.map((g) => ({
       ...g,
       price: state.prices[g.id] ?? null,
+      apiPrice: state.prices[g.id] ?? null,   // see bake(): the raw copy Reset restores
       high: highs[g.id] ?? null,
       low: lows[g.id] ?? null,
     }));
@@ -804,7 +850,7 @@ function openDrawer(id) {
   // Remember where focus came from so closing can put it back.
   lastFocus = document.activeElement && document.activeElement.focus
     ? document.activeElement : null;
-  view.renderDrawer(view.drawerBody, game, state.prices[id], state);
+  view.renderDrawer(view.drawerBody, game, (state.pricesEff || state.prices)[id], state);
   view.drawer.classList.remove("hidden");
   applyCovers();                                // stamp the art if its url is cached
   if (!coversCache.has(id)) queueCovers([id]);  // else fetch it — someone wants to look at it
@@ -1064,6 +1110,8 @@ function onClick(e) {
     case "submit-amazon": submitPaste("amazon"); break;
     case "submit-psn": submitPaste("psn"); break;
     case "save-key": saveApiKey(t.dataset.kind); break;
+    case "save-edit": saveEdit(t.dataset.id, t.dataset.field); break;
+    case "reset-edit": saveEdit(t.dataset.id, t.dataset.field, ""); break;
     case "show-keys":
       state.phase = "onboarding";
       renderAll();
@@ -1219,6 +1267,7 @@ export async function boot() {
   state.viewMode = savedView === "grid" || (savedView == null && window.innerWidth < 700)
     ? "grid" : "list";
   state.tier = savedUi.tier || "All";
+  state.edits = store.getEdits();
   loadCoversCache();
   const snap = store.getSnapshot();
   if (snap) {

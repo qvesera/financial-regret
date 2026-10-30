@@ -453,6 +453,11 @@ export const view = {
     const psnNote = this.el("p", "disclaimer-psn-note");
     psnNote.hidden = true;
     footer.appendChild(psnNote);
+    // Shown only while the visitor's own prices are in use: without it the
+    // "not what you actually paid" line above reads as a lie.
+    const basisNote = this.el("p", "disclaimer-basis");
+    basisNote.hidden = true;
+    footer.appendChild(basisNote);
     // A spent shared key is the one pricing failure the visitor can fix
     // themselves, so this line carries the way out as well as the news. Hidden
     // until a scan actually reports a limit.
@@ -505,7 +510,7 @@ export const view = {
     main.appendChild(drawer);
     root.appendChild(main);
 
-    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, exportBtn, menuBtn, menu, phaseEl, drawer, drawerTitle, drawerBody, footer, attribution, psnNote, limitNote, limitText });
+    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, exportBtn, menuBtn, menu, phaseEl, drawer, drawerTitle, drawerBody, footer, attribution, psnNote, basisNote, limitNote, limitText });
     this._builtPhase = null;
     return this;
   },
@@ -533,6 +538,32 @@ export const view = {
     if (!this.limitNote || !this.limitText) return;
     this.limitText.textContent = text ? `${text} ` : "";
     this.limitNote.hidden = !text;
+  },
+
+  /** The box for one manual field, parked by renderDrawer so the delegated
+   *  save handler can read it back — the drawer is rebuilt on every render,
+   *  so nothing may be captured at click time. */
+  editInput(field) {
+    return (this.editInputs || {})[field] || null;
+  },
+
+  /** Show a rejected figure beside the boxes, or clear it. */
+  setEditError(text) {
+    if (!this.editError) return;
+    this.editError.textContent = text || "";
+    this.editError.hidden = !text;
+  },
+
+  /** The footer's "not what you actually paid" line is a half-truth once the
+   *  visitor has entered prices of their own — so say so, and only while any
+   *  edit is actually applied to a row that still exists. */
+  setBasisNote(count) {
+    if (!this.basisNote) return;
+    this.basisNote.textContent = count
+      ? `Your own prices are used for ${count} ${count === 1 ? "title" : "titles"} and `
+        + "count as what you paid — every other title is today's cheapest price."
+      : "";
+    this.basisNote.hidden = !count;
   },
 
   /** The chip a row or card wears when the same title is owned on another
@@ -1222,9 +1253,12 @@ export const view = {
     // Which titles are held on another store — read once per render so the row
     // and card builders take it from here instead of each growing an argument.
     this.dupes = state.dupes || new Map();
+    // Prices with the visitor's own figures layered in: the table, the pies and
+    // the cards must show the same numbers the metrics were computed from.
+    const prices = state.pricesEff || state.prices;
     this.renderKpis(this.kpi, metrics);
     this.renderRegretRing(this.ringSvg, metrics.regretScore);
-    this.renderPlatforms(this.platformList, state.games, state.prices, state.platform);
+    this.renderPlatforms(this.platformList, state.games, prices, state.platform);
     this.renderVerdicts(this.verdictList, state);
     this.updateHero(state);
     if (this.distBox) this.renderDistribution(state);
@@ -1239,8 +1273,8 @@ export const view = {
     const cur = Math.min(page, pages);          // clamp after a filter shrinks the set
     const start = (cur - 1) * PAGE_SIZE;
     const pageRows = rows.slice(start, start + PAGE_SIZE);
-    if (gridMode) this.renderGrid(this.gridWrap, pageRows, state.prices, scanning, state.verdicts);
-    else this.renderTable(this.tbody, pageRows, state.prices, scanning, state.verdicts);
+    if (gridMode) this.renderGrid(this.gridWrap, pageRows, prices, scanning, state.verdicts);
+    else this.renderTable(this.tbody, pageRows, prices, scanning, state.verdicts);
     if (this.pagers) {
       const many = rows.length > PAGE_SIZE;      // one page? no pager clutter
       for (const p of this.pagers) {
@@ -1829,6 +1863,9 @@ export const view = {
           if (i === 0 && this.dupes.get(game.id)) {
             td.appendChild(this.dupeChip(this.dupes.get(game.id)));
           }
+          // And one for a figure the visitor typed over the store's own, so a
+          // price that differs from IsThereAnyDeal is visibly theirs.
+          if (i === 0 && game.edited) td.appendChild(this.el("span", "edited-chip", "Edited"));
           tr.appendChild(td);
           return;
         }
@@ -1905,6 +1942,9 @@ export const view = {
       // Same again for an owned-elsewhere title: the grid must not be the view
       // that hides the duplicate.
       if (this.dupes.get(game.id)) titleRow.appendChild(this.dupeChip(this.dupes.get(game.id)));
+      // And for a figure of the visitor's own: the card shows the number, so it
+      // has to show whose number it is.
+      if (game.edited) titleRow.appendChild(this.el("span", "edited-chip", "Edited"));
       meta.appendChild(titleRow);
       // The band reads today's price against its own history, so it sits
       // directly under the name — above the row it explains.
@@ -2007,6 +2047,66 @@ export const view = {
     hoursRow.appendChild(this.el("strong", null, game.hours == null ? "unknown" : hours(game.hours)));
     drawerBody.appendChild(hoursRow);
 
+    // What the visitor says they paid, and how long they played. Placeholders
+    // rather than values, so an empty box always reads as "no override" and
+    // Reset is the only thing that can bring the store's figure back. Buttons
+    // rather than autosave: this drawer is rebuilt on every render, and an
+    // unsaved box would be wiped mid-typing.
+    const edit = (state.edits || {})[game.id] || {};
+    const apiPrice = game.apiPrice !== undefined ? game.apiPrice : price;
+    const apiHours = game.apiHours !== undefined ? game.apiHours : game.hours;
+    const editRow = (labelText, key, raw, fmt) => {
+      const row = this.el("div", "drawer-row edit-row");
+      row.appendChild(this.el("span", null, labelText));
+      const box = this.el("div", "edit-box");
+      const input = this.el("input", "edit-input");
+      input.type = "number";
+      input.min = "0";
+      input.step = key === "price" ? "0.01" : "0.5";
+      input.value = "";
+      input.placeholder = raw == null ? "—" : fmt(raw);
+      input.setAttribute("aria-label", labelText);
+      input.dataset.action = `edit-${key}`;
+      box.appendChild(input);
+      for (const [action, label] of [["save-edit", "Save"], ["reset-edit", "Reset"]]) {
+        const b = this.el("button", action === "save-edit" ? "button small" : "button small ghost", label);
+        b.type = "button";
+        b.dataset.action = action;
+        b.dataset.id = game.id;
+        b.dataset.field = key;
+        box.appendChild(b);
+      }
+      row.appendChild(box);
+      drawerBody.appendChild(row);
+      return input;
+    };
+    this.editInputs = {
+      price: editRow("Your price", "price", apiPrice, (v) => money(v, cur)),
+      hours: editRow("Playtime", "hours", apiHours, (v) => hours(v)),
+    };
+    this.editId = game.id;
+    // The reference the Reset button restores, and — when a price was entered
+    // in another currency — that currency's name, because there is no FX here
+    // to move the number and quietly relabelling it would be a lie.
+    drawerBody.appendChild(this.el("p", "muted edit-ref",
+      `API: ${apiPrice == null ? "—" : money(apiPrice, cur)} · `
+      + `${apiHours == null ? "unknown" : hours(apiHours)}`));
+    if (edit.price !== undefined) {
+      drawerBody.appendChild(this.el("p", "edit-note",
+        `Your price: ${money(edit.price, cur)}`
+        + (edit.currency && edit.currency !== cur ? ` (set in ${edit.currency})` : "")));
+    }
+    if (edit.hours !== undefined) {
+      drawerBody.appendChild(this.el("p", "edit-note", `Your playtime: ${hours(edit.hours)}`));
+    }
+    const editError = this.el("p", "edit-error");
+    editError.hidden = true;
+    drawerBody.appendChild(editError);
+    this.editError = editError;
+    drawerBody.appendChild(this.el("p", "muted edit-note",
+      "These move the quartiles every verdict is read against, so your other "
+      + "games may be re-graded."));
+
     // Held on another store too: the drawer is where the detail belongs — each
     // other copy's store, its price today and its own playtime, next to this
     // one's. The whole row is absent when the title is owned once.
@@ -2015,7 +2115,7 @@ export const view = {
       const dupeRow = this.el("div", "drawer-row");
       dupeRow.appendChild(this.el("span", null, "Also owned on"));
       dupeRow.appendChild(this.el("strong", null, others.map((o) => {
-        const otherPrice = state.prices ? state.prices[o.id] : null;
+        const otherPrice = state.pricesEff ? state.pricesEff[o.id] : (state.prices ? state.prices[o.id] : null);
         const otherHours = o.hours == null ? "unknown" : hours(o.hours);
         return `${o.platform} · ${typeof otherPrice === "number" ? money(otherPrice, cur) : "—"} · ${otherHours}`;
       }).join("  /  ")));
@@ -2191,7 +2291,7 @@ export const view = {
     for (const t of tiers) sums[t] = 0;
     for (const g of state.games || []) {
       const t = verdicts ? verdicts.get(g.id) : null;
-      const p = state.prices ? state.prices[g.id] : null;
+      const p = (state.pricesEff || state.prices || {})[g.id];
       if (t in sums && typeof p === "number") sums[t] += p;
     }
     const gamesTotal = tiers.reduce((s, t) => s + counts[t], 0);

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installEnv } from "./dom-stub.mjs";
 import { encodeCard } from "../../public/js/export.js";
+import { store } from "../../public/js/store.js";
 
 const settle = async () => { for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0)); };
 
@@ -1425,6 +1426,182 @@ test("the coverage line counts one scope", async () => {
     "the table narrowed");
   assert.ok(line().includes("2 / 5 games have playtime"),
     "numerator and denominator come from the library, so a filter cannot make them disagree");
+});
+
+// ---------- manual price and playtime ----------
+
+/** Five titles, enough played-and-priced ones to form a benchmark, plus the
+ *  two shapes an override has to handle: never opened, and never priced. */
+const editSeed = (env) => {
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) return { json: { games: [
+      { id: "Steam:1", name: "Hades", platform: "Steam", hours: 20, appid: 1145360 },
+      { id: "Steam:4", name: "Bargain", platform: "Steam", hours: 10, appid: 4 },
+      { id: "Steam:5", name: "Pricy", platform: "Steam", hours: 5, appid: 5 },
+      { id: "Steam:2", name: "Idle Game", platform: "Steam", hours: 0, appid: 2 },
+      { id: "Steam:3", name: "Fresh Game", platform: "Steam", hours: null, appid: 3 },
+    ] } };
+    if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/prices")) return { json: { prices: {
+      "Steam:1": 1000, "Steam:4": 200, "Steam:5": 900, "Steam:2": 400, "Steam:3": 600,
+    } } };
+    return null;
+  });
+};
+
+const editBox = (env, field) => [...env.root.querySelectorAll(".edit-input")]
+  .find((i) => i.dataset.action === `edit-${field}`);
+const editButton = (env, action, field) => [...env.root.querySelectorAll("button")]
+  .find((b) => b.dataset.action === action && b.dataset.field === field);
+
+async function openTitle(env, name) {
+  const row = [...env.root.querySelectorAll(".game-row")]
+    .find((r) => r.querySelector(".cell-name").textContent.startsWith(name));
+  assert.ok(row, `${name} is on the table`);
+  row.dispatch("click");
+  await settle();
+}
+
+async function saveFigure(env, field, value) {
+  const box = editBox(env, field);
+  assert.ok(box, `the drawer offers a ${field} box`);
+  box.value = String(value);
+  editButton(env, "save-edit", field).dispatch("click");
+  await settle();
+}
+
+test("a price typed in the drawer moves every figure that quotes it", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  assert.equal(env.document.getElementById("kpi-library").textContent, "₹3,100.00",
+    "the library starts at the store's own prices");
+  const tierBefore = mod.getState().verdicts.get("Steam:1");
+
+  await openTitle(env, "Hades");
+  await saveFigure(env, "price", 100);
+
+  assert.equal(env.document.getElementById("kpi-library").textContent, "₹2,200.00",
+    "library value follows the number the visitor typed (3,100 − 900)");
+  assert.equal(mod.getState().pricesEff["Steam:1"], 100, "the price map agrees");
+  assert.notEqual(mod.getState().verdicts.get("Steam:1"), tierBefore,
+    "and the verdict moved with it — the benchmark is built from these rates");
+  const row = [...env.root.querySelectorAll(".game-row")]
+    .find((r) => r.querySelector(".cell-name").textContent.startsWith("Hades"));
+  assert.ok(row.querySelector(".edited-chip"), "the row says whose number it is");
+  assert.equal(row.querySelectorAll("td")[2].textContent, "₹100.00",
+    "the table shows the number the metrics used");
+  assert.deepEqual([...env.root.querySelectorAll(".platform-value")]
+    .map((n) => n.textContent), ["₹2,200.00"],
+    "and the platform pie totals the same money");
+});
+
+test("Reset puts the store's own price back, chip and all", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  await openTitle(env, "Hades");
+  await saveFigure(env, "price", 100);
+  assert.equal(mod.getState().pricesEff["Steam:1"], 100, "the edit took");
+
+  editButton(env, "reset-edit", "price").dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().pricesEff["Steam:1"], 1000, "back to what the store said");
+  assert.equal(env.document.getElementById("kpi-library").textContent, "₹3,100.00",
+    "and so is the library value, with no re-fetch");
+  const row = [...env.root.querySelectorAll(".game-row")]
+    .find((r) => r.querySelector(".cell-name").textContent.startsWith("Hades"));
+  assert.equal(row.querySelector(".edited-chip"), null, "the marker leaves with the edit");
+});
+
+test("a playtime entered by hand moves a game out of Untouched", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  assert.equal(mod.getState().verdicts.get("Steam:2"), "untouched",
+    "never opened reads untouched to begin with");
+  const playedBefore = mod.getState().tabCounts.Played;
+
+  await openTitle(env, "Idle Game");
+  await saveFigure(env, "hours", 12);
+
+  assert.notEqual(mod.getState().verdicts.get("Steam:2"), "untouched",
+    "with hours on the record the verdict is earned, not assumed");
+  assert.equal(mod.getState().tabCounts.Played, playedBefore + 1,
+    "the play-status tabs follow the same hours");
+  assert.equal(mod.getState().comparators.untouched.some((t) => t.id === "Steam:2"), false,
+    "and it drops out of the untouched list, which ranked it by spend");
+});
+
+test("a figure that is not a figure is refused, and nothing moves", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  await openTitle(env, "Hades");
+  const box = editBox(env, "price");
+  box.value = "-5";
+  editButton(env, "save-edit", "price").dispatch("click");
+  await settle();
+
+  const err = [...env.root.querySelectorAll(".edit-error")].pop();
+  assert.ok(err && !err.hidden, "the drawer explains the refusal");
+  assert.ok(err.textContent.includes("0 or more"), err.textContent);
+  assert.equal(mod.getState().pricesEff["Steam:1"], 1000, "the store's price stands");
+  assert.equal(env.document.getElementById("kpi-library").textContent, "₹3,100.00",
+    "and no headline moved on a rejected number");
+});
+
+test("an edit survives a reload, because it is stored and the rows are not", async () => {
+  const seed = (env) => {
+    editSeed(env);
+    // What a browser would already hold after a previous visit.
+    env.localStorage.setItem("game_edits",
+      JSON.stringify({ "Steam:1": { price: 100, currency: "INR" } }));
+  };
+  const { env, mod } = await boot({ seed });
+  await settle();
+
+  assert.equal(mod.getState().pricesEff["Steam:1"], 100, "the edit applied on boot");
+  assert.equal(env.document.getElementById("kpi-library").textContent, "₹2,200.00");
+  const basis = env.root.querySelector(".disclaimer-basis");
+  assert.equal(basis.hidden, false, "the footer owns up to the changed basis");
+  assert.ok(basis.textContent.includes("1 title"), basis.textContent);
+});
+
+test("a price entered in another currency keeps its number and its name", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  await openTitle(env, "Hades");
+  await saveFigure(env, "price", 500);
+
+  const sel = env.root.querySelector(".header-currency");
+  sel.value = "USD";
+  sel.dispatch("change");
+  await settle();
+
+  assert.equal(mod.getState().currency, "USD", "the display currency moved");
+  assert.equal(mod.getState().pricesEff["Steam:1"], 500,
+    "the number did not — there is no FX in the app to move it with");
+  await openTitle(env, "Hades");
+  const notes = [...env.root.querySelectorAll(".edit-note")]
+    .map((n) => n.textContent).join(" ");
+  assert.ok(notes.includes("set in INR"), `the drawer names the currency: ${notes}`);
+});
+
+test("forget takes the visitor's own figures with everything else", async () => {
+  const { env } = await boot({ seed: editSeed });
+  await settle();
+  await openTitle(env, "Hades");
+  await saveFigure(env, "price", 100);
+  assert.ok(env.localStorage.getItem("game_edits"), "the edit is stored");
+
+  store.forget();
+
+  assert.equal(env.localStorage.getItem("game_edits"), null, "gone with the credentials");
+  assert.deepEqual(store.getEdits(), {}, "and nothing left to re-apply");
 });
 
 test("the visitor's region defaults the currency until they choose one", async () => {

@@ -845,6 +845,37 @@ tr.game-row:hover { background: var(--surface-2); }
 }
 .disclaimer-limit-note .button { margin-left: 0.4rem; }
 
+/* The basis qualifier: present only while the visitor's own prices are in use,
+   because without it the "not what you actually paid" line above is a lie. */
+.disclaimer-basis {
+  margin-top: 0.8rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--border);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+/* Manual edits in the drawer: two boxes with Save and Reset, and the store's
+   own figure beside them. The placeholder carries the API value, so an empty
+   box always reads as "no override". */
+.edit-row { flex-wrap: wrap; }
+.edit-box { display: flex; gap: var(--space-2); align-items: center; margin-left: auto; }
+.edit-input {
+  width: 7rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.edit-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.edit-ref { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--muted); }
+.edit-note { margin: 0.25rem 0 0; font-size: 0.75rem; color: var(--muted); }
+.edit-error { margin: 0.35rem 0 0; font-size: 0.78rem; color: var(--danger); }
+.edit-error:empty { display: none; }
+
 /* Attribution: who built it and where the source lives. */
 .disclaimer-links {
   margin-top: 0.8rem;
@@ -1496,7 +1527,7 @@ td.cell-platform { white-space: nowrap; }
 
 /* Add-on marker. Deliberately muted and separate from the verdict badges —
    "DLC" is a kind of thing, not a grade, so it never borrows a tier colour. */
-.dlc-chip, .dupe-chip {
+.dlc-chip, .dupe-chip, .edited-chip {
   display: inline-block;
   margin-left: var(--space-2);
   padding: 0 var(--space-1);
