@@ -1,0 +1,30 @@
+# Branch protection requires a PR on main; this is what makes that mean
+# something. Layout stays a local gate (npm run shots): a browser download per
+# run buys flake, not safety, on a solo repo.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # matches the Dockerfile and Vercel's runtime
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Python tests
+        run: python -m unittest discover -s tests
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install JS dependencies
+        run: npm ci
+      - name: JS tests
+        run: npm test
