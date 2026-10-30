@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { computeRegret, sortByPriceDesc } from "./regret.js";
+import { computeRegret, sortByPriceDesc } from "../../public/js/regret.js";
 
 const baseGame = (overrides = {}) => ({
   id: "Steam:1",

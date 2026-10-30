@@ -13,6 +13,7 @@ is just handing them the live request object, exactly as the local server does.
 import importlib
 import re
 import sys
+import traceback
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -24,21 +25,29 @@ from _common import send_json   # noqa: E402
 
 _LOADED: dict[str, object] = {}
 _ALLOWED = ("GET", "POST", "OPTIONS")
+_BROKEN = object()             # the file exists but will not load: a 500, not a 404
 
 
 def _handler_for(name: str):
-    """The handler class for one endpoint, or None when there isn't one."""
+    """The handler class, _BROKEN when the module fails to load, or None when
+    the route does not exist at all."""
     if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
         return None
     if name in _LOADED:
         return _LOADED[name]
+    if not (_BACKEND / f"{name}.py").is_file():
+        return None
     try:
         module = importlib.import_module(name)
-    except Exception:          # one broken module must not take every route down
-        return None
+    except Exception:
+        # One broken module must not take every route down -- but its own route
+        # has to report the import failure, not answer 404 as though nobody had
+        # ever written it. That 404 is what the local server used to give too.
+        traceback.print_exc()
+        return _BROKEN
     cls = getattr(module, "handler", None)
     if cls is None:
-        return None
+        return _BROKEN
     _LOADED[name] = cls        # cached, so warm instances share module state
     return cls
 
@@ -58,6 +67,9 @@ class handler(BaseHTTPRequestHandler):
         parts = self.path.split("?", 1)[0].split("/")
         name = parts[2] if len(parts) > 2 else ""
         cls = _handler_for(name)
+        if cls is _BROKEN:
+            send_json(self, 500, {"error": f"API function '{name}' failed to load"})
+            return
         if cls is None:
             send_json(self, 404, {"error": f"No API function named '{name}'"})
             return
@@ -66,4 +78,15 @@ class handler(BaseHTTPRequestHandler):
             allow = ", ".join(m for m in _ALLOWED if getattr(cls, m, None))
             send_json(self, 405, {"error": "Method not allowed", "allow": allow})
             return
-        fn(self)
+        # The same contract server.py keeps: a handler bug answers with JSON 500
+        # instead of escaping to the platform's own HTML error page, and never
+        # after a response was already sent.
+        try:
+            fn(self)
+        except Exception:
+            traceback.print_exc()
+            if not getattr(self, "_response_sent", False):
+                try:
+                    send_json(self, 500, {"error": "Internal server error"})
+                except Exception:
+                    pass

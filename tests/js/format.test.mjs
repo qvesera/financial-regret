@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { pricePerHour, perHour, money, currencyForCountry } from "./format.js";
+import { pricePerHour, perHour, money, currencyForCountry } from "../../public/js/format.js";
 
 describe("pricePerHour", () => {
   it("divides normally at one hour or more", () => {

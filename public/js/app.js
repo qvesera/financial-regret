@@ -316,8 +316,18 @@ function observeCovers() {
   }
 }
 
+/** Is there a SteamGridDB key anywhere — the visitor's own, or one this instance
+ *  carries? covers.py falls back to the server's key when the header is absent,
+ *  so demanding a personal key here kept every cover on its placeholder for
+ *  anyone who never pasted one, while the shared key sat unused. */
+function sgdbKeyAvailable() {
+  if (localStorage.getItem("sgdb_api_key")) return true;
+  const s = state.server;
+  return Boolean(s && s.keys && s.keys.sgdb);
+}
+
 function queueCovers(ids) {
-  if (!localStorage.getItem("sgdb_api_key")) return;
+  if (!sgdbKeyAvailable()) return;
   for (const id of ids) {
     if (!coversCache.has(id) && !coverInflight.has(id)) coverPending.add(id);
   }
@@ -328,7 +338,7 @@ function queueCovers(ids) {
 
 async function flushCovers() {
   const key = localStorage.getItem("sgdb_api_key");
-  if (!key || !coverPending.size) return;
+  if (!coverPending.size) return;
   const batch = [...coverPending].slice(0, 40);
   for (const id of batch) { coverPending.delete(id); coverInflight.add(id); }
 
@@ -342,7 +352,11 @@ async function flushCovers() {
     if (payload.length) {
       const resp = await fetch(api.apiUrl("/api/covers"), {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-SGDB-Key": key },
+        // The header only when the visitor brought their own key: without it the
+        // server spends its shared one, which is exactly why it is configured.
+        headers: key
+          ? { "Content-Type": "application/json", "X-SGDB-Key": key }
+          : { "Content-Type": "application/json" },
         body: JSON.stringify({ games: payload }),
       });
       if (resp.ok) {

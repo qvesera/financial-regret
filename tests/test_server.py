@@ -77,6 +77,17 @@ class TestServer(unittest.TestCase):
         self.assertEqual(st, 500)
         self.assertIn("error", json.loads(bd))
 
+    def test_broken_module_is_a_500_not_a_404(self):
+        # A module whose file exists but raises at import is a broken deploy,
+        # not a missing route: the old 404 told the next person to go hunting
+        # for a function that was never the problem.
+        broken = Path(server.__file__).resolve().parent / "backend" / "brokendeploy.py"
+        self.addCleanup(broken.unlink, True)   # missing_ok, registered pre-write
+        broken.write_text("raise RuntimeError('broken on purpose')\n")
+        st, _, bd = req("GET", self.port, "/api/brokendeploy")
+        self.assertEqual(st, 500)
+        self.assertIn("failed to load", json.loads(bd)["error"])
+
     def test_prices_rejects_row_without_id(self):
         # Regression: rows missing 'id' used to raise KeyError mid-request.
         st, hd, bd = req("POST", self.port, "/api/prices",

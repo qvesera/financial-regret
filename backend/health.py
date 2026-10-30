@@ -29,5 +29,6 @@ class handler(BaseHTTPRequestHandler):
                 "steam": bool(os.environ.get("STEAM_API_KEY")),
                 "itad": bool(os.environ.get("ITAD_API_KEY")),
                 "platprices": bool(os.environ.get("PLATPRICES_API_KEY")),
+                "sgdb": bool(os.environ.get("SGDB_API_KEY")),
             },
         })

@@ -10,6 +10,7 @@ every self-hosted test kept passing.
 import io
 import json
 import os
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -58,7 +59,7 @@ class TestHealth(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertIsInstance(body["uptime_s"], float)
         self.assertTrue(body["require_user_keys"])
-        self.assertEqual(set(body["keys"]), {"steam", "itad", "platprices"})
+        self.assertEqual(set(body["keys"]), {"steam", "itad", "platprices", "sgdb"})
         self.assertTrue(body["keys"]["steam"])
 
     def test_answers_a_cors_preflight(self):
@@ -124,8 +125,8 @@ class TestVercelContract(unittest.TestCase):
                 self.assertIn("do_OPTIONS", methods, f"{name}.py cannot answer a preflight")
 
     def test_route_names_match_module_names(self):
-        # /api/psn_prices must resolve to api/psn_prices.py: Vercel routes on
-        # file path, and server.py routes on the first path segment.
+        # /api/psn_prices must resolve to backend/psn_prices.py (API_DIR): the
+        # single Vercel function and server.py both route on the first path segment.
         for name in ("health", "config", "prices", "psn_prices", "steam_games"):
             self.assertTrue((API_DIR / f"{name}.py").is_file(), name)
 
@@ -175,6 +176,61 @@ class TestIndexDispatch(unittest.TestCase):
         self._dispatch("/api/config")
         self._dispatch("/api/config")
         self.assertEqual(len(index._LOADED), 1)
+
+    def test_a_broken_module_is_a_500_not_a_404(self):
+        # A file that exists but will not import is a deployment error. It used
+        # to fall through to the same 404 as a route that never existed, which
+        # named the endpoint as the problem and hid the import failure entirely.
+        import index
+        index._LOADED.clear()
+        with mock.patch.object(index.importlib, "import_module",
+                               side_effect=SyntaxError("broken on purpose")):
+            status, body = self._dispatch("/api/prices")
+        self.assertEqual(status, 500)
+        self.assertIn("failed to load", body["error"])
+
+    def test_a_handler_that_raises_returns_500(self):
+        # The crash guard server.py already had: production must answer with
+        # JSON 500, not let the exception escape into the platform's HTML error.
+        class Boom:
+            @staticmethod
+            def do_GET(_):
+                raise RuntimeError("boom")
+
+        import index
+        with mock.patch.object(index, "_handler_for",
+                               lambda name: Boom if name == "boom" else None):
+            status, body = self._dispatch("/api/boom")
+        self.assertEqual(status, 500)
+        self.assertIn("error", body)
+
+
+class TestClientRoutes(unittest.TestCase):
+    """The browser must only call routes that exist, and public/ must ship no tests.
+
+    Nothing else checks both halves: the endpoint modules are tested on their
+    own, and no test ever read the client's URLs, so a renamed or missing
+    module would 404 in production while every suite stayed green. The test
+    files used to live in public/js/ too, where they were served to visitors."""
+
+    _ROUTE = re.compile(r"""["'`]/api/([a-z][a-z0-9_]*)""")
+
+    def test_every_client_route_has_an_endpoint_module(self):
+        # Quote- or backtick-prefixed only: the same substring inside an
+        # absolute third-party URL (Epic's /id/api/redirect, Sony's
+        # /api/v1/ssocookie) is not one of our routes.
+        called = set()
+        for src in sorted((ROOT / "public" / "js").glob("*.js")):
+            called |= set(self._ROUTE.findall(src.read_text(encoding="utf-8")))
+        self.assertGreaterEqual(len(called), 12, sorted(called))
+        for name in sorted(called):
+            with self.subTest(route=name):
+                self.assertTrue((ROOT / "backend" / f"{name}.py").is_file(),
+                                f"the client calls /api/{name} but backend/{name}.py does not exist")
+
+    def test_public_ships_no_test_files(self):
+        served = [str(p.relative_to(ROOT)) for p in (ROOT / "public").rglob("*.test.mjs")]
+        self.assertEqual(served, [], served)
 
 
 if __name__ == "__main__":

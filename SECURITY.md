@@ -54,7 +54,7 @@ rule, and `tests/test_logging.py` pins the consequence.
   asserts that a secret in a query string never reaches the log line.
 * **Nothing is persisted.** See *What the server sees*. Restarting the process
   discards every cache.
-* **Cross-origin access is opt-in per origin.** `api/_cors.py` echoes back only
+* **Cross-origin access is opt-in per origin.** `backend/_cors.py` echoes back only
   an origin named in `CORS_ALLOWED_ORIGINS` — never a wildcard, and never
   `Access-Control-Allow-Credentials`. A stray `*` or `null` in the allowlist is
   discarded rather than honoured, so a copy-paste mistake is inert. The
@@ -65,7 +65,11 @@ rule, and `tests/test_logging.py` pins the consequence.
   `vercel.json` on Vercel.
 * **Paths cannot escape `public/`.** Every dot segment is rejected up front and
   the resolved path is checked against the resolved root.
-* **Per-IP rate limiting** on every endpoint, including `OPTIONS`.
+* **Per-IP rate limiting** on every endpoint, including `OPTIONS` — enforced by
+  `server.py` when it serves (local, Docker, Render). The Vercel deployment
+  enforces none in-app: add a rate-limiting rule in the Vercel Firewall (one
+  free rule per Hobby project, first 1,000,000 allowed requests a month
+  included), or set `REQUIRE_USER_KEYS=1` so there is no shared quota to burn.
 * **The operator's keys are shared by default — and visitors can spend them.**
   `user_key()` prefers the caller's own header key and falls back to the
   server-side `STEAM_API_KEY`, `ITAD_API_KEY`, `PLATPRICES_API_KEY` and
@@ -77,7 +81,7 @@ rule, and `tests/test_logging.py` pins the consequence.
 
 ### Not a secret, despite looking like one
 
-`api/epic_exchange.py` and `api/gog_exchange.py` carry default `CLIENT_SECRET`
+`backend/epic_exchange.py` and `backend/gog_exchange.py` carry default `CLIENT_SECRET`
 values. These are the providers' own public application credentials, published
 in their client-side integrations and in countless open-source projects. They
 identify the application, not a user. Override them if you register your own
@@ -92,7 +96,7 @@ asked to paste one into this application.
 The decision is to keep PlayStation support on public deployments, on this
 basis:
 
-* **The pasted token is exchanged, not stored.** `api/psn_exchange.py` turns it
+* **The pasted token is exchanged, not stored.** `backend/psn_exchange.py` turns it
   into a Sony access + refresh token pair and returns those to the browser. The
   NPSSO itself is not cached, not logged and not persisted.
 * **The server never decides what to do with it.** It is an opaque string in a
@@ -111,8 +115,8 @@ and is small: disable the two handlers and rewrite the connect copy.
    transport, not your process. Anyone with root on the machine, or able to read
    a heap dump, can read tokens as they pass. The only real mitigation is not
    handling the credential at all.
-2. **Shared in-memory caches cross visitors.** `api/epic_games.py` caches
-   playtime keyed by Epic account id; `api/covers.py` caches cover art keyed by
+2. **Shared in-memory caches cross visitors.** `backend/epic_games.py` caches
+   playtime keyed by Epic account id; `backend/covers.py` caches cover art keyed by
    title. Neither holds secrets, but on a shared instance a visitor who knows
    another visitor's account id could read that visitor's cached playtime.
    Prices are keyed by currency and region and are not user-specific.
@@ -136,7 +140,9 @@ and is small: disable the two handlers and rewrite the connect copy.
 - [ ] `TRUST_PROXY` **unset** unless a reverse proxy you control is in front.
       Setting it while the API is directly reachable makes the per-IP rate limit
       trivially bypassable by forging `X-Forwarded-For`.
-- [ ] `RATE_LIMIT_PER_MIN` reviewed against your instance size.
+- [ ] `RATE_LIMIT_PER_MIN` reviewed against your instance size — it binds
+      `server.py` only; on Vercel, confirm the Firewall's rate-limiting rule
+      instead, and check it is still active after plan changes.
 - [ ] HTTPS only, terminating at the platform edge.
 - [ ] Rotate any key you have ever pasted into a shared or public environment.
 - [ ] Log shipping reviewed: access logs contain paths, IPs and upstream error
