@@ -2392,3 +2392,91 @@ test("a restored snapshot finds its cross-store copies again", async () => {
   assert.equal(env.root.querySelectorAll(".dupe-chip").length, 2,
     "a refresh keeps the flags");
 });
+
+// ---------- the open drawer follows its own saves ----------
+
+const drawerValue = (env, label) => {
+  const row = [...env.root.querySelectorAll(".drawer-row")]
+    .find((r) => r.querySelector("span").textContent === label);
+  return row ? row.querySelector("strong").textContent : null;
+};
+
+test("saving in the drawer updates the drawer itself", async () => {
+  const { env } = await boot({ seed: editSeed });
+  await settle();
+  await openTitle(env, "Hades");
+
+  assert.equal(drawerValue(env, "Current price"), "₹1,000.00", "opens on the store's price");
+  assert.equal(drawerValue(env, "₹ / hour"), "₹50/h", "and the rate it implies");
+
+  await saveFigure(env, "price", 100);
+
+  assert.equal(drawerValue(env, "Current price"), "₹100.00",
+    "the price row follows the save — it used to keep the old number forever");
+  assert.equal(drawerValue(env, "₹ / hour"), "₹5/h",
+    "and the rate is recomputed from it");
+  assert.equal(drawerValue(env, "Playtime"), "20.0 h", "rows the edit did not touch keep their own");
+  const ref = env.root.querySelector(".edit-ref").textContent;
+  assert.ok(ref.includes("₹1,000.00"),
+    `the API reference still names the store's figure: ${ref}`);
+});
+
+test("an open Share preview is never replaced by the inspector's repaint", async () => {
+  const { env } = await boot({ seed: editSeed });
+  await settle();
+  await openTitle(env, "Hades");
+  assert.equal(env.root.querySelector("#drawer-title").textContent, "Game details");
+
+  [...env.root.querySelectorAll("button")].find((b) => b.dataset.action === "share")
+    .dispatch("click");
+  await settle();
+  assert.equal(env.root.querySelector("#drawer-title").textContent, "Share your card",
+    "the export preview took the panel");
+
+  // Anything that re-renders must leave it — openId is still set on a game, so
+  // a guard keyed on that alone would hand the panel back to the inspector.
+  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "regret")
+    .dispatch("click");
+  await settle();
+
+  assert.equal(env.root.querySelector("#drawer-title").textContent, "Share your card",
+    "the preview keeps the panel through a full re-render");
+  assert.ok(env.root.querySelector(".export-preview"), "and its canvas");
+});
+
+test("an unrelated re-render does not wipe a half-typed figure", async () => {
+  const { env } = await boot({ seed: editSeed });
+  await settle();
+  await openTitle(env, "Hades");
+
+  editBox(env, "price").value = "123";
+  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "regret")
+    .dispatch("click");
+  await settle();
+
+  assert.equal(editBox(env, "price").value, "123",
+    "the drawer body was rebuilt, so the value has to be carried across it");
+});
+
+test("a repaint does not blank the cover art", async () => {
+  const seed = (env) => {
+    editSeed(env);
+    env.localStorage.setItem("covers_cache",
+      JSON.stringify({ "Steam:1": "https://cdn.example/hades.png" }));
+  };
+  const { env } = await boot({ seed });
+  await settle();
+  await openTitle(env, "Hades");
+
+  const src = () => {
+    const cover = env.root.querySelector(".drawer-cover");
+    const img = cover && cover.querySelector(".cover-img");
+    return img ? img.getAttribute("src") : null;
+  };
+  assert.equal(src(), "https://cdn.example/hades.png", "stamped when the drawer opened");
+
+  await saveFigure(env, "price", 100);
+
+  assert.equal(src(), "https://cdn.example/hades.png",
+    "and stamped again after the rebuild — renderDrawer paints a fresh img at opacity 0");
+});

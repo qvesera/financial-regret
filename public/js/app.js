@@ -146,6 +146,10 @@ let state = {
   search: "",
   scanning: false,
   openId: null,
+  // Which panel the shared drawer currently hosts: the game inspector or the
+  // export preview. They share one element, so a refresh must know which it is
+  // allowed to repaint — see refreshDrawer().
+  drawerKind: null,
   // Card exports: which deck the export drawer is showing, and — on a
   // #card= link — the snapshot another visitor shared.
   exportKind: "wrapped",
@@ -402,6 +406,9 @@ function renderAll() {
   // visitor has entered prices of their own, so say so — only while it is true.
   view.setBasisNote(state.games.filter((g) => g.edited).length);
   view.render(state);
+  // An open inspector follows every render — a Save inside it used to update
+  // the dashboard behind it and leave its own rows stale.
+  refreshDrawer();
   if (state.phase === "ready" && state.viewMode === "grid") {
     applyCovers();
     observeCovers();
@@ -956,19 +963,56 @@ function openDrawer(id) {
   const game = state.rows.find((g) => g.id === id);
   if (!game || !view.drawer) return;
   state.openId = id;
+  state.drawerKind = "game";
   // Remember where focus came from so closing can put it back.
   lastFocus = document.activeElement && document.activeElement.focus
     ? document.activeElement : null;
   view.renderDrawer(view.drawerBody, game, (state.pricesEff || state.prices)[id], state);
   view.drawer.classList.remove("hidden");
-  applyCovers();                                // stamp the art if its url is cached
-  if (!coversCache.has(id)) queueCovers([id]);  // else fetch it — someone wants to look at it
+  stampDrawerCover(id);
   const close = document.getElementById("drawer-close");
   if (close && typeof close.focus === "function") close.focus();
 }
 
+/** Cover art for a freshly built drawer: stamped from cache at once, fetched
+ *  otherwise. Extracted from openDrawer because renderDrawer paints a new <img>
+ *  at opacity 0 every single time — without this the repaint path would leave a
+ *  blank cover where the art used to be. */
+function stampDrawerCover(id) {
+  applyCovers();
+  if (!coversCache.has(id)) queueCovers([id]);
+}
+
+/** Repaint an open game inspector against current state.
+ *
+ *  renderDrawer has exactly one other caller — openDrawer — so before this the
+ *  panel kept its built DOM through every render: Save moved the table, the
+ *  KPIs and the verdicts while the drawer's own rows still showed the old
+ *  numbers. Now it follows.
+ *
+ *  Two things it must not do: overwrite the export preview (openExporter fills
+ *  the same element without clearing openId, so the guard is drawerKind and not
+ *  openId alone), and steal focus (openDrawer focuses its close button, which
+ *  would yank the caret out of the field being saved). Half-typed figures are
+ *  carried across the rebuild for the same reason the Save buttons exist. */
+function refreshDrawer() {
+  if (state.phase !== "ready" || state.drawerKind !== "game" || !state.openId) return;
+  const game = state.games.find((g) => g.id === state.openId);
+  if (!game) return;
+  const keep = {};
+  for (const [field, input] of Object.entries(view.editInputs || {})) {
+    keep[field] = input ? input.value : "";
+  }
+  view.renderDrawer(view.drawerBody, game, (state.pricesEff || state.prices)[game.id], state);
+  for (const [field, input] of Object.entries(view.editInputs || {})) {
+    if (input && keep[field] !== undefined) input.value = keep[field];
+  }
+  stampDrawerCover(game.id);
+}
+
 function closeDrawer() {
   state.openId = null;
+  state.drawerKind = null;
   if (view.drawer) view.drawer.classList.add("hidden");
   const main = document.getElementById("main");
   if (main && typeof main.focus === "function") main.focus();
@@ -1002,6 +1046,7 @@ function openExporter() {
   if (!kinds.includes(state.exportKind)) state.exportKind = "wrapped";
   lastFocus = document.activeElement && document.activeElement.focus
     ? document.activeElement : null;
+  state.drawerKind = "export";
   view.renderExporter(state);
   view.drawer.classList.remove("hidden");
   repaintExportPreview();
