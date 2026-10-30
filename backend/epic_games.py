@@ -31,6 +31,11 @@ EPIC_OAUTH_HOST = "account-public-service-prod03.ol.epicgames.com"
 EPIC_LIBRARY_HOST = "library-service.live.use1a.on.epicgames.com"
 EPIC_CATALOG_HOST = "catalog-public-service-prod06.ol.epicgames.com"
 EPIC_CLIENT_ID = os.environ.get("EPIC_CLIENT_ID", "34a02cf8f4414e29b15921876da36f9a")
+# Account ids, namespaces and cursors are opaque fixed-alphabet tokens. They
+# are spliced into upstream URL paths, and the account id arrives in a request
+# header -- attacker-supplied on a public deployment. `../../` in one of them
+# would walk the upstream host from this server; the alphabet is the border.
+_SAFE_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 EPIC_CLIENT_SECRET = os.environ.get("EPIC_CLIENT_SECRET", "daafbccc737745039dffe53d94fc76cf")
 
 IGNORE_PREFIXES = ("UE_", "UnrealEngine", "Unreal_", "UE5_", "UE4_")
@@ -140,6 +145,8 @@ def fetch_playtime(access_token: str, account_id: str) -> dict:
     top-level list of artifacts -- both must parse (a shape mismatch here
     used to raise AttributeError and 500 the whole scan).
     """
+    if not _SAFE_ID.fullmatch(account_id or ""):
+        return {}
     headers = {"Authorization": f"bearer {access_token}"}
     try:
         resp = requests.get(
@@ -255,6 +262,8 @@ def is_non_game(record: dict) -> bool:
 
 
 def _catalog_bulk(access_token: str, namespace: str, extra: dict) -> dict:
+    if not _SAFE_ID.fullmatch(namespace or ""):
+        return {}
     headers = {"Authorization": f"bearer {access_token}"}
     params = {"includeDLCDetails": "true", "includeMainGameDetails": "true",
               "country": "US", "locale": "en"}

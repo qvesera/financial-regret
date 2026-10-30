@@ -11,9 +11,14 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # App
-COPY server.py ./ 
+COPY server.py ./
 COPY backend/ ./backend/
 COPY public/ ./public/
+
+# Run unprivileged: server.py keeps no state on disk, so the image needs
+# read access and nothing else.
+RUN useradd --system --create-home --uid 10001 appuser
+USER appuser
 
 ENV PORT=8080
 ENV HOST=0.0.0.0

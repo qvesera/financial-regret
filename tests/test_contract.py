@@ -1256,5 +1256,36 @@ class TestRateLimitReporting(unittest.TestCase):
                          "an answered scan must not cry rate-limit")
 
 
+class TestUpstreamUrlGuards(unittest.TestCase):
+    """Client headers reach two upstream URL paths; both must be ids, not paths.
+
+    A header is attacker-supplied on a public deployment. Spliced into a URL
+    path unescaped, `../../` and friends walk the upstream host from your
+    server -- bounded SSRF wearing a library scan's clothes. GOG and Epic ids
+    are opaque fixed-alphabet strings; anything else never reaches the wire."""
+
+    def test_gog_playtime_probe_refuses_a_user_id_that_is_not_numeric(self):
+        import gog_games
+        with mock.patch.object(gog_games, "requests") as rq:
+            out = gog_games.probe_playtime({"X-GOG-User-Id": "../../v2/user"}, {"id": "1234"})
+        self.assertIsNone(out)
+        rq.get.assert_not_called()
+
+    def test_epic_playtime_refuses_an_account_id_outside_the_id_alphabet(self):
+        import epic_games
+        epic_games._playtime_cache.clear()
+        with mock.patch.object(epic_games, "requests") as rq:
+            out = epic_games.fetch_playtime("tok", "../../other")
+        self.assertEqual(out, {})
+        rq.get.assert_not_called()
+
+    def test_epic_catalog_refuses_a_namespace_outside_the_id_alphabet(self):
+        import epic_games
+        with mock.patch.object(epic_games, "requests") as rq:
+            out = epic_games._catalog_bulk("tok", "../evil", {})
+        self.assertEqual(out, {})
+        rq.get.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
