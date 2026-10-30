@@ -137,6 +137,10 @@ let state = {
   // {platprices: true}. Cleared when a new attempt starts, so the note it
   // drives never outlives its own cause.
   limited: {},
+  // Titles held on more than one store: {gameId: [other copies]}. Derived from
+  // identity alone, so it is recomputed wherever the game list is rebuilt
+  // rather than persisted with the snapshot.
+  dupes: new Map(),
   comparators: { worst: [], best: [] },
   simTarget: savedUi.simTarget || null,
   simHours: Number(savedUi.simHours) || 10,
@@ -378,6 +382,12 @@ async function fetchAllEpicGames() {
   return games;
 }
 
+/** Alnum-folded title: case, symbol and spacing variants of one display name
+ *  collapse, so "DOOM (2016)" and "doom 2016" are one title. Shared by
+ *  dedupeGames and findDuplicates so the two can never disagree about what
+ *  counts as the same game. */
+const foldName = (name) => (name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
 /** Collapse duplicate entitlements of the same game. Epic returns the base
  *  title plus each DLC/expansion as separate records that share a sandbox, so
  *  they all surface under one display name; keep the copy with the most
@@ -386,12 +396,45 @@ async function fetchAllEpicGames() {
 export function dedupeGames(games) {
   const best = new Map();
   for (const g of games) {
-    // alnum-fold the name so symbol/case variants of one title collapse too
-    const key = `${g.platform}\u0000${g.kind || "game"}\u0000${(g.name || "").toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+    const key = `${g.platform}\u0000${g.kind || "game"}\u0000${foldName(g.name)}`;
     const prev = best.get(key);
     if (!prev || (g.hours || 0) > (prev.hours || 0)) best.set(key, g);
   }
   return [...best.values()];
+}
+
+/** Titles held on more than one store: {id: [the other copies' rows]}.
+ *
+ *  Two purchases of one game are a regret the dashboard otherwise cannot see:
+ *  each copy is its own row with its own price and nothing ties them together.
+ *  Matching is folded-title equality only, so it is deliberately conservative
+ *  — an edition suffix ("Deluxe") never matches its base game, while a real
+ *  name collision (DOOM 1993 vs 2016) does. The UI therefore claims "also on
+ *  Epic", never "you paid twice".
+ *
+ *  Add-ons are skipped: they carry no verdict of their own and the base game
+ *  is the purchase. Same-store pairs cannot occur — dedupeGames has already
+ *  collapsed them — and the platform guard keeps that true regardless. */
+export function findDuplicates(games) {
+  const byTitle = new Map();
+  for (const g of games) {
+    if (g.kind === "dlc") continue;
+    const key = foldName(g.name);
+    if (!key) continue;
+    if (!byTitle.has(key)) byTitle.set(key, []);
+    byTitle.get(key).push(g);
+  }
+  const dupes = new Map();
+  for (const group of byTitle.values()) {
+    if (group.length < 2) continue;
+    for (const g of group) {
+      // Only a copy on a *different* store counts; the id/platform guards make
+      // "two stores, one game" the sole condition, not a near-miss.
+      const others = group.filter((o) => o.id !== g.id && o.platform !== g.platform);
+      if (others.length) dupes.set(g.id, others);
+    }
+  }
+  return dupes;
 }
 
 async function scan() {
@@ -441,6 +484,8 @@ async function scan() {
       if (!prev || (g.hours || 0) > (prev.hours || 0)) seen.set(g.id, g);
     }
     state.games = dedupeGames([...seen.values()]);
+    // Identity-only, so recompute whenever the list changes — never persisted.
+    state.dupes = findDuplicates(state.games);
     state.phase = "ready";          // real rows beat skeletons the instant they exist
     renderAll();
     try {
@@ -612,6 +657,7 @@ function unlinkPlatform(platform) {
   if (!anyLinked(acc)) {
     state.phase = "onboarding";
     state.games = [];
+    state.dupes = new Map();
     state.rows = [];
     state.metrics = null;
     state.counts = {};
@@ -877,6 +923,7 @@ function forget() {
   store.forget();
   coversCache.clear();
   state.games = [];
+  state.dupes = new Map();
   state.rows = [];
   state.prices = {};
   state.counts = {};
@@ -1170,6 +1217,9 @@ export async function boot() {
   const snap = store.getSnapshot();
   if (snap) {
     state.games = snap.games || [];
+    // Recomputed on every boot: a snapshot carries only rows and prices, so a
+    // restored session must find its cross-store copies again.
+    state.dupes = findDuplicates(state.games);
     state.prices = snap.prices || {};
     state.steamPersona = snap.persona || null;
   }

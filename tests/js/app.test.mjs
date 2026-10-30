@@ -1837,3 +1837,115 @@ test("a scan that prices normally leaves no rate-limit note", async () => {
   assert.equal(env.root.querySelector(".disclaimer-limit-note").hidden, true,
     "nothing was refused, so nothing is said");
 });
+
+test("findDuplicates flags a title held on two stores, and only that", async () => {
+  const { mod } = await boot();
+  const out = mod.findDuplicates([
+    { id: "Steam:1", name: "Hades", platform: "Steam", hours: 40 },
+    { id: "Epic:9", name: "Hades", platform: "Epic", hours: 3 },
+    { id: "GOG:5", name: "Hades II", platform: "GOG", hours: 1 },
+    { id: "Steam:7", name: "Doom", platform: "Steam", hours: 0, kind: "dlc" },
+    { id: "Epic:7", name: "Doom", platform: "Epic", hours: 0, kind: "dlc" },
+  ]);
+
+  assert.equal(out.size, 2, "both copies of Hades are marked, nothing else");
+  assert.deepEqual(out.get("Steam:1").map((o) => o.id), ["Epic:9"], "the Steam copy names Epic");
+  assert.deepEqual(out.get("Epic:9").map((o) => o.id), ["Steam:1"], "and Epic names Steam back");
+  assert.ok(!out.has("GOG:5"), "Hades II is a different game, not a duplicate");
+  assert.ok(!out.has("Steam:7") && !out.has("Epic:7"),
+    "add-ons are never matched: the base game is the purchase");
+});
+
+test("two rows on one store are not a cross-library duplicate", async () => {
+  const { mod } = await boot();
+  // dedupeGames has already collapsed these within a platform; the platform
+  // guard keeps the claim honest even if a pair ever survives it.
+  const out = mod.findDuplicates([
+    { id: "Steam:1", name: "Hades", platform: "Steam", hours: 40 },
+    { id: "Steam:2", name: "Hades", platform: "Steam", hours: 3 },
+  ]);
+  assert.equal(out.size, 0, "one store holding a title twice says nothing");
+});
+
+test("a title match cannot tell two different games apart — the known ceiling", async () => {
+  const { mod } = await boot();
+  // DOOM (1993) and DOOM (2016) share a display name, and the data carries no
+  // year or cross-store id to separate them, so they are flagged. Pinned on
+  // purpose: the matcher claims "also on", never "you paid twice", and this
+  // assertion should be the one to fail when a real identity source lands.
+  const out = mod.findDuplicates([
+    { id: "Steam:239160", name: "DOOM", platform: "Steam", hours: 10 },
+    { id: "Epic:doom2016", name: "DOOM", platform: "Epic", hours: 0 },
+  ]);
+  assert.equal(out.size, 2, "flagged, because the matcher only sees the name");
+});
+
+test("a title owned on two stores is flagged in the list and explained in the drawer", async () => {
+  const seed = (env) => {
+    env.localStorage.setItem("steam_id", "76561198000000000");
+    env.localStorage.setItem("epic_access_token", "epic-tok");
+    env.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) {
+        return { json: { games: [{ id: "Steam:1", name: "Hades", platform: "Steam", hours: 40, appid: 1145360 }] } };
+      }
+      if (url.includes("/api/epic_games")) {
+        return { json: { games: [{ id: "Epic:9", name: "Hades", platform: "Epic", hours: 3 }] } };
+      }
+      if (url.includes("/api/gog_games")) return { json: { games: [] } };
+      if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 500, "Epic:9": 300 } } };
+      return null;
+    });
+  };
+  const { env } = await boot({ seed });
+  await settle();
+
+  const rows = [...env.root.querySelectorAll(".game-row")];
+  assert.equal(rows.length, 2, "each copy keeps its own row and its own price");
+  const chips = rows.map((r) => r.querySelector(".dupe-chip"));
+  assert.ok(chips.every(Boolean), "every copy points at the other store");
+  assert.deepEqual(chips.map((c) => c.textContent).sort(), ["Epic", "Steam"]);
+  assert.deepEqual(chips.map((c) => c.getAttribute("aria-label")).sort(),
+    ["Also owned on Epic", "Also owned on Steam"],
+    "each names the other store, and says so aloud");
+
+  // The drawer spells the other copy out: store, its price today, its playtime.
+  rows[0].dispatch("click");
+  await settle();
+  const dupeRow = [...env.root.querySelectorAll(".drawer-row")]
+    .find((r) => r.querySelector("span").textContent === "Also owned on");
+  assert.ok(dupeRow, "the drawer explains the overlap instead of hiding it");
+  assert.equal(dupeRow.querySelector("strong").textContent, "Epic · ₹300.00 · 3.0 h",
+    "the other copy's store, price and playtime, beside this one's");
+});
+
+test("a library from one store wears no duplicate chip", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  assert.equal(env.root.querySelectorAll(".dupe-chip").length, 0,
+    "nothing to compare against — the chip would be noise");
+});
+
+test("a restored snapshot finds its cross-store copies again", async () => {
+  // The snapshot stores only rows and prices, so duplicates must be recomputed
+  // on boot or a page refresh silently loses every chip.
+  const seed = (env) => {
+    env.localStorage.setItem("steam_id", "76561198000000000");
+    env.localStorage.setItem("last_scan", JSON.stringify({
+      v: 1, at: Date.now(), currency: "INR",
+      games: [
+        { id: "Steam:1", name: "Hades", platform: "Steam", hours: 40 },
+        { id: "Epic:9", name: "Hades", platform: "Epic", hours: 3 },
+      ],
+      prices: { "Steam:1": 500, "Epic:9": 300 },
+    }));
+  };
+  const { env, mod } = await boot({ seed });
+  await settle();
+
+  assert.equal(mod.getState().phase, "ready", "the snapshot alone makes it ready");
+  assert.equal(env.root.querySelectorAll(".game-row").length, 2,
+    "rows came from the snapshot, not a fresh scan");
+  assert.equal(env.root.querySelectorAll(".dupe-chip").length, 2,
+    "a refresh keeps the flags");
+});

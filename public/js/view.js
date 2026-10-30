@@ -303,6 +303,10 @@ export const view = {
   /** Active display currency (ISO 4217); synced from state in render(). */
   currency: "INR",
 
+  /** Titles held on another store, refreshed in updateReady(). Default exists
+   *  so the row and card builders can read it before the first ready render. */
+  dupes: new Map(),
+
   el(tag, cls, text) {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -542,6 +546,21 @@ export const view = {
     if (!this.limitNote || !this.limitText) return;
     this.limitText.textContent = text ? `${text} ` : "";
     this.limitNote.hidden = !text;
+  },
+
+  /** The chip a row or card wears when the same title is owned on another
+   *  store. It names that store — "+1" once a third copy exists — because the
+   *  honest claim is "also owned on Epic", never "you paid twice": title
+   *  matching cannot tell which copy was bought, or when. The tooltip carries
+   *  the whole list, so the terse chip still reads on hover and aloud. */
+  dupeChip(others) {
+    const names = [...new Set(others.map((o) => o.platform))];
+    const label = names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0];
+    const chip = this.el("span", "dupe-chip", label);
+    const claim = `Also owned on ${names.join(", ")}`;
+    chip.title = claim;
+    chip.setAttribute("aria-label", claim);
+    return chip;
   },
 
   /** Compact per-platform strip in the topbar (ready/loading phases). */
@@ -1214,6 +1233,9 @@ export const view = {
 
   updateReady(state) {
     const { rows, scanning, metrics } = state;
+    // Which titles are held on another store — read once per render so the row
+    // and card builders take it from here instead of each growing an argument.
+    this.dupes = state.dupes || new Map();
     this.renderKpis(this.kpi, metrics);
     this.renderRegretRing(this.ringSvg, metrics.regretScore);
     this.renderPlatforms(this.platformList, state.games, state.prices, state.platform);
@@ -1828,6 +1850,11 @@ export const view = {
           const td = this.el("td", cls, text);
           // Add-on rows carry a small chip so DLC is legible in the list.
           if (i === 0 && game.kind === "dlc") td.appendChild(this.el("span", "dlc-chip", "DLC"));
+          // And one when the title is owned on another store, so buying a game
+          // twice shows in the list instead of only behind a click.
+          if (i === 0 && this.dupes.get(game.id)) {
+            td.appendChild(this.dupeChip(this.dupes.get(game.id)));
+          }
           tr.appendChild(td);
           return;
         }
@@ -1901,6 +1928,9 @@ export const view = {
       const titleRow = this.el("p", "card-title", game.name);
       // Same add-on chip as the list, so a cover card reads as DLC too.
       if (game.kind === "dlc") titleRow.appendChild(this.el("span", "dlc-chip", "DLC"));
+      // Same again for an owned-elsewhere title: the grid must not be the view
+      // that hides the duplicate.
+      if (this.dupes.get(game.id)) titleRow.appendChild(this.dupeChip(this.dupes.get(game.id)));
       meta.appendChild(titleRow);
       // The band reads today's price against its own history, so it sits
       // directly under the name — above the row it explains.
@@ -2002,6 +2032,21 @@ export const view = {
     hoursRow.appendChild(this.el("span", null, "Playtime"));
     hoursRow.appendChild(this.el("strong", null, game.hours == null ? "unknown" : hours(game.hours)));
     drawerBody.appendChild(hoursRow);
+
+    // Held on another store too: the drawer is where the detail belongs — each
+    // other copy's store, its price today and its own playtime, next to this
+    // one's. The whole row is absent when the title is owned once.
+    const others = state && state.dupes ? state.dupes.get(game.id) : null;
+    if (others && others.length) {
+      const dupeRow = this.el("div", "drawer-row");
+      dupeRow.appendChild(this.el("span", null, "Also owned on"));
+      dupeRow.appendChild(this.el("strong", null, others.map((o) => {
+        const otherPrice = state.prices ? state.prices[o.id] : null;
+        const otherHours = o.hours == null ? "unknown" : hours(o.hours);
+        return `${o.platform} · ${typeof otherPrice === "number" ? money(otherPrice, cur) : "—"} · ${otherHours}`;
+      }).join("  /  ")));
+      drawerBody.appendChild(dupeRow);
+    }
 
     const vphRow = this.el("div", "drawer-row");
     vphRow.appendChild(this.el("span", null, `${symbol(cur)} / hour`));

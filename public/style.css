@@ -1496,7 +1496,7 @@ td.cell-platform { white-space: nowrap; }
 
 /* Add-on marker. Deliberately muted and separate from the verdict badges —
    "DLC" is a kind of thing, not a grade, so it never borrows a tier colour. */
-.dlc-chip {
+.dlc-chip, .dupe-chip {
   display: inline-block;
   margin-left: var(--space-2);
   padding: 0 var(--space-1);
@@ -1511,6 +1511,11 @@ td.cell-platform { white-space: nowrap; }
   vertical-align: middle;
   white-space: nowrap;
 }
+
+/* Owned on another store too. Same geometry as the add-on chip, an accent
+   outline so the two chips never read as one label — and still no tier colour:
+   where a copy lives is a fact about it, not a grade. */
+.dupe-chip { border-color: var(--accent); color: var(--accent); }
 
 /* ---- cards: cover fallback, badges, hours, price band ---- */
 
