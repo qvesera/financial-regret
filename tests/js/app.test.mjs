@@ -202,6 +202,47 @@ test("saving a key clears the gate and Connect proceeds", async () => {
   assert.equal(env.navigations.length, 1, "with a key present, Connect navigates");
 });
 
+test("Connect needs no key of your own when the instance carries shared keys", async () => {
+  // The gate's whole reason was BYO mode: a visitor who brought nothing could
+  // not finish the login usefully. With shared keys the server finishes it for
+  // them, so demanding a key before Connect became friction with no purpose.
+  const { env } = await boot({ seed: (e) => {
+    e.fetchRoutes.push((url) => (url.includes("/api/config") ? { json: {
+      requireUserKeys: false,
+      keys: { steam: true, itad: true, platprices: false },
+    } } : null));
+  } });
+  await settle();
+
+  byAction(env, "link", "steam").dispatch("click");
+
+  assert.equal(env.navigations.length, 1,
+    "the store login opens with an empty browser: the server's keys do the work");
+  assert.equal(env.document.getElementById("keys-lock").hidden, true,
+    "the refusal note never appears");
+  assert.equal(env.root.querySelector(".api-keys").classList.contains("needs-keys"), false,
+    "and the keys card is not highlighted — it is optional, as the card says");
+});
+
+test("a keyless instance still refuses Connect — nothing to finish the login with", async () => {
+  // BYO off, but no shared keys either: there is no key anywhere in the picture,
+  // so the gate must keep doing its job rather than waving people through to a
+  // library that cannot price a single row.
+  const { env } = await boot({ seed: (e) => {
+    e.fetchRoutes.push((url) => (url.includes("/api/config") ? { json: {
+      requireUserKeys: false,
+      keys: { steam: false, itad: false, platprices: false },
+    } } : null));
+  } });
+  await settle();
+
+  byAction(env, "link", "steam").dispatch("click");
+
+  assert.equal(env.navigations.length, 0, "refused");
+  assert.equal(env.document.getElementById("keys-lock").hidden, false,
+    "and the note says why, pointing at the keys card");
+});
+
 test("the shared term in one key field fills all four fields", async () => {
   // Each provider only ever reads its own header, so the term has to land in
   // every field — one entry opts the whole browser into the instance defaults.

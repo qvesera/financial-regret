@@ -754,6 +754,18 @@ function hasUserKeys() {
   return USER_KEY_KINDS.some((k) => !!localStorage.getItem(`${k}_api_key`));
 }
 
+/** Can this instance serve a visitor who brings no keys of their own?
+ *
+ *  The shared keys /api/config reports, and only when BYO mode is off — in BYO
+ *  mode the server's keys are ignored, so reporting them would be a lie. null
+ *  config (fetch failed, or it never landed) answers "no", which keeps the gate
+ *  closed in the safe direction. */
+function serverCarriesKeys() {
+  const s = state.server;
+  if (!s || s.requireUserKeys) return false;
+  return Boolean(s.keys && (s.keys.steam || s.keys.itad || s.keys.platprices));
+}
+
 /** No keys: refuse the store login and land on the keys card instead —
  *  highlight it, reveal the note that says why, scroll the fields into view
  *  and focus the first one. Saving a key rebuilds the onboarding card, which
@@ -779,10 +791,13 @@ function goToKeysCard() {
 function linkPlatform(platform) {
   // The receipt is spent the moment a new link begins.
   state.forgot = false;
-  // The gate: no key this browser has ever been given, no login flow started.
-  // Clicking Connect would otherwise open a store login the visitor could not
-  // finish usefully — send them to the keys card instead.
-  if (!hasUserKeys()) {
+  // The gate exists to stop a visitor opening a store login they cannot finish
+  // usefully: in BYO mode nothing prices without their own key, and a keyless
+  // instance has nothing to price with either. A shared-key instance does — the
+  // server's keys do the work — so there is nothing left to bring first, and
+  // asking for one before a Connect is exactly the friction that made the gate
+  // wrong once keys stopped being mandatory.
+  if (!hasUserKeys() && !serverCarriesKeys()) {
     goToKeysCard();
     return;
   }
