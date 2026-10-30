@@ -114,12 +114,11 @@ const METRIC_TIPS = {
   // textContent is pinned by tests and must stay a bare figure.
   "hero-spend": "Your whole library repriced at today's cheapest price for each "
     + "game — what buying it all again would cost right now. It is not what you "
-    + "paid: no connected store reports purchase history.",
+    + "paid: no connected store reports purchase history. Games with no price "
+    + "found count as zero, so a library of unpriced titles reads low.",
   "hero-line": "The percentage is how much of your library you've actually "
     + "touched. 'Worst buy' is the most expensive hour in it: highest price per "
     + "hour among games with at least an hour of play.",
-  "kpi-library": "Today's cheapest price for every game, added up. Games with "
-    + "no price found count as zero, so a library of unpriced titles reads low.",
   "kpi-high": "The same library priced at each game's all-time high. Where "
     + "there is no price history, today's price stands in rather than leaving a gap.",
   "kpi-low": "The same library priced at each game's all-time low — the "
@@ -934,16 +933,16 @@ export const view = {
     const wrap = this.el("section", "ready");
 
     // ---- hero: the one loud moment on the page ----
-    // The six stats live INSIDE this card: as a separate row below, the card
+    // The stats live INSIDE this card: as a separate row below, the card
     // hugged its text and left a dead band between it and the KPIs — and the
     // three chips that used to sit under the figure repeated three of those
     // same stats verbatim.
     const hero = this.el("section", "hero");
     hero.id = "hero";
-    const micro = this.el("p", "micro", "Lifetime spend");
+    const micro = this.el("p", "micro", "Re-buy cost");
     // The chip goes on the label: #hero-spend's textContent is asserted by
     // tests, and a bare figure should stay a bare figure anyway.
-    micro.appendChild(this.infoTip("hero-spend", "Lifetime spend"));
+    micro.appendChild(this.infoTip("hero-spend", "Re-buy cost"));
     hero.appendChild(micro);
     const figure = this.el("p", "hero-figure", "—");
     figure.id = "hero-spend";
@@ -965,7 +964,6 @@ export const view = {
     let regretCard = null;
     let dlcCard = null;
     [
-      ["kpi-library", "Library value", "est. re-buy cost"],
       ["kpi-high", "Highest ever value", "all-time high"],
       ["kpi-low", "Lowest ever value", "all-time low"],
       ["kpi-backlog", "Backlog value", "unplayed (<1 hr)"],
@@ -1850,7 +1848,6 @@ export const view = {
       const el = container.querySelector(`#${id}`);
       if (el) el.textContent = val;
     };
-    fmt("kpi-library", money(metrics.libraryValue, cur));
     fmt("kpi-high", money(metrics.highestEver ?? 0, cur));
     fmt("kpi-low", money(metrics.lowestEver ?? 0, cur));
     fmt("kpi-backlog", money(metrics.backlogValue, cur));
@@ -1859,7 +1856,7 @@ export const view = {
     fmt("kpi-hours", hours(metrics.totalHours ?? 0));
     // Add-on spend is its own line (see computeRegret); the card only shows
     // when the library actually owns DLC, so a game-only shelf stays a clean
-    // six-tile grid instead of a zeroed seventh.
+    // five-tile grid instead of a zeroed sixth.
     if (this.dlcCard) {
       this.dlcCard.hidden = !metrics.dlcCount;
       fmt("kpi-dlc", money(metrics.dlcValue ?? 0, cur));

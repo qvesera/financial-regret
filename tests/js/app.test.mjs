@@ -123,7 +123,7 @@ test("cold start shows onboarding, hides metrics chrome", async () => {
     assert.equal(links.length, 0, "no dead Link button on a planned card");
   }
   assert.ok(env.root.querySelector(".api-keys"), "API keys card rendered");
-  assert.equal(env.document.getElementById("kpi-library"), null, "no KPIs before linking");
+  assert.equal(env.document.getElementById("kpi-high"), null, "no KPIs before linking");
   assert.equal(env.root.querySelector(".sources").hidden, true, "sources strip hidden on onboarding");
 
   // The link cards now say what will happen, in order, and the paste field
@@ -426,7 +426,7 @@ test("scan yields 3 rows, correct KPIs, and coverage text", async () => {
   assert.equal(s.metrics.knownCount, 2);
   assert.equal(s.metrics.unknownCount, 1);
 
-  assert.equal(env.document.getElementById("kpi-library").textContent, "₹4,425.00");
+  assert.equal(env.document.getElementById("hero-spend").textContent, "₹4,425.00");
   assert.equal(env.document.getElementById("kpi-high").textContent, "₹5,297.00");
   assert.equal(env.document.getElementById("kpi-low").textContent, "₹2,497.00");
   assert.equal(env.document.getElementById("kpi-backlog").textContent, "₹1,855.00");
@@ -622,7 +622,7 @@ test("GOG paste of the landing URL exchanges the code and scans", async () => {
   assert.equal(env.localStorage.getItem("gog_user_id"), "u1");
   assert.equal(mod.getState().phase, "ready");
   assert.equal(mod.getState().rows.length, 1);
-  assert.equal(env.document.getElementById("kpi-library").textContent, "₹300.00");
+  assert.equal(env.document.getElementById("hero-spend").textContent, "₹300.00");
 });
 
 test("GOG paste with mismatched OAuth state is rejected before any exchange", async () => {
@@ -1177,7 +1177,8 @@ test("the hero states the spend once, with the stats that back it", async () => 
   // hero card instead.
   assert.equal(env.root.querySelector(".hero-chips"), null, "no duplicate chips");
   assert.ok(env.root.querySelector(".kpi-grid"), "the stats sit inside the hero");
-  assert.ok(env.document.getElementById("kpi-library"), "library value is still reported, once");
+  assert.equal(env.document.getElementById("kpi-library"), null, "no second copy of the same figure");
+  assert.ok(env.document.getElementById("hero-spend"), "the value lives once, in the hero");
 });
 
 test("the header offers each control exactly once, in plain words", async () => {
@@ -1586,15 +1587,15 @@ test("a price typed in the drawer moves every figure that quotes it", async () =
   const { env, mod } = await boot({ seed: editSeed });
   await settle();
 
-  assert.equal(env.document.getElementById("kpi-library").textContent, "₹3,100.00",
+  assert.equal(env.document.getElementById("hero-spend").textContent, "₹3,100.00",
     "the library starts at the store's own prices");
   const tierBefore = mod.getState().verdicts.get("Steam:1");
 
   await openTitle(env, "Hades");
   await saveFigure(env, "price", 100);
 
-  assert.equal(env.document.getElementById("kpi-library").textContent, "₹2,200.00",
-    "library value follows the number the visitor typed (3,100 − 900)");
+  assert.equal(env.document.getElementById("hero-spend").textContent, "₹2,200.00",
+    "the hero figure follows the number the visitor typed (3,100 − 900)");
   assert.equal(mod.getState().pricesEff["Steam:1"], 100, "the price map agrees");
   assert.notEqual(mod.getState().verdicts.get("Steam:1"), tierBefore,
     "and the verdict moved with it — the benchmark is built from these rates");
@@ -1620,8 +1621,8 @@ test("Reset puts the store's own price back, chip and all", async () => {
   await settle();
 
   assert.equal(mod.getState().pricesEff["Steam:1"], 1000, "back to what the store said");
-  assert.equal(env.document.getElementById("kpi-library").textContent, "₹3,100.00",
-    "and so is the library value, with no re-fetch");
+  assert.equal(env.document.getElementById("hero-spend").textContent, "₹3,100.00",
+    "and so is the hero figure, with no re-fetch");
   const row = [...env.root.querySelectorAll(".game-row")]
     .find((r) => r.querySelector(".cell-name").textContent.startsWith("Hades"));
   assert.equal(row.querySelector(".edited-chip"), null, "the marker leaves with the edit");
@@ -1660,7 +1661,7 @@ test("a figure that is not a figure is refused, and nothing moves", async () => 
   assert.ok(err && !err.hidden, "the drawer explains the refusal");
   assert.ok(err.textContent.includes("0 or more"), err.textContent);
   assert.equal(mod.getState().pricesEff["Steam:1"], 1000, "the store's price stands");
-  assert.equal(env.document.getElementById("kpi-library").textContent, "₹3,100.00",
+  assert.equal(env.document.getElementById("hero-spend").textContent, "₹3,100.00",
     "and no headline moved on a rejected number");
 });
 
@@ -1675,7 +1676,7 @@ test("an edit survives a reload, because it is stored and the rows are not", asy
   await settle();
 
   assert.equal(mod.getState().pricesEff["Steam:1"], 100, "the edit applied on boot");
-  assert.equal(env.document.getElementById("kpi-library").textContent, "₹2,200.00");
+  assert.equal(env.document.getElementById("hero-spend").textContent, "₹2,200.00");
   const basis = env.root.querySelector(".disclaimer-basis");
   assert.equal(basis.hidden, false, "the footer owns up to the changed basis");
   assert.ok(basis.textContent.includes("1 title"), basis.textContent);
@@ -2027,12 +2028,12 @@ test("every dashboard metric carries a wired explanation chip", async () => {
   await settle();
 
   const chips = env.root.querySelectorAll(".info");
-  // 8 KPI cards (incl. the add-on card, which is present-but-hidden without DLC)
+  // 7 KPI cards (incl. the add-on card, which is present-but-hidden without DLC)
   // + the hero label + the headline + all three ranked cards.
   // Root-scoped on purpose: it counts attached nodes only, which is what makes
   // it a real guard against a chip being detached from the page while its id
   // stays reachable — exactly what happened with the ₹/hour label.
-  assert.equal(chips.length, 13,
+  assert.equal(chips.length, 12,
     chips.map((c) => c.getAttribute("aria-describedby")).join(", "));
 
   for (const chip of chips) {
@@ -2048,7 +2049,7 @@ test("every dashboard metric carries a wired explanation chip", async () => {
       `"${tip.textContent.slice(0, 30)}…" is a stub, not an explanation`);
   }
 
-  for (const key of ["kpi-library", "kpi-regret", "kpi-vph", "hero-spend",
+  for (const key of ["kpi-regret", "kpi-vph", "hero-spend",
                      "rank-worst", "rank-best", "rank-untouched"]) {
     assert.ok(env.document.getElementById(`tip-${key}`), `tip-${key} exists`);
   }
@@ -2058,7 +2059,7 @@ test("the hero figure stays a bare figure", async () => {
   const { env } = await boot({ seed: withSteam });
   await settle();
 
-  // The chip annotates the "Lifetime spend" label instead, because this
+  // The chip annotates the "Re-buy cost" label instead, because this
   // element's textContent is pinned by an existing assertion and a rupee total
   // with a stray "i" glued to it would read as corruption.
   const figure = env.document.getElementById("hero-spend");
