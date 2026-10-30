@@ -411,7 +411,7 @@ export const view = {
     // Confirmation for the only destructive action here: it takes every
     // credential, library, price and manual figure out of this browser, so it
     // asks first. Deliberately no X — the two answers are the buttons.
-    const forgetModal = this.el("div", "forget-modal hidden");
+    const forgetModal = this.el("div", "forget-modal");
     forgetModal.hidden = true;
     forgetModal.setAttribute("role", "dialog");
     forgetModal.setAttribute("aria-modal", "true");
