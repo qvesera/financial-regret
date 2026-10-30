@@ -1604,6 +1604,26 @@ test("forget takes the visitor's own figures with everything else", async () => 
   assert.deepEqual(store.getEdits(), {}, "and nothing left to re-apply");
 });
 
+test("forget clears every credential a single unlink clears", async () => {
+  const { env, mod } = await boot();
+  await settle();
+
+  // The two lists drifted once: KEY_STORES grew PlayStation, CRED_KEYS did not,
+  // so "Forget my data" left a linked PSN account behind — visible as a store
+  // that reported itself linked with nothing behind it. Keys with no store
+  // entry (a pasted PlatPrices key) belong to Forget too.
+  const keys = new Set(Object.values(mod.KEY_STORES).flat());
+  keys.add("platprices_api_key");
+  assert.ok(keys.has("psn_access_token"), "the fixture covers PlayStation");
+  for (const k of keys) env.localStorage.setItem(k, "sentinel");
+
+  store.forget();
+
+  for (const k of keys) {
+    assert.equal(env.localStorage.getItem(k), null, `${k} must not survive Forget my data`);
+  }
+});
+
 // ---------- forgetting one account ----------
 
 const unlinkButton = (env) => env.root.querySelectorAll(".source-action")

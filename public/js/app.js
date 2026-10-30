@@ -115,7 +115,12 @@ function saveUiState(patch) {
 const savedUi = loadUiState();
 
 
-const KEY_STORES = {
+/** Credential keys per linked store, in the order they were added. Exported so
+ *  a test can hold store.forget() to it: forgetting must clear at least what a
+ *  single unlink clears, and the two lists drifted once already (PlayStation
+ *  landed on KEY_STORES and never reached store.js's CRED_KEYS, so a forgotten
+ *  browser still reported PSN as linked). */
+export const KEY_STORES = {
   steam: ["steam_id"],
   gog: ["gog_access_token", "gog_refresh_token", "gog_user_id"],
   epic: ["epic_access_token", "epic_refresh_token", "epic_account_id"],
@@ -1380,7 +1385,9 @@ function wire(root) {
 /** Cross-tab sync: a link/unlink in another tab re-renders and rescans. */
 function wireCrossWindow() {
   window.addEventListener("storage", (e) => {
-    if (!e.key || !/^(gog_|steam_|epic_|amazon_)/.test(e.key)) return;
+  // psn_ and platprices_ included: forgetting PlayStation's session in another
+  // tab has to clear the link there too — this regex predates PSN.
+  if (!e.key || !/^(gog_|steam_|epic_|amazon_|psn_|platprices_)/.test(e.key)) return;
     state.accounts = linkedAccounts();
     renderAll();
     if (anyLinked(state.accounts) && state.phase !== "loading") scan();
