@@ -252,5 +252,21 @@ class TestDockerfile(unittest.TestCase):
                                 f"Dockerfile installs {ref}, which does not exist")
 
 
+class TestSecurityHeaderParity(unittest.TestCase):
+    """The CSP ships twice: _common.py for server.py, vercel.json at the edge.
+
+    Drift would silently weaken one path while every test kept passing -- this
+    repo has been bitten by paired lists that drifted before."""
+
+    def test_the_two_csps_are_one_string(self):
+        from _common import CSP
+        cfg = json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
+        seen = [h["value"] for block in cfg.get("headers", [])
+                for h in block.get("headers", [])
+                if h.get("key") == "Content-Security-Policy"]
+        self.assertEqual(len(seen), 1, "vercel.json must carry exactly one CSP")
+        self.assertEqual(seen[0], CSP, "vercel.json CSP drifted from _common.CSP")
+
+
 if __name__ == "__main__":
     unittest.main()

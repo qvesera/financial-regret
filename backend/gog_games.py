@@ -101,6 +101,12 @@ def probe_playtime(headers: dict, product: dict) -> float | None:
     if not gid:
         return None
     uid = headers.get("X-GOG-User-Id", "")
+    # The user id arrives in a request header -- attacker-supplied on a public
+    # deployment -- and is spliced into the URL path below. GOG's ids are
+    # numeric; anything else is a path, and a path never reaches the wire.
+    # No header at all is the pre-guard shape: GOG answers the empty segment.
+    if uid and not uid.isdigit():
+        return None
     try:
         resp = requests.get(
             f"https://gameplay.gog.com/games/{gid}/users/{uid}/sessions",
