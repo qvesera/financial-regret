@@ -170,6 +170,14 @@ export function cardSpec(state, kind = "wrapped") {
         worst && { name: `Worst buy · ${worst.name}`, value: perHour(worst.rate, cur), meta: "per hour" },
         best && { name: `Best value · ${best.name}`, value: perHour(best.rate, cur), meta: "per hour" },
         idle && { name: `Biggest idle buy · ${idle.name}`, value: money(idle.price, cur), meta: "never opened" },
+        // The add-on figure gets no stat slot: drawCard paints a fixed 2x2 grid
+        // and slices at MAX_STATS, so a fifth stat would vanish from the canvas.
+        // As a row it still leaves the browser with the money.
+        m.dlcCount && {
+          name: "Add-ons",
+          value: money(m.dlcValue || 0, cur),
+          meta: `${m.dlcCount} expansion${m.dlcCount === 1 ? "" : "s"}`,
+        },
       ].filter(Boolean),
       footnote: `Judged against your own quartiles · ${iso(Date.now())}`,
     };

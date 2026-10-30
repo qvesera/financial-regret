@@ -2,7 +2,7 @@
 #
 # Deliberately contains no web framework: a FastAPI, Flask or Django dependency
 # would trip Vercel's framework detection, which then hands every request to a
-# single framework app and stops these file-based functions from being routes at
-# all. That must not happen -- api/*.py are the routes.
+# single framework app and stops this function from being a route at all.
+# That must not happen -- api/index.py is the route.
 requests
 python-dotenv

@@ -25,7 +25,7 @@ A browser-based dashboard that shows how much you have spent on games versus how
 ### Local dev
 
 ```bash
-pip install -r backend/requirements.txt -r requirements-dev.txt
+pip install -r requirements.txt -r requirements-dev.txt
 ./run.sh            # http://localhost:8089  (or ./run.sh <port>)
 ```
 
@@ -114,9 +114,32 @@ support means users paste a PSN session token into your site.
 ## Tests
 
 ```bash
-python -m unittest discover -s tests
-node --test public/js/*.test.mjs tests/js/*.test.mjs   # or: npm test
+npm test                                    # 194 JS tests
+python3 -m unittest discover -s tests       # 150 python tests
+npm run shots                               # phone-width layout gate (needs Playwright)
 ```
+
+## Known limits
+
+- **Steam and PlayStation expansions are not tagged as DLC.** Their APIs expose
+  no reliable add-on signal, so a Steam season pass counts as an ordinary game:
+  it inflates library value and the Add-on value tile stays empty for those
+  stores. Epic, GOG and Amazon titles are tagged.
+- **A Vercel function stops at 300 seconds.** Very large libraries should run
+  the `server.py` backend instead (Docker/Render, below).
+- **Shared keys are the default.** With `REQUIRE_USER_KEYS` unset, a visitor
+  without their own key spends the operator's quota; a rate-limiting rule in
+  the Vercel Firewall (one free rule per Hobby project) is the brake.
+- **PlayStation pricing needs `PLATPRICES_API_KEY`** and the store's region on
+  its configured list — the free tier allows two regions.
+- **No purchase history exists anywhere.** No connected store reports what you
+  paid, so every figure is "what this would cost today", never "what you lost".
+
+## Not planned
+
+Xbox support (no public API), refund or price-history tracking, multi-user
+accounts, and any server-side storage of library data — the browser holds
+everything, on purpose.
 
 ## Author
 
