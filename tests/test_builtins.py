@@ -58,7 +58,7 @@ class TestHealth(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertIsInstance(body["uptime_s"], float)
         self.assertTrue(body["require_user_keys"])
-        self.assertEqual(set(body["keys"]), {"steam", "itad", "platprices"})
+        self.assertEqual(set(body["keys"]), {"steam", "itad", "platprices", "sgdb"})
         self.assertTrue(body["keys"]["steam"])
 
     def test_answers_a_cors_preflight(self):

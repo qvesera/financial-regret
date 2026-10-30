@@ -55,5 +55,8 @@ class handler(BaseHTTPRequestHandler):
                 "steam": bool(os.environ.get("STEAM_API_KEY")),
                 "itad": bool(os.environ.get("ITAD_API_KEY")),
                 "platprices": bool(os.environ.get("PLATPRICES_API_KEY")),
+                # Reported for the cover queue: the browser will only ask for
+                # box art when somebody has a key to ask with — theirs or ours.
+                "sgdb": bool(os.environ.get("SGDB_API_KEY")),
             },
         })

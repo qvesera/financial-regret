@@ -1418,9 +1418,15 @@ export const view = {
     // so browsers allow a line break right before it. Once the sentence fills
     // the measure, that break orphaned the chip alone onto the next line. The
     // nbsp glues it to the last word so it always rides at the sentence's end.
+    const games = state.games || [];
+    // "Played" is what the tabs mean by played: at least an hour on record.
+    // knownCount is "playtime is known", and on a Steam, GOG, Epic or PlayStation
+    // library that is every game — unplayed rows carry 0, not null — so passing
+    // it here reported 100% of a library full of untouched rows.
+    const played = games.filter((g) => g.hours != null && g.hours >= 1).length;
     this.heroBits.lineText.textContent = buildHeadline({
-      total: (state.games || []).length,
-      played: m.knownCount ?? 0,
+      total: games.length,
+      played,
       worstName: worst ? worst.name : null,
       worstRate: worst ? money(worst.rate, cur) : null,
     }) + "\u00A0";

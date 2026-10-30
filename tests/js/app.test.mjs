@@ -243,6 +243,76 @@ test("a keyless instance still refuses Connect — nothing to finish the login w
     "and the note says why, pointing at the keys card");
 });
 
+test("the headline counts games actually played, not games with known playtime", async () => {
+  // knownCount is "hours are known" — and on a Steam library that is every game,
+  // because unplayed rows carry 0 rather than null. Passing it to the headline
+  // printed "100% of 320 games played" over a library the user had not touched.
+  const { env, mod } = await boot({ seed: (e) => {
+    e.localStorage.setItem("steam_id", "76561198000000000");
+    e.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) return { json: { games: [
+        { id: "Steam:1", name: "Played Long", platform: "Steam", hours: 40, appid: 1 },
+        { id: "Steam:2", name: "Played Short", platform: "Steam", hours: 1, appid: 2 },
+        { id: "Steam:3", name: "Never Opened", platform: "Steam", hours: 0, appid: 3 },
+        { id: "Steam:4", name: "Unknown Time", platform: "Steam", hours: null, appid: 4 },
+      ] } };
+      if (url.includes("/api/prices")) return { json: { prices: {
+        "Steam:1": 500, "Steam:2": 300, "Steam:3": 100, "Steam:4": 700,
+      } } };
+      if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+      return null;
+    });
+  } });
+  await settle();
+
+  const line = env.root.querySelector(".hero-line").textContent;
+  assert.ok(line.includes("50% of 4 games played"), `2 of 4 are actually played: ${line}`);
+  assert.ok(!line.includes("100%"), "one hour on record is the bar, and known is not played");
+  assert.equal(mod.getState().tabCounts.Played, 2,
+    "the same two the play-status tab counts — one definition of played");
+});
+
+const coverSeed = (sgdbShared) => (e) => {
+  e.localStorage.setItem("steam_id", "76561198000000000");
+  e.fetchRoutes.push((url) => {
+    if (url.includes("/api/config")) return { json: {
+      requireUserKeys: false,
+      keys: { steam: true, itad: true, platprices: false, sgdb: sgdbShared },
+    } };
+    if (url.includes("/api/steam_games")) return { json: { games: [
+      { id: "Steam:1", name: "Coverless", platform: "Steam", hours: 5, appid: 1 },
+    ] } };
+    if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 500 } } };
+    if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/covers")) return { json: { covers: { "Steam:1": "https://cdn.example/1.png" } } };
+    return null;
+  });
+};
+
+test("covers are fetched with the instance's key when the visitor has none", async () => {
+  const { env } = await boot({ seed: coverSeed(true) });
+  await settle();
+  await openTitle(env, "Coverless");            // stampDrawerCover queues it
+  await new Promise((r) => setTimeout(r, 400)); // flushCovers debounces 250ms
+
+  const call = env.fetchCalls.find((c) => c.url.includes("/api/covers"));
+  assert.ok(call, "a cover request is made with an empty browser — before this "
+    + "the queue returned early without the visitor's own key, so no call ever happened");
+  assert.equal((call.opts.headers || {})["X-SGDB-Key"], undefined,
+    "no personal key is sent: the server spends its shared one");
+  assert.equal(env.localStorage.getItem("sgdb_api_key"), null, "and none is saved");
+});
+
+test("with no key anywhere, covers are not requested at all", async () => {
+  const { env } = await boot({ seed: coverSeed(false) });
+  await settle();
+  await openTitle(env, "Coverless");
+  await new Promise((r) => setTimeout(r, 400));
+
+  assert.ok(!env.fetchCalls.some((c) => c.url.includes("/api/covers")),
+    "nothing to ask with: no visitor key and no shared one either — placeholders stay");
+});
+
 test("the shared term in one key field fills all four fields", async () => {
   // Each provider only ever reads its own header, so the term has to land in
   // every field — one entry opts the whole browser into the instance defaults.

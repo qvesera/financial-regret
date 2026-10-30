@@ -39,7 +39,7 @@ class TestConfigKeyShape(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIs(body["requireUserKeys"], False)
         self.assertIs(body["keys"]["itad"], True)
-        self.assertEqual(set(body["keys"]), {"steam", "itad", "platprices"})
+        self.assertEqual(set(body["keys"]), {"steam", "itad", "platprices", "sgdb"})
         # Presence is deployment shape; material never leaves the server.
         self.assertNotIn("super-secret", json.dumps(body))
 
@@ -54,7 +54,14 @@ class TestConfigKeyShape(unittest.TestCase):
         status, body = self._get({})
         self.assertIs(body["requireUserKeys"], False)
         self.assertEqual(body["keys"], {"steam": False, "itad": False,
-                                        "platprices": False})
+                                        "platprices": False, "sgdb": False})
+
+    def test_sgdb_presence_is_reported_for_the_cover_queue(self):
+        # The browser only asks for box art when somebody has a key to ask with,
+        # so /api/config has to say whether this instance carries one.
+        status, body = self._get({"SGDB_API_KEY": "k"})
+        self.assertEqual(status, 200)
+        self.assertIs(body["keys"]["sgdb"], True)
 
 
 def _resp(json_data, status=200):
