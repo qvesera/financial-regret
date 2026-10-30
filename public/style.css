@@ -1047,6 +1047,18 @@ tr.game-row:hover { background: var(--surface-2); }
 .platform-mark { color: var(--muted); flex: 0 0 auto; margin-right: 0.35rem; vertical-align: -2px; }
 td.cell-platform { white-space: nowrap; }
 
+/* Name cell: the text leads and may shrink, every marker after it holds the
+   right edge. Without this each chip sat wherever the title happened to end,
+   so the column read as ragged and no two rows lined up. */
+.cell-name-in { display: flex; align-items: center; gap: 0.5rem; }
+.cell-name-in > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dot {
   width: 7px;
   height: 7px;
@@ -1561,6 +1573,28 @@ td.cell-platform { white-space: nowrap; }
    filled pill, so it never reads as the verdict badge beside it — which is the
    same hue as the Regret tier. */
 .dupe-chip { border-color: var(--danger); color: var(--danger); }
+
+/* The duplicate ear: a title owned on another store wears its marker at the
+   cover's top-right corner, mirroring the verdict badge at top-left. Solid
+   warning red rather than an outline — over arbitrary artwork an outline has
+   nothing to sit against — with a folded corner so it reads as a tab pinned to
+   the edge rather than a label floating on the art. */
+.dup-ear {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  margin-left: 0;
+  padding: 0.15rem 0.35rem;
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #0d1512;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border-radius: 0;
+  border-bottom-left-radius: 3px;
+}
 
 /* ---- cards: cover fallback, badges, hours, price band ---- */
 

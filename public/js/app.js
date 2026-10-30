@@ -434,10 +434,66 @@ async function fetchAllEpicGames() {
 }
 
 /** Alnum-folded title: case, symbol and spacing variants of one display name
- *  collapse, so "DOOM (2016)" and "doom 2016" are one title. Shared by
- *  dedupeGames and findDuplicates so the two can never disagree about what
- *  counts as the same game. */
+ *  collapse, so "DOOM (2016)" and "doom 2016" are one title. Used by
+ *  dedupeGames, where the key must stay strict — two editions sold on one
+ *  store are two entitlements. */
 const foldName = (name) => (name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** Words-with-spaces normalisation for cross-store matching: unlike foldName,
+ *  it keeps word boundaries, so "Hunt - Game" never fuses into "huntedgame". */
+const wordFold = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/** Trailing edition phrases stripped before comparing two stores' listings,
+ *  longest first so a phrase containing another never stops halfway. Every
+ *  entry appears in wordFold's shape ("Collector's Edition" -> "collector s
+ *  edition"). */
+const EDITION_PHRASES = [
+  "game of the year edition",
+  "game of the year",
+  "goty",
+  "complete edition",
+  "definitive edition",
+  "remastered edition",
+  "remastered",
+  "remaster",
+  "deluxe edition",
+  "ultimate edition",
+  "premium edition",
+  "legendary edition",
+  "anniversary edition",
+  "enhanced edition",
+  "collector s edition",
+  "deluxe",
+  "collection",
+  "bundle",
+  "edition",
+];
+
+/**
+ * One title as two stores would each describe it: words, lowercased, with any
+ * trailing edition phrase removed at a word boundary.
+ *
+ * Steam's "… - Game of the Year Edition" and GOG's "… - Complete Edition" both
+ * reduce to the base title and are flagged as one game owned twice; "Doom" and
+ * "Doom Eternal" do not, because "Eternal" is not an edition of anything. A
+ * bare edition phrase is never the whole key: the length guard leaves a title
+ * that is only "Edition" alone rather than matching it against every other.
+ */
+export function baseTitle(name) {
+  let s = wordFold(name);
+  let stripped = true;
+  while (stripped) {
+    stripped = false;
+    for (const phrase of EDITION_PHRASES) {
+      if (s.length > phrase.length && s.endsWith(` ${phrase}`)) {
+        s = s.slice(0, -(phrase.length + 1)).trim();
+        stripped = true;
+        break;
+      }
+    }
+  }
+  return s;
+}
 
 /** Collapse duplicate entitlements of the same game. Epic returns the base
  *  title plus each DLC/expansion as separate records that share a sandbox, so
@@ -458,10 +514,12 @@ export function dedupeGames(games) {
  *
  *  Two purchases of one game are a regret the dashboard otherwise cannot see:
  *  each copy is its own row with its own price and nothing ties them together.
- *  Matching is folded-title equality only, so it is deliberately conservative
- *  — an edition suffix ("Deluxe") never matches its base game, while a real
- *  name collision (DOOM 1993 vs 2016) does. The UI therefore claims "also on
- *  Epic", never "you paid twice".
+ *  Matching normalises to words and drops trailing edition phrases, so
+ *  Steam's "… Game of the Year Edition" and GOG's "… Complete Edition" are one
+ *  title, while "Doom" and "Doom Eternal" stay different products. A real
+ *  name collision (DOOM 1993 vs 2016) still matches: there is no year or
+ *  cross-store id in the data to separate those. The UI therefore claims
+ *  "also on Epic", never "you paid twice".
  *
  *  Add-ons are skipped: they carry no verdict of their own and the base game
  *  is the purchase. Same-store pairs cannot occur — dedupeGames has already
@@ -470,7 +528,7 @@ export function findDuplicates(games) {
   const byTitle = new Map();
   for (const g of games) {
     if (g.kind === "dlc") continue;
-    const key = foldName(g.name);
+    const key = baseTitle(g.name);
     if (!key) continue;
     if (!byTitle.has(key)) byTitle.set(key, []);
     byTitle.get(key).push(g);

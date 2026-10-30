@@ -2236,6 +2236,64 @@ test("findDuplicates flags a title held on two stores, and only that", async () 
     "add-ons are never matched: the base game is the purchase");
 });
 
+test("editions of one title match across stores, different products do not", async () => {
+  const { mod } = await boot();
+  const out = mod.findDuplicates([
+    { id: "Steam:1", name: "The Witcher 3: Wild Hunt - Game of the Year Edition", platform: "Steam", hours: 40 },
+    { id: "GOG:1", name: "The Witcher 3: Wild Hunt - Complete Edition", platform: "GOG", hours: 12 },
+    { id: "Steam:2", name: "The Witcher 3: Wild Hunt", platform: "Steam", hours: 5 },
+    { id: "Epic:2", name: "The Witcher 3: Wild Hunt - Remastered", platform: "Epic", hours: 0 },
+    { id: "Steam:3", name: "Doom", platform: "Steam", hours: 1 },
+    { id: "Epic:3", name: "Doom Eternal", platform: "Epic", hours: 0 },
+    { id: "GOG:4", name: "Edition", platform: "GOG", hours: 1 },
+    { id: "Steam:4", name: "Hades", platform: "Steam", hours: 1 },
+  ]);
+
+  assert.ok(out.has("Steam:1") && out.has("GOG:1"),
+    "Steam's Game of the Year and GOG's Complete are one game, not two");
+  assert.ok(out.has("Steam:2") && out.has("Epic:2"),
+    "the plain base title matches its own Remastered listing");
+  assert.ok(!out.has("Steam:3") && !out.has("Epic:3"),
+    "Doom and Doom Eternal stay different products: 'Eternal' is not an edition");
+  assert.ok(!out.has("GOG:4"),
+    "a title that is only the word Edition never matches everything else");
+});
+
+test("the grid marks a duplicate as an ear on the cover, not inline text", async () => {
+  const { env } = await boot({
+    seed: (e) => {
+      e.localStorage.setItem("steam_id", "76561198000000000");
+      e.localStorage.setItem("epic_access_token", "epic-tok");
+      e.localStorage.setItem("view_mode", "grid");
+      e.fetchRoutes.push((url) => {
+        if (url.includes("/api/steam_games")) return { json: { games: [
+          { id: "Steam:1", name: "Surviving Mars", platform: "Steam", hours: 40, appid: 1 },
+        ] } };
+        if (url.includes("/api/epic_games")) return { json: { games: [
+          { id: "Epic:1", name: "Surviving Mars", platform: "Epic", hours: 4 },
+        ] } };
+        if (url.includes("/api/gog_games")) return { json: { games: [] } };
+        if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 500, "Epic:1": 300 } } };
+        return null;
+      });
+    },
+  });
+  await settle();
+
+  const covers = [...env.root.querySelectorAll(".cover")];
+  assert.equal(covers.length, 2, "both copies render as cards");
+  for (const cover of covers) {
+    const ear = cover.querySelector(".dup-ear");
+    assert.ok(ear, "the marker hangs on the cover itself");
+    assert.equal(ear.textContent, "DUP");
+    assert.ok(ear.getAttribute("aria-label").startsWith("Also owned on"),
+      "and still names the other store, since the marker does not");
+  }
+  assert.ok([...env.root.querySelectorAll(".card-title")]
+    .every((t) => !t.querySelector(".dupe-chip")),
+    "nothing trails the title text any more");
+});
+
 test("two rows on one store are not a cross-library duplicate", async () => {
   const { mod } = await boot();
   // dedupeGames has already collapsed these within a platform; the platform
@@ -2288,6 +2346,10 @@ test("a title owned on two stores is flagged in the list and explained in the dr
   assert.deepEqual(chips.map((c) => c.getAttribute("aria-label")).sort(),
     ["Also owned on Epic", "Also owned on Steam"],
     "the tooltip still names each store, since nothing else does");
+  const nameIn = rows[0].querySelector(".cell-name-in");
+  assert.ok(nameIn, "the name cell wraps its contents so the chips can align");
+  assert.equal(nameIn.querySelector("span").textContent, "Hades", "the title leads the cell");
+  assert.ok(nameIn.querySelector(".dupe-chip"), "and the marker sits after it, at the right edge");
 
   // The drawer spells the other copy out: store, its price today, its playtime.
   rows[0].dispatch("click");
