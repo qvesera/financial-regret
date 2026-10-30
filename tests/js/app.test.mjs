@@ -52,6 +52,10 @@ function routeScan(env, { steam = true } = {}) {
   });
 }
 
+// The BYO-key gate in linkPlatform() refuses Connect while this browser holds
+// no API key. Tests that drive a real login bring one first, as a visitor would.
+const bringKey = (env) => { env.localStorage.setItem("itad_api_key", "test-key"); };
+
 // Two stores, each with exactly one game that can rank (an hour or more of play
 // *and* a price). A single-store fixture cannot test that hiding a store removes
 // its games: there would be nothing left to distinguish from "everything gone".
@@ -147,6 +151,7 @@ test("cold start shows onboarding, hides metrics chrome", async () => {
 
 test("Steam link navigates to OpenID checkid_setup with return_to", async () => {
   const { env } = await boot();
+  bringKey(env);
   const btn = byAction(env, "link", "steam");
   assert.ok(btn, "steam link button exists");
   btn.dispatch("click");
@@ -158,8 +163,79 @@ test("Steam link navigates to OpenID checkid_setup with return_to", async () => 
   assert.equal(url.searchParams.get("openid.realm"), "http://localhost:8089");
 });
 
+test("Connect with no API key is refused and lands on the keys card", async () => {
+  const { env, mod } = await boot();
+  // No key in this browser: the BYO-key gate must block the login outright —
+  // no navigation, no popup — and point at the keys card instead.
+  const note = env.document.getElementById("keys-lock");
+  assert.ok(note, "the refusal note exists");
+  assert.equal(note.hidden, true, "and stays hidden until a Connect is refused");
+
+  byAction(env, "link", "steam").dispatch("click");
+
+  assert.equal(env.navigations.length, 0, "no store login started");
+  assert.equal(env.opened.length, 0, "no popup opened");
+  assert.equal(mod.getState().phase, "onboarding", "already the landing page");
+  assert.equal(note.hidden, false, "the note explains why Connect did nothing");
+  assert.ok(env.root.querySelector(".api-keys").classList.contains("needs-keys"),
+    "the keys card is highlighted");
+});
+
+test("saving a key clears the gate and Connect proceeds", async () => {
+  const { env } = await boot();
+  byAction(env, "link", "steam").dispatch("click");
+  assert.equal(env.navigations.length, 0, "first attempt is refused");
+
+  const input = env.document.getElementById("itad-key");
+  input.value = "my-itad-key";
+  byAction(env, "save-key").dispatch("click");
+  await settle();
+
+  assert.equal(env.localStorage.getItem("itad_api_key"), "my-itad-key", "key saved");
+  assert.equal(env.document.getElementById("keys-lock").hidden, true,
+    "the rebuild clears the note");
+  assert.equal(env.root.querySelector(".api-keys").classList.contains("needs-keys"), false,
+    "and the highlight");
+
+  byAction(env, "link", "steam").dispatch("click");
+  assert.equal(env.navigations.length, 1, "with a key present, Connect navigates");
+});
+
+test("the shared term in one key field fills all four fields", async () => {
+  // Each provider only ever reads its own header, so the term has to land in
+  // every field — one entry opts the whole browser into the instance defaults.
+  const { env } = await boot();
+  const input = env.document.getElementById("itad-key");
+  input.value = "superuser";
+  byAction(env, "save-key").dispatch("click");
+  await settle();
+
+  for (const k of ["itad", "steam", "platprices", "sgdb"]) {
+    assert.equal(env.localStorage.getItem(`${k}_api_key`), "superuser", `${k} field filled`);
+  }
+  // It satisfies the BYO gate like any other stored value.
+  byAction(env, "link", "steam").dispatch("click");
+  assert.equal(env.navigations.length, 1, "Connect proceeds with the term saved");
+});
+
+test("an ordinary key saves only its own field", async () => {
+  // The fan-out must trigger on the shared term alone: a real key in one
+  // field must never overwrite the others.
+  const { env } = await boot();
+  const input = env.document.getElementById("itad-key");
+  input.value = "my-itad-key";
+  byAction(env, "save-key").dispatch("click");
+  await settle();
+
+  assert.equal(env.localStorage.getItem("itad_api_key"), "my-itad-key", "the real key saved");
+  for (const k of ["steam", "platprices", "sgdb"]) {
+    assert.equal(env.localStorage.getItem(`${k}_api_key`), null, `${k} left untouched`);
+  }
+});
+
 test("GOG link opens auth popup and stores oauth state", async () => {
   const { env } = await boot();
+  bringKey(env);
   byAction(env, "link", "gog").dispatch("click");
   await settle();
   assert.equal(env.opened.length, 1, "popup opened");
@@ -175,6 +251,7 @@ test("GOG link opens auth popup and stores oauth state", async () => {
 
 test("Epic link opens the registered redirect; pasted JSON exchanges in-page and scans", async () => {
   const { env, mod } = await boot();
+  bringKey(env);
   env.fetchRoutes.push((url, opts) => {
     if (url.includes("/api/epic_exchange")) {
       assert.equal(opts.method, "POST");
@@ -404,6 +481,7 @@ test("unlinking the last account returns to onboarding and clears storage", asyn
 
 test("GOG paste of the landing URL exchanges the code and scans", async () => {
   const { env, mod } = await boot();
+  bringKey(env);
   env.fetchRoutes.push((url) => {
     if (url.includes("/api/gog_exchange")) {
       return { json: { access_token: "gog-tok", refresh_token: "gog-ref", user_id: "u1" } };
@@ -437,6 +515,7 @@ test("GOG paste of the landing URL exchanges the code and scans", async () => {
 
 test("GOG paste with mismatched OAuth state is rejected before any exchange", async () => {
   const { env, mod } = await boot();
+  bringKey(env);
   env.fetchRoutes.push((url) => (url.includes("/api/gog_exchange") ? { json: { access_token: "t" } } : null));
   byAction(env, "link", "gog").dispatch("click");
   await settle();
@@ -503,6 +582,7 @@ test("Epic pagination surfaces a rate-limit error instead of hanging", async () 
 
 test("strip link for a second store surfaces the paste card; Back returns", async () => {
   const { env, mod } = await boot({ seed: withSteam });
+  bringKey(env);
   assert.equal(mod.getState().phase, "ready");
 
   env.root.querySelectorAll(".source-action").find((b) => b.dataset.platform === "gog").dispatch("click");
@@ -669,6 +749,7 @@ test("Amazon login builds a PKCE signin and the pasted redirect exchanges it", a
   });
 
   // Connect: builds the PKCE signin URL and stashes verifier/serial.
+  bringKey(env);
   byAction(env, "link", "amazon").dispatch("click");
   await settle();
   assert.equal(env.opened.length, 1, "signin opened");
@@ -984,6 +1065,7 @@ test("the ranked insight lists name the worst and the best buy", async () => {
 // form, so there is nothing there to sign in on.
 test("PSN connect opens the sign-in page, never the NPSSO endpoint", async () => {
   const { env } = await boot();
+  bringKey(env);
 
   byAction(env, "link", "psn").dispatch("click");
   await settle();

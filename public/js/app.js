@@ -482,7 +482,48 @@ function ensurePasteSurface(platform) {
   if (box) box.open = true;
 }
 
+// ---------- bring-your-own-key gate ----------
+
+/** The four keys the keys card accepts, stored as `${kind}_api_key`. */
+const USER_KEY_KINDS = ["itad", "steam", "platprices", "sgdb"];
+
+/** Did this visitor bring at least one key of their own? This is a
+ *  bring-your-own-key app: a store linked without one could not be priced
+ *  (or, for Steam, read at all), so linking is gated on this. */
+function hasUserKeys() {
+  return USER_KEY_KINDS.some((k) => !!localStorage.getItem(`${k}_api_key`));
+}
+
+/** No keys: refuse the store login and land on the keys card instead —
+ *  highlight it, reveal the note that says why, scroll the fields into view
+ *  and focus the first one. Saving a key rebuilds the onboarding card, which
+ *  clears both the note and the highlight. */
+function goToKeysCard() {
+  if (state.phase !== "onboarding") {
+    closeDrawer();
+    state.phase = "onboarding";
+    renderAll();
+  }
+  const card = document.querySelector(".api-keys");
+  if (card) card.classList.add("needs-keys");
+  const note = document.getElementById("keys-lock");
+  if (note) note.hidden = false;
+  const first = document.getElementById("itad-key");
+  const target = first || card;
+  if (target && typeof target.scrollIntoView === "function") {
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  if (first && typeof first.focus === "function") first.focus({ preventScroll: true });
+}
+
 function linkPlatform(platform) {
+  // The gate: no key this browser has ever been given, no login flow started.
+  // Clicking Connect would otherwise open a store login the visitor could not
+  // finish usefully — send them to the keys card instead.
+  if (!hasUserKeys()) {
+    goToKeysCard();
+    return;
+  }
   if (platform === "steam") {
     window.location.href = api.loginSteam(`${window.location.origin}/steam-callback.html`);
   } else if (platform === "gog") {
@@ -806,12 +847,21 @@ function forget() {
 // ---------- delegated events ----------
 
 /** Persist a bring-your-own API key to localStorage. It is forwarded with the
- *  user's own pricing/library requests (as a header) and never stored server-side. */
+ *  user's own pricing/library requests (as a header) and never stored server-side.
+ *
+ *  The shared term fills all four fields at once — each provider reads only its
+ *  own header, so one entry opts every provider into the instance's default keys
+ *  (recognised by the backend when the instance configures that term). Saving it
+ *  replaces whatever was in the other fields; that is the point of the switch. */
 function saveApiKey(kind) {
   const input = document.getElementById(`${kind}-key`);
   const val = ((input && input.value) || "").trim();
-  if (val) localStorage.setItem(`${kind}_api_key`, val);
-  else localStorage.removeItem(`${kind}_api_key`);
+  const shared = val.toLowerCase() === "superuser";
+  const kinds = shared ? USER_KEY_KINDS : [kind];
+  for (const k of kinds) {
+    if (val) localStorage.setItem(`${k}_api_key`, val);
+    else localStorage.removeItem(`${k}_api_key`);
+  }
   if (view) view._builtPhase = null; // rebuild onboarding so the "saved" placeholder shows
   renderAll();
 }

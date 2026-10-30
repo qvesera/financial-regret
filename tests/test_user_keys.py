@@ -54,5 +54,50 @@ class TestUserKey(unittest.TestCase):
             self.assertIsNone(user_key(h, "X-ITAD-Key", "ITAD_API_KEY"))
 
 
+class TestSuperuserTerm(unittest.TestCase):
+    """The shared-term bypass: a visitor may present the configured term in a
+    key field to spend the instance's own keys instead of bringing one."""
+
+    def test_configured_term_spends_the_server_key_even_in_byo_mode(self):
+        env = {"ITAD_API_KEY": "server", "SUPERUSER_KEY": "superuser", **BYO}
+        with mock.patch.dict(os.environ, env):
+            h = StubHandler({"X-ITAD-Key": "superuser"})
+            self.assertEqual(user_key(h, "X-ITAD-Key", "ITAD_API_KEY"), "server")
+
+    def test_term_match_is_case_insensitive(self):
+        env = {"ITAD_API_KEY": "server", "SUPERUSER_KEY": "SuperUser", **BYO}
+        with mock.patch.dict(os.environ, env):
+            h = StubHandler({"X-ITAD-Key": "SUPERUSER"})
+            self.assertEqual(user_key(h, "X-ITAD-Key", "ITAD_API_KEY"), "server")
+
+    def test_unconfigured_term_never_reaches_a_provider(self):
+        # Without SUPERUSER_KEY the literal must behave exactly like an absent
+        # key: BYO refuses it, self-hosted falls back — never "superuser" upstream.
+        with mock.patch.dict(os.environ, {"ITAD_API_KEY": "server", "SUPERUSER_KEY": "", **BYO}):
+            self.assertIsNone(user_key(StubHandler({"X-ITAD-Key": "superuser"}), "X-ITAD-Key", "ITAD_API_KEY"))
+        with mock.patch.dict(os.environ, {"ITAD_API_KEY": "server", "SUPERUSER_KEY": "", **OFF}):
+            self.assertEqual(
+                user_key(StubHandler({"X-ITAD-Key": "superuser"}), "X-ITAD-Key", "ITAD_API_KEY"), "server")
+
+    def test_only_the_configured_term_opens_the_fallback(self):
+        env = {"ITAD_API_KEY": "server", "SUPERUSER_KEY": "opensesame", **BYO}
+        with mock.patch.dict(os.environ, env):
+            self.assertEqual(
+                user_key(StubHandler({"X-ITAD-Key": "opensesame"}), "X-ITAD-Key", "ITAD_API_KEY"), "server")
+            self.assertIsNone(user_key(StubHandler({"X-ITAD-Key": "superuser"}), "X-ITAD-Key", "ITAD_API_KEY"))
+
+    def test_a_real_caller_key_still_wins_with_the_term_configured(self):
+        env = {"ITAD_API_KEY": "server", "SUPERUSER_KEY": "superuser", **BYO}
+        with mock.patch.dict(os.environ, env):
+            h = StubHandler({"X-ITAD-Key": "mine"})
+            self.assertEqual(user_key(h, "X-ITAD-Key", "ITAD_API_KEY"), "mine")
+
+    def test_term_with_no_server_key_is_none(self):
+        env = {"ITAD_API_KEY": "", "SUPERUSER_KEY": "superuser", **BYO}
+        with mock.patch.dict(os.environ, env):
+            h = StubHandler({"X-ITAD-Key": "superuser"})
+            self.assertIsNone(user_key(h, "X-ITAD-Key", "ITAD_API_KEY"))
+
+
 if __name__ == "__main__":
     unittest.main()

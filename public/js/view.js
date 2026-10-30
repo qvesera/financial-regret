@@ -733,6 +733,13 @@ export const view = {
     keysCard.appendChild(kh);
     const blurb = this.el("p", "pc-blurb", copy.blurb);
     keysCard.appendChild(blurb);
+    // Shown only when a Connect click was refused for want of a key (the gate
+    // in app.js reveals it); saving a key rebuilds this card and it goes quiet.
+    const lockNote = this.el("p", "keys-lock",
+      "No store connects without at least one key — save one below first.");
+    lockNote.id = "keys-lock";
+    lockNote.hidden = true;
+    keysCard.appendChild(lockNote);
     // Two labelled groups, not three: prices, playtime and PSN prices are all
     // functional keys. Filing Steam under "optional extras" claimed the store
     // could be read without one, which only holds while the server shares its
@@ -1735,11 +1742,14 @@ export const view = {
 
     for (const game of rows) {
       const price = prices[game.id];
+      const verdict = verdicts ? verdicts.get(game.id) : null;
       const tr = this.el("tr", "game-row");
       tr.dataset.action = "open";
       tr.dataset.id = game.id;
       tr.tabIndex = 0;   // rows are focusable so Enter can open them too
-      if (game.hours != null && game.hours < 1) tr.classList.add("unplayed");
+      // Same rule as the grid cards: the class means the Untouched verdict, not
+      // a raw playtime threshold, so both views can never disagree.
+      if (verdict === "untouched") tr.classList.add("unplayed");
 
       const rate = pricePerHour(price, game.hours);
       const cells = [
@@ -1770,7 +1780,7 @@ export const view = {
       });
       // Verdict is the last column: the money columns keep their positions.
       const vcell = this.el("td", "verdict-cell");
-      vcell.appendChild(tierBadge(verdicts ? verdicts.get(game.id) : null));
+      vcell.appendChild(tierBadge(verdict));
       tr.appendChild(vcell);
       tbody.appendChild(tr);
     }
@@ -1787,6 +1797,7 @@ export const view = {
     const hasKey = typeof localStorage !== "undefined" && !!localStorage.getItem("sgdb_api_key");
     for (const game of rows) {
       const price = prices[game.id];
+      const verdict = verdicts ? verdicts.get(game.id) : null;
       const card = this.el("article", "game-card");
       card.dataset.action = "open";
       card.dataset.id = game.id;
@@ -1816,7 +1827,7 @@ export const view = {
       img.addEventListener("error", () => { img.style.opacity = "0"; });
       art.appendChild(img);
 
-      const badge = tierBadge(verdicts ? verdicts.get(game.id) : null);
+      const badge = tierBadge(verdict);
       badge.classList.add("card-badge");
       art.appendChild(badge);
 
@@ -1847,7 +1858,12 @@ export const view = {
       meta.appendChild(sub);
       card.appendChild(meta);
 
-      if (game.hours != null && game.hours < 1) card.classList.add("unplayed");
+      // Badge and brightness now agree: every Untouched card dims, whether its
+      // playtime is known and under an hour or not reported at all — dimming on
+      // the raw hours check only caught known-playtime games, so two identical
+      // Untouched badges rendered at different opacity and read as a lighting
+      // discrepancy rather than a state.
+      if (verdict === "untouched") card.classList.add("unplayed");
       wrap.appendChild(card);
     }
     if (!hasKey) {

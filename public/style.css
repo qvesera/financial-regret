@@ -1035,6 +1035,21 @@ td.cell-platform { white-space: nowrap; }
   margin-top: 0.25rem;
   border-style: dashed;
 }
+/* The refusal note: only revealed when a Connect click was blocked for want of
+   a key, so the visitor sees why they landed here instead of at a store login. */
+.keys-lock {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+/* Pulsed outline while the gate is active — the one card that needs action. */
+.api-keys.needs-keys {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .api-keys-fields {
   display: grid;
   /* Exactly two columns: with a third the four fields fell 3-then-1 and the
