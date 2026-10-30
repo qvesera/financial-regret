@@ -1225,18 +1225,24 @@ td.cell-platform { white-space: nowrap; }
   margin-top: var(--space-4);
 }
 .rank-card { margin: 0; }
+/* The three tracks are declared once for the whole list and shared by every
+   row through subgrid (.rank-item below). Rows used to be independent grids:
+   each row sized its auto columns from its own text, so a "171.1 h" row pushed
+   its rate column left relative to a "38.9 h" row and the rate/hours edges
+   wandered down the card. Shared tracks make each column one vertical line. */
 .rank {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  column-gap: var(--space-3);
 }
 .rank-item {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
   align-items: baseline;
-  gap: var(--space-3);
   padding: var(--space-2) var(--space-2);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -1253,15 +1259,21 @@ td.cell-platform { white-space: nowrap; }
 .rank-rate { font-size: 0.875rem; font-weight: 600; }
 .rank-hours { font-size: 0.78rem; color: var(--muted); }
 /* The rate and hours columns are numeric: right-align on tabular figures so the
-   digits stack down each column and the gap to the next stays constant. Left
+   digits stack down each column and the gutter to the next stays constant. Left
    alignment in an auto-width column let shorter values ("ZAR 8/h") drift, so
-   their /h and the hours beside them never lined up. */
+   their /h and the hours beside them never lined up. (Column edges themselves
+   are steadied by the shared tracks on .rank — right-align alone could not fix
+   a rate whose whole track moved with the row's own hours string.) */
 .rank-rate, .rank-hours { text-align: right; font-variant-numeric: tabular-nums; }
 .rank-empty {
   list-style: none;
   margin: 0;
   font-size: 0.85rem;
   color: var(--muted);
+  /* Span every track so the message runs the full card width even when the
+     numeric tracks are sized (empty and items never share a list, but the
+     span costs nothing and keeps the text off the narrow auto columns). */
+  grid-column: 1 / -1;
 }
 .rank-worst .rank-rate { color: var(--tier-regret); }
 .rank-best .rank-rate { color: var(--tier-worth); }
