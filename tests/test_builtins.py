@@ -233,5 +233,24 @@ class TestClientRoutes(unittest.TestCase):
         self.assertEqual(served, [], served)
 
 
+class TestDockerfile(unittest.TestCase):
+    """The documented long-scan backend is `docker build` + server.py.
+
+    A Dockerfile that cannot build is a deployment path that rotted silently:
+    no suite imported it, and no docker runs in CI. This is the guard."""
+
+    def test_every_requirement_file_the_image_installs_exists(self):
+        # The image once ran `pip install -r api/requirements.txt` against a
+        # file that had never existed here, so the build died at that layer
+        # while every test stayed green.
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        refs = re.findall(r"-r\s+(\S+)", dockerfile)
+        self.assertTrue(refs, "no -r references found to check")
+        for ref in refs:
+            with self.subTest(ref=ref):
+                self.assertTrue((ROOT / ref).is_file(),
+                                f"Dockerfile installs {ref}, which does not exist")
+
+
 if __name__ == "__main__":
     unittest.main()

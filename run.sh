@@ -12,18 +12,18 @@ cd "$(dirname "$(readlink -f "$0")")"
 PORT="${PORT:-${1:-8089}}"
 PY=".venv/bin/python"
 
-# Create the venv once, install what server.py and the api/ handlers need.
+# Create the venv once, install what server.py and the backend handlers need.
 if [ ! -x "$PY" ]; then
   echo "==> creating .venv"
   python3 -m venv .venv
   "$PY" -m pip install --quiet --upgrade pip
-  "$PY" -m pip install --quiet -r backend/requirements.txt -r requirements-dev.txt
+  "$PY" -m pip install --quiet -r requirements.txt -r requirements-dev.txt
 fi
 
 # server.py imports `requests`; python-dotenv is optional (.env loading).
 if ! "$PY" -c 'import requests' 2>/dev/null; then
   echo "==> installing dependencies"
-  "$PY" -m pip install --quiet -r backend/requirements.txt -r requirements-dev.txt
+  "$PY" -m pip install --quiet -r requirements.txt -r requirements-dev.txt
 fi
 
 # Fail with a readable message instead of "OSError: [Errno 98]".

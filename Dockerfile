@@ -5,9 +5,10 @@ WORKDIR /app
 # System deps: ca-certificates for HTTPS to Steam/GOG/Epic/ITAD
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# Python deps
-COPY backend/requirements.txt requirements-dev.txt ./
-RUN pip install --no-cache-dir -r api/requirements.txt -r requirements-dev.txt
+# Python deps. The root requirements.txt is what Vercel's runtime installs for
+# /api — same libraries server.py needs, so the image shares the one file.
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 # App
 COPY server.py ./ 
