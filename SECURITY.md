@@ -54,7 +54,7 @@ rule, and `tests/test_logging.py` pins the consequence.
   asserts that a secret in a query string never reaches the log line.
 * **Nothing is persisted.** See *What the server sees*. Restarting the process
   discards every cache.
-* **Cross-origin access is opt-in per origin.** `api/_cors.py` echoes back only
+* **Cross-origin access is opt-in per origin.** `backend/_cors.py` echoes back only
   an origin named in `CORS_ALLOWED_ORIGINS` — never a wildcard, and never
   `Access-Control-Allow-Credentials`. A stray `*` or `null` in the allowlist is
   discarded rather than honoured, so a copy-paste mistake is inert. The
@@ -77,7 +77,7 @@ rule, and `tests/test_logging.py` pins the consequence.
 
 ### Not a secret, despite looking like one
 
-`api/epic_exchange.py` and `api/gog_exchange.py` carry default `CLIENT_SECRET`
+`backend/epic_exchange.py` and `backend/gog_exchange.py` carry default `CLIENT_SECRET`
 values. These are the providers' own public application credentials, published
 in their client-side integrations and in countless open-source projects. They
 identify the application, not a user. Override them if you register your own
@@ -92,7 +92,7 @@ asked to paste one into this application.
 The decision is to keep PlayStation support on public deployments, on this
 basis:
 
-* **The pasted token is exchanged, not stored.** `api/psn_exchange.py` turns it
+* **The pasted token is exchanged, not stored.** `backend/psn_exchange.py` turns it
   into a Sony access + refresh token pair and returns those to the browser. The
   NPSSO itself is not cached, not logged and not persisted.
 * **The server never decides what to do with it.** It is an opaque string in a
@@ -111,8 +111,8 @@ and is small: disable the two handlers and rewrite the connect copy.
    transport, not your process. Anyone with root on the machine, or able to read
    a heap dump, can read tokens as they pass. The only real mitigation is not
    handling the credential at all.
-2. **Shared in-memory caches cross visitors.** `api/epic_games.py` caches
-   playtime keyed by Epic account id; `api/covers.py` caches cover art keyed by
+2. **Shared in-memory caches cross visitors.** `backend/epic_games.py` caches
+   playtime keyed by Epic account id; `backend/covers.py` caches cover art keyed by
    title. Neither holds secrets, but on a shared instance a visitor who knows
    another visitor's account id could read that visitor's cached playtime.
    Prices are keyed by currency and region and are not user-specific.

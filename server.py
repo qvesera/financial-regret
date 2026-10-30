@@ -2,7 +2,7 @@
 Library aggregator server -- public-hostable, single-process, no DB.
 
 Serves public/ as static files and routes /api/<name> requests to the
-matching handler class in api/<name>.py. Only dependencies: `requests`
+matching handler class in backend/<name>.py. Only dependencies: `requests`
 (for the api modules) and `python-dotenv` (optional, for reading .env).
 
 Usage:
