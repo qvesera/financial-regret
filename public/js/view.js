@@ -462,6 +462,18 @@ export const view = {
     const psnNote = this.el("p", "disclaimer-psn-note");
     psnNote.hidden = true;
     footer.appendChild(psnNote);
+    // A spent shared key is the one pricing failure the visitor can fix
+    // themselves, so this line carries the way out as well as the news. Hidden
+    // until a scan actually reports a limit.
+    const limitNote = this.el("p", "disclaimer-limit-note");
+    limitNote.hidden = true;
+    const limitText = this.el("span");
+    limitNote.appendChild(limitText);
+    const limitBtn = this.el("button", "button small ghost", "Use your own key");
+    limitBtn.type = "button";
+    limitBtn.dataset.action = "show-keys";
+    limitNote.appendChild(limitBtn);
+    footer.appendChild(limitNote);
 
     // Attribution: who built this and where to find it. Both links come from the
     // repo's own remote, so they are never guessed.
@@ -502,7 +514,7 @@ export const view = {
     main.appendChild(drawer);
     root.appendChild(main);
 
-    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, exportBtn, menuBtn, menu, phaseEl, drawer, drawerTitle, drawerBody, footer, attribution, psnNote });
+    Object.assign(this, { main, topbar, sources, currencySelect, scanBtn, keysBtn, exportBtn, menuBtn, menu, phaseEl, drawer, drawerTitle, drawerBody, footer, attribution, psnNote, limitNote, limitText });
     this._builtPhase = null;
     return this;
   },
@@ -521,6 +533,15 @@ export const view = {
     if (!this.psnNote) return;
     this.psnNote.textContent = text || "";
     this.psnNote.hidden = !text;
+  },
+
+  /** Say the shared pricing key is rate-limited -- or hide it once a scan
+   *  prices normally again, so the warning never outlives its cause. The
+   *  button beside it is built once in shell(), so only the words are set. */
+  setLimitNote(text) {
+    if (!this.limitNote || !this.limitText) return;
+    this.limitText.textContent = text ? `${text} ` : "";
+    this.limitNote.hidden = !text;
   },
 
   /** Compact per-platform strip in the topbar (ready/loading phases). */

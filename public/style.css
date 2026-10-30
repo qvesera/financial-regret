@@ -833,6 +833,18 @@ tr.game-row:hover { background: var(--surface-2); }
   opacity: 0.85;
 }
 
+/* A spent shared key blocks every price on the page, so this line sits a step
+   louder than the PlayStation note above it: accent border, and the fix is a
+   button rather than advice to act on later. */
+.disclaimer-limit-note {
+  margin-top: 0.8rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--accent);
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+.disclaimer-limit-note .button { margin-left: 0.4rem; }
+
 /* Attribution: who built it and where the source lives. */
 .disclaimer-links {
   margin-top: 0.8rem;

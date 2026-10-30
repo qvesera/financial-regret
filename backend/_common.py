@@ -56,11 +56,16 @@ def require_user_keys() -> bool:
 def user_key(handler, header: str, env_var: str) -> str | None:
     """The API key to spend on this request: the caller's, or the server's.
 
-    Public deployments set REQUIRE_USER_KEYS=1 so the server key is never spent
-    on a stranger's request. That quota is a shared pool -- PlatPrices' free
-    tier is 1,000 requests a month -- so one busy visitor would drain it for
-    everybody, and reselling another provider's data on your own account is
-    exactly what their paid tiers are for.
+    The caller's header key always wins, so a visitor who brought their own
+    spends their own quota first. Falling back to the server key is what makes
+    an instance usable without any setup -- but that quota is a shared pool
+    (PlatPrices' free tier is 1,000 requests a month), so one busy visitor
+    could drain it for everybody, and reselling another provider's data on your
+    own account is exactly what their paid tiers are for.
+
+    Public deployments set REQUIRE_USER_KEYS=1 to remove the fallback: the
+    server key is then never spent on a stranger's request, and a visitor
+    without a key is refused rather than billed against the operator's quota.
 
     Self-hosted installs leave the flag unset and keep the convenience of a
     server-side key, which is what the existing contract tests pin.

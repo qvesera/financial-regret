@@ -1072,7 +1072,9 @@ test("the header offers each control exactly once, in plain words", async () => 
   const { env } = await boot({ seed: withSteam });
   await settle();
 
-  const keysBtns = env.root.querySelectorAll("button")
+  // Scoped to the topbar: the rate-limit note in the footer offers the same
+  // destination under different words, and only while a key is actually spent.
+  const keysBtns = env.root.querySelector(".topbar").querySelectorAll("button")
     .filter((b) => b.dataset.action === "show-keys");
   assert.equal(keysBtns.length, 1, "one API-keys control, not two with two names");
   assert.equal(keysBtns[0].textContent, "API keys");
@@ -1779,4 +1781,59 @@ test("the wordmark takes you back to the landing page", async () => {
   await settle();
   assert.equal(mod.getState().phase, "onboarding",
     "already home — clicking again does nothing dramatic");
+});
+
+const limitedSeed = (extra = {}) => (env) => {
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  Object.entries(extra).forEach(([k, v]) => env.localStorage.setItem(k, v));
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) {
+      return { json: { games: [{ id: "Steam:1", name: "Hades", platform: "Steam", hours: 20, appid: 1145360 }] } };
+    }
+    if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 500 }, limited: { itad: true } } };
+    return null;
+  });
+};
+
+test("a rate-limited shared key tells the visitor to bring their own", async () => {
+  const { env } = await boot({ seed: limitedSeed() });
+  await settle();
+
+  const note = env.root.querySelector(".disclaimer-limit-note");
+  assert.ok(note, "the rate-limit note is in the footer");
+  assert.equal(note.hidden, false, "a spent shared key puts it up");
+  assert.ok(note.textContent.includes("rate-limited"), note.textContent);
+  assert.ok(note.textContent.includes("IsThereAnyDeal"),
+    "it names the key to paste, not just that something failed");
+  assert.equal(note.querySelector("button").dataset.action, "show-keys",
+    "the fix is one click from the news");
+});
+
+test("with a key of their own, the note says wait rather than paste", async () => {
+  const { env } = await boot({ seed: limitedSeed({ itad_api_key: "mine" }) });
+  await settle();
+
+  const note = env.root.querySelector(".disclaimer-limit-note");
+  assert.ok(note.textContent.includes("wait a few minutes"), note.textContent);
+  assert.ok(!note.textContent.includes("paste your own"),
+    "a visitor who already brought a key is told to wait, not to bring one");
+});
+
+test("a scan that prices normally leaves no rate-limit note", async () => {
+  const { env } = await boot({
+    seed: (e) => {
+      e.localStorage.setItem("steam_id", "76561198000000000");
+      e.fetchRoutes.push((url) => {
+        if (url.includes("/api/steam_games")) {
+          return { json: { games: [{ id: "Steam:1", name: "Hades", platform: "Steam", hours: 20, appid: 1145360 }] } };
+        }
+        if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 500 }, limited: {} } };
+        return null;
+      });
+    },
+  });
+  await settle();
+
+  assert.equal(env.root.querySelector(".disclaimer-limit-note").hidden, true,
+    "nothing was refused, so nothing is said");
 });

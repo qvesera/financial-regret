@@ -1190,5 +1190,64 @@ class TestAmazonLibrary(unittest.TestCase):
         self.assertIn("reconnect", payload["error"])
 
 
+class TestRateLimitReporting(unittest.TestCase):
+    """A 429 from ITAD must reach the browser as "rate-limited" instead of
+    folding into an empty price list, where it reads like "this store has no
+    prices" -- which is the difference between waiting and pasting a key."""
+
+    def setUp(self):
+        import prices
+        prices._title_cache.clear()
+        prices._price_cache.clear()
+
+    @staticmethod
+    def _fake():
+        import prices
+        body = json.dumps({"games": [{"id": "Epic:X", "title": "Hob", "platform": "Epic"}]}).encode()
+        fake = mock.MagicMock()
+        fake.path = "/api/prices"
+        fake.headers = {"Content-Length": str(len(body)), "X-ITAD-Key": "USERKEY"}
+        fake.rfile = io.BytesIO(body)
+        return prices, fake
+
+    def test_itad_429_is_reported_as_limited(self):
+        prices, fake = self._fake()
+        refused = mock.MagicMock()
+        refused.status_code = 429
+        with mock.patch.object(prices, "requests") as rq, \
+                mock.patch.object(prices, "send_json") as sj:
+            rq.RequestException = Exception
+            rq.get.return_value = refused
+            rq.post.return_value = refused
+            prices.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["limited"], {"itad": True})
+        self.assertTrue(all(v is None for v in payload["prices"].values()),
+                        "a refused scan prices nothing, as before")
+
+    def test_a_clean_scan_reports_no_limit(self):
+        prices, fake = self._fake()
+
+        def ok_get(url, **kw):
+            r = mock.MagicMock()
+            r.status_code = 200
+            r.json.return_value = {"found": True, "game": {"id": "hob-id", "title": "Hob"}}
+            return r
+
+        with mock.patch.object(prices, "requests") as rq, \
+                mock.patch.object(prices, "send_json") as sj:
+            rq.RequestException = Exception
+            rq.get.side_effect = ok_get
+            rq.post.return_value = _resp([])
+            prices.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["limited"], {"itad": False},
+                         "an answered scan must not cry rate-limit")
+
+
 if __name__ == "__main__":
     unittest.main()

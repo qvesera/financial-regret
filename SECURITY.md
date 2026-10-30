@@ -66,10 +66,14 @@ rule, and `tests/test_logging.py` pins the consequence.
 * **Paths cannot escape `public/`.** Every dot segment is rejected up front and
   the resolved path is checked against the resolved root.
 * **Per-IP rate limiting** on every endpoint, including `OPTIONS`.
-* **Public deployments do not spend the operator's keys.** `REQUIRE_USER_KEYS=1`
-  makes `user_key()` ignore the server-side `STEAM_API_KEY`, `ITAD_API_KEY`,
-  `PLATPRICES_API_KEY` and `SGDB_API_KEY` unless the visitor supplied their own.
-  See `tests/test_user_keys.py`.
+* **The operator's keys are shared by default — and visitors can spend them.**
+  `user_key()` prefers the caller's own header key and falls back to the
+  server-side `STEAM_API_KEY`, `ITAD_API_KEY`, `PLATPRICES_API_KEY` and
+  `SGDB_API_KEY`, so an instance works without setup. `REQUIRE_USER_KEYS=1`
+  removes that fallback: a visitor with no key is refused instead of billed
+  against your quota. A provider's 429 is reported to the browser as
+  "rate-limited" along with the way to bring a key, so a spent pool reads as a
+  spent pool rather than a blank price column. See `tests/test_user_keys.py`.
 
 ### Not a secret, despite looking like one
 
@@ -115,13 +119,19 @@ and is small: disable the two handlers and rewrite the connect copy.
 3. **`localStorage` is readable by any script on the origin.** The CSP is what
    stops that being an open door; an XSS in the frontend would expose every
    linked account. Treat the CSP as load-bearing.
-4. **The providers may object.** BYO-key keeps you a *client* acting on a user's
-   behalf rather than a reseller, which is the defensible position. It is not a
-   legal opinion.
+4. **The providers may object.** When a visitor brings their own key you are a
+   *client* acting on their behalf rather than a reseller, which is the
+   defensible position. With shared keys as the default, a visitor without one
+   spends *your* account instead, and a busy instance can look like exactly the
+   thing paid tiers exist to prevent. `REQUIRE_USER_KEYS=1` restores the
+   defensible posture at the cost of pricing nothing for anyone who has not
+   brought a key. It is not a legal opinion.
 
 ## Operator checklist for a public deployment
 
-- [ ] `REQUIRE_USER_KEYS=1` — without it, every visitor spends your key.
+- [ ] `REQUIRE_USER_KEYS` decided: unset, every visitor can spend your key —
+      the caches absorb most of it and the rate-limit note steers heavy users
+      to their own; set to `1`, a visitor without a key gets no prices at all.
 - [ ] `CORS_ALLOWED_ORIGINS` set to exactly the frontend origin(s), no wildcards.
 - [ ] `TRUST_PROXY` **unset** unless a reverse proxy you control is in front.
       Setting it while the API is directly reachable makes the per-IP rate limit

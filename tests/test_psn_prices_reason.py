@@ -82,6 +82,16 @@ class TestReason(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["reason"], "no_match")
         self.assertEqual(payload["attribution"], psn_prices.ATTRIBUTION)
+        self.assertEqual(payload["limited"], {"platprices": False})
+
+    def test_a_spent_quota_says_so_and_names_the_fix(self):
+        status, payload = self._run(_req(), [_resp({}, status=429)])
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["reason"], "rate_limited",
+                         "a spent quota outranks 'the store has no such game'")
+        self.assertEqual(payload["limited"], {"platprices": True})
+        self.assertTrue(all(v is None for v in payload["prices"].values()),
+                        "nothing was priced, as expected")
 
     def test_a_priced_batch_reports_no_reason(self):
         data = {"success": True, "data": [{
@@ -97,16 +107,27 @@ class TestReason(unittest.TestCase):
 class TestRequestAll(unittest.TestCase):
     def test_failure_is_reported_not_swallowed(self):
         with mock.patch.object(psn_prices, "_request_batch", return_value=None):
-            items, failed = psn_prices._request_all("k", ["A_00"], "in")
+            items, failed, limited = psn_prices._request_all("k", ["A_00"], "in")
         self.assertEqual(items, [])
         self.assertTrue(failed)
+        self.assertFalse(limited, "a dead upstream is not a spent quota")
 
     def test_a_clean_answer_is_not_a_failure(self):
         with mock.patch.object(psn_prices, "_request_batch",
                                return_value=[{"GameID": "A"}]):
-            items, failed = psn_prices._request_all("k", ["A_00"], "in")
+            items, failed, limited = psn_prices._request_all("k", ["A_00"], "in")
         self.assertEqual(len(items), 1)
         self.assertFalse(failed)
+        self.assertFalse(limited)
+
+    def test_a_spent_quota_is_reported_on_its_own(self):
+        # 429 is the one failure the visitor can act on: it means "bring your
+        # own key", not "this title is missing" and not "the API is down".
+        with mock.patch.object(psn_prices, "_request_batch", return_value="LIMITED"):
+            items, failed, limited = psn_prices._request_all("k", ["A_00"], "in")
+        self.assertEqual(items, [])
+        self.assertFalse(failed, "a refusal is not a dead upstream")
+        self.assertTrue(limited)
 
 
 if __name__ == "__main__":

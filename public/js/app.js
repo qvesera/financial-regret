@@ -30,6 +30,50 @@ const PSN_PRICING_NOTE = {
 
 const psnNoteFor = (reason) => (reason ? PSN_PRICING_NOTE[reason] || null : null);
 
+/** Human wording for a rate-limited pricing source. Whose key is in play
+ *  changes what to do next: a shared key means "bring your own", their own
+ *  key means "wait". Providers are named one by one because pasting an ITAD
+ *  key cannot fix a spent PlatPrices quota. */
+const LIMIT_SHARED = {
+  // Cause-neutral on purpose: a 429 reaches us from a provider's quota or from
+  // this instance's own per-IP limiter, and both read the same way -- wait, and
+  // bring a key if it keeps happening.
+  itad: "Prices are rate-limited right now — wait a minute, then rescan. If it keeps happening, paste your own IsThereAnyDeal key under API keys.",
+  platprices: "PlayStation prices are rate-limited right now — wait a minute, then rescan. If it keeps happening, paste your own PlatPrices key under API keys.",
+};
+
+const limitNoteFor = (limited, hasOwnKey) => {
+  const names = Object.keys(limited || {});
+  if (!names.length) return null;
+  if (hasOwnKey) return "Your API key is being rate-limited — wait a few minutes, then rescan.";
+  const wording = names.map((n) => LIMIT_SHARED[n]).filter(Boolean);
+  return wording.length ? wording.join(" ") : null;
+};
+
+/** Whether the visitor brings a pricing key of their own. */
+const ownKeyPresent = () => Boolean(
+  localStorage.getItem("itad_api_key") || localStorage.getItem("platprices_api_key"),
+);
+
+/** Attribution, the PlayStation explanation and the rate-limit note all travel
+ *  on a pricing answer; one place applies them so a new call site cannot
+ *  forget one. Limits accumulate -- a chunk that holds no PlayStation rows
+ *  never asks PlatPrices, so its silence is not a clean bill of health. */
+function applyPricingNotes(priced) {
+  view.setPricingAttribution(priced.attribution);
+  view.setPsnPricingNote(psnNoteFor(priced.psnReason));
+  const incoming = priced.limited || {};
+  if (Object.keys(incoming).length) state.limited = { ...state.limited, ...incoming };
+  view.setLimitNote(limitNoteFor(state.limited, ownKeyPresent()));
+}
+
+/** A fresh pricing attempt starts clean: last attempt's rate-limit note must
+ *  not outlive the attempt that produced it. */
+function beginPricingAttempt() {
+  state.limited = {};
+  view.setLimitNote(null);
+}
+
 function loadUiState() {
   try {
     const raw = localStorage.getItem(UI_STATE_KEY);
@@ -89,6 +133,10 @@ let state = {
   // derived: filled in by renderAll before anything reads them
   bench: { samples: 0, p25: null, p50: null, p75: null, p90: null, max: null },
   verdicts: new Map(),
+  // Which shared pricing key refused the last attempt: {itad: true} or
+  // {platprices: true}. Cleared when a new attempt starts, so the note it
+  // drives never outlives its own cause.
+  limited: {},
   comparators: { worst: [], best: [] },
   simTarget: savedUi.simTarget || null,
   simHours: Number(savedUi.simHours) || 10,
@@ -354,6 +402,7 @@ async function scan() {
   state.scanning = true;
   state.phase = "loading";
   state.scanError = null;
+  beginPricingAttempt();   // a fresh scan re-asks every provider
   // One step per linked source; each flips to done/failed as its promise
   // settles, so the list is honest about which store is slow or broken.
   const specs = [
@@ -400,8 +449,7 @@ async function scan() {
       highs = { ...highs, ...(priced.highs || {}) };
       lows = { ...lows, ...(priced.lows || {}) };
       if (priced.currency) state.currency = priced.currency;
-      view.setPricingAttribution(priced.attribution);
-      view.setPsnPricingNote(psnNoteFor(priced.psnReason));
+      applyPricingNotes(priced);
       bake();
       renderAll();
     } catch {
@@ -449,12 +497,12 @@ async function reprice(nextCurrency) {
   if (state.scanning) { renderAll(); return; }
   const prev = state.currency;
   state.currency = nextCurrency || prev;
+  beginPricingAttempt();   // reprice re-asks every provider too
   try {
     const priced = await api.fetchPrices(state.games, state.currency);
     state.prices = priced.prices;
     if (priced.currency) state.currency = priced.currency;
-    view.setPricingAttribution(priced.attribution);
-    view.setPsnPricingNote(psnNoteFor(priced.psnReason));
+    applyPricingNotes(priced);
     const highs = priced.highs || {}, lows = priced.lows || {};
     state.games = state.games.map((g) => ({
       ...g,

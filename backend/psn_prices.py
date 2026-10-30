@@ -21,12 +21,14 @@ hardcoded /100 would report every Japanese game at 1/100th of its price.
 
 Response: {"prices": {..}, "highs": {..}, "lows": {..}, "resolved": {..},
            "currency": "INR", "region": "in",
-           "attribution": "Powered by PlatPrices", "reason": null}
+           "attribution": "Powered by PlatPrices", "reason": null,
+           "limited": {}}
 
 ``reason`` explains an empty answer and is null once anything priced:
 "no_key" (no key reached the server), "no_region" (this currency has no
-PlatPrices store), "upstream_failed" (the API did not answer) or "no_match"
-(it answered and carried none of these titles).
+PlatPrices store), "upstream_failed" (the API did not answer), "no_match"
+(it answered and carried none of these titles) or "rate_limited" (the key's
+quota is spent -- the one cause a visitor can fix by pasting their own).
 
 Regions: a key may only query the store regions it has been configured for --
 free plans allow 2, reconfigurable at most once a day via
@@ -47,7 +49,9 @@ PLATPRICES_BASE = "https://platprices.com/api/v2"
 BATCH_SIZE = 100          # ids per /games/batch call; halved automatically on 400
 MAX_GAMES = 5000
 MAX_BODY_BYTES = 1_048_576
-PRICE_TTL = 6 * 3600      # 6 hours, matching prices.py
+PRICE_TTL = 24 * 3600     # 24 hours. Console prices drift slowly, and the cache
+                          # is per serverless instance, so a longer window
+                          # stretches PlatPrices' 1,000-request monthly plan.
 DEFAULT_CURRENCY = "INR"
 ATTRIBUTION = "Powered by PlatPrices"
 
@@ -156,9 +160,11 @@ def _index_by_title_id(items) -> dict:
 def _request_batch(api_key: str, title_ids: list, region: str):
     """One /games/batch call.
 
-    Returns a list (possibly empty), None on failure, or the string "SPLIT" when
+    Returns a list (possibly empty), None on failure, the string "SPLIT" when
     the batch exceeded the plan's per-request record cap -- which surfaces as
-    400 INVALID_PARAM -- and therefore needs to be halved by the caller.
+    400 INVALID_PARAM -- and therefore needs to be halved by the caller, or the
+    string "LIMITED" when PlatPrices answers 429. A spent quota is a different
+    answer from a dead upstream, and only one of them is fixed by pasting a key.
     """
     try:
         resp = requests.get(
@@ -171,6 +177,8 @@ def _request_batch(api_key: str, title_ids: list, region: str):
         return None
     if resp.status_code == 400:
         return "SPLIT"
+    if resp.status_code == 429:
+        return "LIMITED"
     if resp.status_code != 200:
         return None
     try:
@@ -183,8 +191,9 @@ def _request_batch(api_key: str, title_ids: list, region: str):
     return items if isinstance(items, list) else []
 
 
-def _request_all(api_key: str, title_ids: list, region: str) -> tuple[list, bool]:
-    """(game objects for ``title_ids``, whether any batch failed), splitting on 400.
+def _request_all(api_key: str, title_ids: list, region: str) -> tuple[list, bool, bool]:
+    """(game objects for ``title_ids``, whether any batch failed, whether any
+    batch was rate-limited), splitting on 400.
 
     The per-plan record cap is not published as a number, so a 400 is read as
     "too many ids" and the batch is halved. That is both cheaper and more
@@ -197,6 +206,7 @@ def _request_all(api_key: str, title_ids: list, region: str) -> tuple[list, bool
     """
     out: list = []
     failed = False
+    limited = False
     stack = [title_ids]
     while stack:
         chunk = stack.pop()
@@ -211,12 +221,15 @@ def _request_all(api_key: str, title_ids: list, region: str) -> tuple[list, bool
             stack.append(chunk[:mid])
             stack.append(chunk[mid:])
             continue
+        if got == "LIMITED":
+            limited = True          # quota spent: not the same as "no data"
+            continue
         if got is None:
             failed = True           # network error, bad key, or a non-200
             continue
         if got:
             out.extend(got)
-    return out, failed
+    return out, failed, limited
 
 
 class handler(BaseHTTPRequestHandler):
@@ -264,6 +277,8 @@ class handler(BaseHTTPRequestHandler):
                 # which is exactly the confusion that sends people hunting for
                 # a bug that is really a missing configuration step.
                 "reason": None,
+                # Which shared key refused this batch; {} once answered.
+                "limited": {},
             }
             body.update(extra)
             send_json(self, 200, body)
@@ -306,10 +321,12 @@ class handler(BaseHTTPRequestHandler):
                 apply(title_id, cached.get("price"), cached.get("high"), cached.get("low"))
 
         upstream_failed = False
+        rate_limited = False
         for i in range(0, len(pending), BATCH_SIZE):
             chunk = pending[i:i + BATCH_SIZE]
-            items, chunk_failed = _request_all(api_key, chunk, region)
+            items, chunk_failed, chunk_limited = _request_all(api_key, chunk, region)
             upstream_failed = upstream_failed or chunk_failed
+            rate_limited = rate_limited or chunk_limited
             index = _index_by_title_id(items)
             for title_id in chunk:
                 item = index.get(title_id) or index.get(title_id.upper())
@@ -322,7 +339,12 @@ class handler(BaseHTTPRequestHandler):
         priced = any(v is not None for v in prices.values())
         reason = None
         if not priced:
-            reason = "upstream_failed" if upstream_failed else "no_match"
+            # A spent quota outranks every other cause: it is the only one the
+            # visitor can fix by pasting a key of their own.
+            if rate_limited:
+                reason = "rate_limited"
+            else:
+                reason = "upstream_failed" if upstream_failed else "no_match"
 
         respond(
             prices=prices, highs=highs, lows=lows, resolved=resolved,
@@ -330,4 +352,7 @@ class handler(BaseHTTPRequestHandler):
             # PlatPrices answering, it is nobody answering.
             attribution=(ATTRIBUTION if (priced or not upstream_failed) else None),
             reason=reason,
+            # Same shape /api/prices answers with, so the browser merges both
+            # sources into one record of who refused it.
+            limited={"platprices": rate_limited},
         )
