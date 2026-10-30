@@ -96,6 +96,23 @@ test("each verdict card holds only its own members, ranked its own way", () => {
     "no unpriced games, no card — the UI says so rather than exporting a lie");
 });
 
+test("the wrapped card carries the add-on figure when the library owns DLC", () => {
+  // Add-on value used to be the one dashboard figure with no way out of the
+  // browser: the table shows a DLC chip, the KPI grid shows the tile, the
+  // export said nothing.
+  const withDlc = [...GAMES,
+    { id: "Epic:9", name: "Hades: The Frozen Spoons", platform: "Epic", hours: null, price: 500, kind: "dlc" }];
+  const spec = cardSpec(makeState({ games: withDlc, rows: withDlc }), "wrapped");
+  const row = spec.rows.find((r) => r.name === "Add-ons");
+  assert.equal(row && row.value, "₹500.00", "add-on spend leaves the browser with the card");
+  assert.equal(row.meta, "1 expansion", "counted, singular");
+
+  // Without DLC the card says nothing about add-ons — no zeroed line.
+  const plain = cardSpec(makeState(), "wrapped");
+  assert.ok(!plain.rows.some((r) => r.name === "Add-ons"),
+    "a game-only shelf never shows an empty add-on row");
+});
+
 test("the chip list offers only what the library can fill", () => {
   const kinds = exportKinds(makeState());
   for (const k of ["wrapped", "worst", "best", "verdict:worth",
