@@ -86,6 +86,9 @@ def _rate_limited(ip: str) -> bool:
     return False
 
 
+_BROKEN = object()   # sentinel: the file exists but will not load
+
+
 def _load_api_handler(name: str):
     if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
         return None
@@ -95,12 +98,23 @@ def _load_api_handler(name: str):
     module_path = API_DIR / f"{name}.py"
     if not module_path.exists():
         return None
-    spec = importlib.util.spec_from_file_location(name, module_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec = importlib.util.spec_from_file_location(name, module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cls = getattr(module, "handler", None)
+    except Exception:
+        # A broken module is a deployment error, not a missing route -- and it
+        # must not escape as an unhandled exception either, because dispatch
+        # calls this before the crash guard around handler_fn exists.
+        import traceback
+        traceback.print_exc()
+        return _BROKEN
+    if cls is None:
+        return _BROKEN
     with _module_cache_lock:
-        _module_cache[name] = module.handler
-    return module.handler
+        _module_cache[name] = cls
+    return cls
 
 
 def _security_headers(handler: BaseHTTPRequestHandler) -> None:
@@ -171,6 +185,9 @@ class DevRequestHandler(BaseHTTPRequestHandler):
         name = path_only[len("/api/"):].split("/")[0]
 
         handler_cls = _load_api_handler(name)
+        if handler_cls is _BROKEN:
+            self._send_json(500, {"error": f"API function '{name}' failed to load"})
+            return
         if handler_cls is None:
             self._send_json(404, {"error": f"No API function named '{name}'"})
             return

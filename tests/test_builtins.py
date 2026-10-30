@@ -176,6 +176,33 @@ class TestIndexDispatch(unittest.TestCase):
         self._dispatch("/api/config")
         self.assertEqual(len(index._LOADED), 1)
 
+    def test_a_broken_module_is_a_500_not_a_404(self):
+        # A file that exists but will not import is a deployment error. It used
+        # to fall through to the same 404 as a route that never existed, which
+        # named the endpoint as the problem and hid the import failure entirely.
+        import index
+        index._LOADED.clear()
+        with mock.patch.object(index.importlib, "import_module",
+                               side_effect=SyntaxError("broken on purpose")):
+            status, body = self._dispatch("/api/prices")
+        self.assertEqual(status, 500)
+        self.assertIn("failed to load", body["error"])
+
+    def test_a_handler_that_raises_returns_500(self):
+        # The crash guard server.py already had: production must answer with
+        # JSON 500, not let the exception escape into the platform's HTML error.
+        class Boom:
+            @staticmethod
+            def do_GET(_):
+                raise RuntimeError("boom")
+
+        import index
+        with mock.patch.object(index, "_handler_for",
+                               lambda name: Boom if name == "boom" else None):
+            status, body = self._dispatch("/api/boom")
+        self.assertEqual(status, 500)
+        self.assertIn("error", body)
+
 
 if __name__ == "__main__":
     unittest.main()
