@@ -10,23 +10,27 @@
   --warn: #e0b263;
   --danger: #f0776c;
   --info: #7aa2f7;
-  --pie-1: #6ee7b7;
-  --pie-2: #7aa2f7;
-  --pie-3: #e0b263;
-  --pie-4: #f0776c;
-  --pie-5: #a78bfa;
-  --pie-6: #38bdf8;
-  --pie-7: #f472b6;
-  --pie-8: #fbbf24;
+  /* Store brands: one token per store, keyed like BRAND_PATHS. The platform
+     pie and its legend wear the brand instead of a palette slot, so a store
+     keeps its colour wherever it ranks. Brands darker than the 3:1 chart-shape
+     floor on --surface are lifted (Steam's navy, Epic's black); light mode
+     gets the true brand hexes, which read fine on white. */
+  --brand-epic: #6b6b6b;
+  --brand-steam: #2d66d0;
+  --brand-gog: #8b5cf6;
+  --brand-amazon: #ff9900;
+  --brand-psn: #0070d1;
+  --brand-xbox: #107c10;
 
   /* Verdict tiers: text colours measured ≥4.5:1 on a 10% self-tint over
-     --surface. Chart fills keep --pie-* (3:1 is enough for shapes). */
+     --surface, and reused as the verdict pie's chart fills (3:1 as shapes). */
   --tier-worth: #6ee7b7;
   --tier-fair: #e0b263;
   --tier-regret: #f0776c;
   --tier-untouched: #9aa1ac;
   --tier-nodata: #7aa2f7;
   --tier-free: #38bdf8;
+  --tier-unknown: #8b909a;
   /* badge fills at 10% over --surface — the alpha the contrast audit used */
   --tier-worth-tint: rgba(110, 231, 183, 0.10);
   --tier-fair-tint: rgba(224, 178, 99, 0.10);
@@ -98,22 +102,21 @@ body::after {
     --warn: #b57713;
     --danger: #c0392b;
     --info: #2563eb;
-    --pie-1: #0e8a66;
-    --pie-2: #2563eb;
-    --pie-3: #b57713;
-    --pie-4: #c0392b;
-    --pie-5: #7c3aed;
-    --pie-6: #0284c7;
-    --pie-7: #db2777;
-    --pie-8: #d97706;
+    /* amazon's smile orange can't hold 3:1 on white and darkens here; epic
+       gets closer to Epic black and steam to Steam's true navy. gog/psn/xbox
+       clear white as-is and carry through unchanged */
+    --brand-epic: #333333;
+    --brand-steam: #2a475e;
+    --brand-amazon: #b45309;
 
-    /* the light-mode pie hexes are shape-safe but too pale for small text */
+    /* light-mode tier hexes are shape-safe but too pale for small text */
     --tier-worth: #0b6e51;
     --tier-fair: #8a5a0c;
     --tier-regret: #a13024;
     --tier-untouched: #4b5563;
     --tier-nodata: #1d4ed8;
     --tier-free: #0369a1;
+    --tier-unknown: #5c626a;
     --tier-worth-tint: rgba(11, 110, 81, 0.10);
     --tier-fair-tint: rgba(138, 90, 12, 0.10);
     --tier-regret-tint: rgba(161, 48, 36, 0.10);
@@ -681,25 +684,33 @@ tr.game-row:hover { background: var(--surface-2); }
 .kpi-gauge { display: flex; align-items: center; gap: 0.6rem; }
 .kpi-ring { width: 44px; height: 44px; display: block; flex: 0 0 auto; }
 
-.platform-list { display: flex; flex-direction: column; }
-.platform-pie { width: 100%; max-width: 150px; aspect-ratio: 1; display: block; margin: 0 auto; }
-.platform-pie path, .platform-pie circle { cursor: pointer; transition: opacity 150ms ease; }
-.platform-pie:hover path, .platform-pie:hover circle { opacity: 0.45; }
-.platform-pie path:hover, .platform-pie circle:hover { opacity: 1; }
-.platform-pie .is-active { stroke: var(--text); stroke-width: 2; }
-.platform-legend { display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.9rem; }
-.platform-row {
+/* Shared by the platform and verdict cards: same pie box, same hover dim, same
+   legend rows. They differ only in vocabulary (store vs tier) and colour source
+   (brand token vs tier token), which each card's own classes supply. */
+.platform-list, .verdict-list { display: flex; flex-direction: column; }
+.platform-pie, .verdict-pie { width: 100%; max-width: 150px; aspect-ratio: 1; display: block; margin: 0 auto; }
+.platform-pie path, .platform-pie circle,
+.verdict-pie path, .verdict-pie circle { cursor: pointer; transition: opacity 150ms ease; }
+.platform-pie:hover path, .platform-pie:hover circle,
+.verdict-pie:hover path, .verdict-pie:hover circle { opacity: 0.45; }
+.platform-pie path:hover, .platform-pie circle:hover,
+.verdict-pie path:hover, .verdict-pie circle:hover { opacity: 1; }
+.platform-pie .is-active, .verdict-pie .is-active { stroke: var(--text); stroke-width: 2; }
+.platform-legend, .verdict-legend { display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.9rem; }
+.platform-row, .verdict-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
 }
-.platform-swatch { width: 10px; height: 10px; border-radius: 0; flex: 0 0 auto; }
-.platform-name { flex: 1; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.platform-value { font-variant-numeric: tabular-nums; }
-.platform-legend .platform-row { cursor: pointer; }
-.platform-legend .platform-row:hover .platform-name { color: var(--text); }
-.platform-legend .platform-row.is-active .platform-name { color: var(--text); font-weight: 600; }
+.platform-swatch, .verdict-swatch { width: 10px; height: 10px; border-radius: 0; flex: 0 0 auto; }
+.platform-name, .verdict-name { flex: 1; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-value, .verdict-count { font-variant-numeric: tabular-nums; }
+.platform-legend .platform-row, .verdict-legend .verdict-row { cursor: pointer; }
+.platform-legend .platform-row:hover .platform-name,
+.verdict-legend .verdict-row:hover .verdict-name { color: var(--text); }
+.platform-legend .platform-row.is-active .platform-name,
+.verdict-legend .verdict-row.is-active .verdict-name { color: var(--text); font-weight: 600; }
 
 /* ---------- drawer ---------- */
 

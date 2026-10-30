@@ -422,8 +422,8 @@ test("regret gauge lives in its KPI card, not a second sidebar card", async () =
 
   const sidebar = env.root.querySelector(".sidebar");
   const headings = sidebar.querySelectorAll("h3").map((h) => h.textContent);
-  assert.deepEqual(headings, ["Value by platform"],
-    "the duplicate Regret card is gone from the sidebar");
+  assert.deepEqual(headings, ["Value by platform", "Games by verdict"],
+    "the two chart cards own the sidebar; the duplicate Regret card is gone");
 });
 
 test("filter tabs narrow the table", async () => {
@@ -891,6 +891,81 @@ test("value by platform renders as a pie chart", async () => {
   assert.equal(legend.querySelectorAll(".platform-swatch").length, 2, "a swatch per slice");
   const names = legend.querySelectorAll(".platform-name").map((n) => n.textContent).sort();
   assert.deepEqual(names, ["Epic", "Steam"], "legend lists both platforms");
+});
+
+test("platform slices wear the store's brand colour, not a palette slot", async () => {
+  // The old palette painted by rank index, so a store changed colour whenever
+  // the ranking reshuffled. The colour now belongs to the store itself: Epic
+  // stays Epic grey whether it ranks first or last.
+  const { env } = await boot({ seed: mixedSeed });
+  await settle();
+
+  const legendRow = (name) => env.root.querySelector(".platform-legend")
+    .querySelectorAll(".platform-row").find((r) => r.dataset.platform === name);
+  assert.equal(legendRow("Epic").querySelector(".platform-swatch").style.background,
+    "var(--brand-epic)", "Epic swatch");
+  assert.equal(legendRow("Steam").querySelector(".platform-swatch").style.background,
+    "var(--brand-steam)", "Steam swatch");
+
+  const fills = env.root.querySelector(".platform-pie").querySelectorAll("path")
+    .map((p) => p.getAttribute("fill"));
+  assert.ok(fills.includes("var(--brand-epic)"), "Epic slice painted Epic grey");
+  assert.ok(fills.includes("var(--brand-steam)"), "Steam slice painted Steam blue");
+});
+
+// Seven games chosen so each verdict lands exactly once (twice for Regret):
+// four priced+played rates (1000, 50, 30, 10 → p25=25, p50=40) split into
+// regret/fair/worth, plus one untouched, one free and one unpriced row.
+const verdictSeed = (env) => {
+  env.localStorage.setItem("steam_id", "76561198000000000");
+  env.fetchRoutes.push((url) => {
+    if (url.includes("/api/steam_games")) return { json: { games: [
+      { id: "Steam:1", name: "Ripoff", platform: "Steam", hours: 1, appid: 1 },
+      { id: "Steam:2", name: "Steep", platform: "Steam", hours: 10, appid: 2 },
+      { id: "Steam:3", name: "Okay", platform: "Steam", hours: 10, appid: 3 },
+      { id: "Steam:4", name: "Steal", platform: "Steam", hours: 10, appid: 4 },
+      { id: "Steam:5", name: "Shelfwarmer", platform: "Steam", hours: 0, appid: 5 },
+      { id: "Steam:6", name: "Gem", platform: "Steam", hours: 5, appid: 6 },
+      { id: "Steam:7", name: "Mystery", platform: "Steam", hours: 8, appid: 7 },
+    ] } };
+    if (url.includes("/api/gog_games")) return { json: { games: [] } };
+    if (url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/prices")) {
+      const p = { "Steam:1": 1000, "Steam:2": 500, "Steam:3": 300, "Steam:4": 100, "Steam:5": 200, "Steam:6": 0 };
+      return { json: { prices: p, highs: p, lows: p } };
+    }
+    return null;
+  });
+};
+
+test("the verdict pie splits the library by verdict and filters on click", async () => {
+  const { env, mod } = await boot({ seed: verdictSeed });
+  await settle();
+
+  const pie = env.root.querySelector(".verdict-pie");
+  assert.ok(pie, "verdict pie rendered");
+  assert.equal(pie.getAttribute("role"), "img");
+  assert.equal(pie.getAttribute("aria-label"), "Games by verdict");
+  assert.equal(pie.querySelectorAll("path").length, 6, "one slice per verdict present");
+
+  const legend = env.root.querySelector(".verdict-legend");
+  const names = legend.querySelectorAll(".verdict-name").map((n) => n.textContent);
+  assert.deepEqual(names, ["Regret", "Untouched", "Fair", "Worth it", "Free", "Unpriced"],
+    "the facet chips' vocabulary, in the facet chips' order");
+  const counts = legend.querySelectorAll(".verdict-count").map((c) => c.textContent);
+  assert.deepEqual(counts, ["2 games", "1 game", "1 game", "1 game", "1 game", "1 game"],
+    "every game counted exactly once");
+
+  const regretRow = legend.querySelectorAll(".verdict-row").find((r) => r.dataset.tier === "regret");
+  assert.equal(regretRow.querySelector(".verdict-swatch").style.background, "var(--tier-regret)",
+    "swatch wears the tier colour the badges use");
+
+  regretRow.dispatch("click");
+  await settle();
+  assert.equal(mod.getState().tier, "regret", "click drives the same action as the chip");
+  assert.equal(mod.getState().rows.length, 2, "table narrowed to the regretted pair");
+  const chip = env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "regret");
+  assert.equal(chip.getAttribute("aria-pressed"), "true", "the facet chip agrees with the chart");
 });
 
 test("clicking a pie slice filters the table to that platform", async () => {

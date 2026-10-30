@@ -280,7 +280,18 @@ function brandIcon(platform, size = 14) {
   return svg;
 }
 
-/** SVG arc path for a pie slice spanning angles a0→a1 (radians; -π/2 = top). */
+/** The store's brand colour — `var(--brand-<key>)`, one token per store keyed
+ *  like BRAND_PATHS, so the same store wears the same colour in every chart
+ *  and in every render (the palette index it replaces followed value rank and
+ *  reshuffled whenever the ranking did). Unknown stores fall back to muted
+ *  grey: an unresolved var in an SVG fill would paint black. */
+const brandColor = (platform) => {
+  const key = BRAND_KEY.get(String(platform || "").toLowerCase())
+    || String(platform || "").toLowerCase();
+  return BRAND_PATHS[key] ? `var(--brand-${key})` : "var(--muted)";
+};
+
+/** SVG arc path for a pie slice spanning angles a0→a1 (radians, -π/2 = top). */
 function pieSlice(cx, cy, r, a0, a1) {
   const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
   const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
@@ -1080,6 +1091,14 @@ export const view = {
     const platformList = this.el("div", "platform-list");
     platCard.appendChild(platformList);
     sidebar.appendChild(platCard);
+    // The same picture cut the other way: how the library divides by verdict.
+    // Same card, same pie, and the same tier vocabulary as the facet chips —
+    // counting state.verdicts, so chart and chips can never disagree.
+    const verdictCard = this.el("div", "chart-card");
+    verdictCard.appendChild(this.el("h3", null, "Games by verdict"));
+    const verdictList = this.el("div", "verdict-list");
+    verdictCard.appendChild(verdictList);
+    sidebar.appendChild(verdictCard);
 
     bodyEl.appendChild(panel);
     bodyEl.appendChild(sidebar);
@@ -1087,7 +1106,7 @@ export const view = {
 
     // `kpi` is the scope renderKpis queries: it must reach #kpi-regret now
     // that the regret card has moved out of the row.
-    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, filterBar, search, sort, platformSelect, headerCells, pagers: [topPager, bottomPager], panel };
+    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, verdictList, filterBar, search, sort, platformSelect, headerCells, pagers: [topPager, bottomPager], panel };
   },
 
   /** Called on every state change. Rebuilds the phase only when it changes. */
@@ -1142,7 +1161,8 @@ export const view = {
         kpi: r.kpi, tabs: r.tabs, tbody: r.tbody, tableWrap: r.tableWrap,
         gridWrap: r.gridWrap, viewToggle: r.viewToggle,
         emptyState: r.empty, coverage: r.coverage, ringSvg: r.ringSvg,
-        platformList: r.platformList, filterBar: r.filterBar, search: r.search, sort: r.sort,
+        platformList: r.platformList, verdictList: r.verdictList,
+        filterBar: r.filterBar, search: r.search, sort: r.sort,
         platformSelect: r.platformSelect, headerCells: r.headerCells,
         pagers: r.pagers, panel: r.panel,
       });
@@ -1157,6 +1177,7 @@ export const view = {
     this.renderKpis(this.kpi, metrics);
     this.renderRegretRing(this.ringSvg, metrics.regretScore);
     this.renderPlatforms(this.platformList, state.games, state.prices, state.platform);
+    this.renderVerdicts(this.verdictList, state.verdicts, state.tier);
     this.updateHero(state);
     if (this.distBox) this.renderDistribution(state);
     this.updateSim(state);
@@ -2013,9 +2034,9 @@ export const view = {
       return;
     }
     const total = entries.reduce((s, [, p]) => s + p.value, 0);
-    const colorFor = (i) => `var(--pie-${(i % 8) + 1})`;
 
-    // Pie: one slice per platform, coloured from the --pie-* palette.
+    // Pie: one slice per platform, painted with the store's brand colour
+    // (brandColor) — keyed by the store, not by its rank in this render.
     const NS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(NS, "svg");
     svg.setAttribute("class", "platform-pie");
@@ -2024,10 +2045,10 @@ export const view = {
     svg.setAttribute("aria-label", "Value by platform");
     const cx = 40, cy = 40, r = 36;
     let a0 = -Math.PI / 2;   // start at 12 o'clock
-    entries.forEach(([platform, data], i) => {
+    entries.forEach(([platform, data]) => {
       const frac = total ? data.value / total : 0;
       const a1 = a0 + frac * 2 * Math.PI;
-      const fill = colorFor(i);
+      const fill = brandColor(platform);
       const pct = total ? Math.round((data.value / total) * 100) : 0;
       let slice = null;
       if (frac >= 0.9999) {                       // single platform = full circle
@@ -2056,18 +2077,95 @@ export const view = {
 
     // Legend: colour swatch, platform, value.
     const legend = this.el("div", "platform-legend");
-    entries.forEach(([platform, data], i) => {
+    entries.forEach(([platform, data]) => {
       const row = this.el("div", "platform-row");
       row.dataset.action = "filter-platform";
       row.dataset.platform = platform;
       if (platform === active) row.classList.add("is-active");
       const swatch = this.el("span", "platform-swatch");
-      swatch.style.background = colorFor(i);
+      swatch.style.background = brandColor(platform);
       row.appendChild(swatch);
       const lmark = brandIcon(platform, 13);
       if (lmark) { lmark.classList.add("platform-mark"); row.appendChild(lmark); }
       row.appendChild(this.el("span", "platform-name", platform));
       row.appendChild(this.el("span", "platform-value", money(data.value, this.currency)));
+      legend.appendChild(row);
+    });
+    listEl.appendChild(legend);
+  },
+
+  /** The verdict pie: one slice per verdict, counting state.verdicts — the
+   *  same map the facet chips count, in the order the chips are laid out, so
+   *  chart, chips and table always tell one story. A slice or legend row
+   *  drives the same "tier" action the chips do. */
+  renderVerdicts(listEl, verdicts, active) {
+    if (!listEl) return;
+    listEl.textContent = "";
+    const counts = {};
+    for (const t of verdicts ? verdicts.values() : []) counts[t] = (counts[t] || 0) + 1;
+    // The facet row owns this sequence (view's tier chips), unknown trailing —
+    // it only appears when the library is too small to form a benchmark.
+    const order = ["regret", "untouched", "fair", "worth", "free", "nodata", "unknown"];
+    const entries = order.filter((t) => counts[t]).map((t) => [t, counts[t]]);
+    if (entries.length === 0) {
+      listEl.appendChild(this.el("p", "muted", "No games yet."));
+      return;
+    }
+    const total = entries.reduce((s, [, n]) => s + n, 0);
+    const colorFor = (t) => `var(--tier-${t})`;
+    const games = (n) => `${n} ${n === 1 ? "game" : "games"}`;
+
+    // Pie: one slice per verdict, painted in the tier colour the badges wear.
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", "verdict-pie");
+    svg.setAttribute("viewBox", "0 0 80 80");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Games by verdict");
+    const cx = 40, cy = 40, r = 36;
+    let a0 = -Math.PI / 2;   // start at 12 o'clock
+    entries.forEach(([tier, count]) => {
+      const frac = total ? count / total : 0;
+      const a1 = a0 + frac * 2 * Math.PI;
+      const fill = colorFor(tier);
+      const pct = total ? Math.round((count / total) * 100) : 0;
+      let slice = null;
+      if (frac >= 0.9999) {                       // one verdict = full circle
+        slice = document.createElementNS(NS, "circle");
+        slice.setAttribute("cx", cx); slice.setAttribute("cy", cy); slice.setAttribute("r", r);
+        slice.setAttribute("fill", fill);
+      } else if (frac > 0) {
+        slice = document.createElementNS(NS, "path");
+        slice.setAttribute("d", pieSlice(cx, cy, r, a0, a1));
+        slice.setAttribute("fill", fill);
+        slice.setAttribute("stroke", "var(--surface)");   // separate slices
+        slice.setAttribute("stroke-width", "1");
+      }
+      if (slice) {
+        const title = document.createElementNS(NS, "title");   // native hover tooltip
+        title.textContent = `${TIER_LABEL[tier] || tier} — ${games(count)} (${pct}%)`;
+        slice.appendChild(title);
+        slice.dataset.action = "tier";             // same filter as the facet chip
+        slice.dataset.tier = tier;
+        if (tier === active && active !== "All") slice.classList.add("is-active");
+        svg.appendChild(slice);
+      }
+      a0 = a1;
+    });
+    listEl.appendChild(svg);
+
+    // Legend: colour swatch, verdict, count.
+    const legend = this.el("div", "verdict-legend");
+    entries.forEach(([tier, count]) => {
+      const row = this.el("div", "verdict-row");
+      row.dataset.action = "tier";
+      row.dataset.tier = tier;
+      if (tier === active && active !== "All") row.classList.add("is-active");
+      const swatch = this.el("span", "verdict-swatch");
+      swatch.style.background = colorFor(tier);
+      row.appendChild(swatch);
+      row.appendChild(this.el("span", "verdict-name", TIER_LABEL[tier] || tier));
+      row.appendChild(this.el("span", "verdict-count", games(count)));
       legend.appendChild(row);
     });
     listEl.appendChild(legend);
