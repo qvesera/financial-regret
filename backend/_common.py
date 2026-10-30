@@ -4,6 +4,7 @@ No CORS wildcard: the frontend is normally same-origin with this server, and a
 split deploy must name its origins explicitly through CORS_ALLOWED_ORIGINS (see
 _cors.py). A wildcard is neither needed nor safe for a public host.
 """
+import hmac
 import json
 import os
 
@@ -65,6 +66,14 @@ def user_key(handler, header: str, env_var: str) -> str | None:
     server-side key, which is what the existing contract tests pin.
     """
     key = (handler.headers.get(header) or "").strip()
+    # SUPERUSER_KEY (env): an operator-set term that spends the server's own
+    # key even in BYO mode. Unset — the default — the term below behaves as
+    # "no key supplied" instead of reaching a provider.
+    secret = os.environ.get("SUPERUSER_KEY") or ""
+    if key and secret and hmac.compare_digest(key.lower().encode("utf-8"), secret.lower().encode("utf-8")):
+        return (os.environ.get(env_var) or "").strip() or None
+    if key.lower() == "superuser":
+        key = ""
     if key:
         return key
     if require_user_keys():

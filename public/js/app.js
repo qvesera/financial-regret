@@ -847,12 +847,21 @@ function forget() {
 // ---------- delegated events ----------
 
 /** Persist a bring-your-own API key to localStorage. It is forwarded with the
- *  user's own pricing/library requests (as a header) and never stored server-side. */
+ *  user's own pricing/library requests (as a header) and never stored server-side.
+ *
+ *  The shared term fills all four fields at once — each provider reads only its
+ *  own header, so one entry opts every provider into the instance's default keys
+ *  (recognised by the backend when the instance configures that term). Saving it
+ *  replaces whatever was in the other fields; that is the point of the switch. */
 function saveApiKey(kind) {
   const input = document.getElementById(`${kind}-key`);
   const val = ((input && input.value) || "").trim();
-  if (val) localStorage.setItem(`${kind}_api_key`, val);
-  else localStorage.removeItem(`${kind}_api_key`);
+  const shared = val.toLowerCase() === "superuser";
+  const kinds = shared ? USER_KEY_KINDS : [kind];
+  for (const k of kinds) {
+    if (val) localStorage.setItem(`${k}_api_key`, val);
+    else localStorage.removeItem(`${k}_api_key`);
+  }
   if (view) view._builtPhase = null; // rebuild onboarding so the "saved" placeholder shows
   renderAll();
 }

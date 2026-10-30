@@ -201,6 +201,38 @@ test("saving a key clears the gate and Connect proceeds", async () => {
   assert.equal(env.navigations.length, 1, "with a key present, Connect navigates");
 });
 
+test("the shared term in one key field fills all four fields", async () => {
+  // Each provider only ever reads its own header, so the term has to land in
+  // every field — one entry opts the whole browser into the instance defaults.
+  const { env } = await boot();
+  const input = env.document.getElementById("itad-key");
+  input.value = "superuser";
+  byAction(env, "save-key").dispatch("click");
+  await settle();
+
+  for (const k of ["itad", "steam", "platprices", "sgdb"]) {
+    assert.equal(env.localStorage.getItem(`${k}_api_key`), "superuser", `${k} field filled`);
+  }
+  // It satisfies the BYO gate like any other stored value.
+  byAction(env, "link", "steam").dispatch("click");
+  assert.equal(env.navigations.length, 1, "Connect proceeds with the term saved");
+});
+
+test("an ordinary key saves only its own field", async () => {
+  // The fan-out must trigger on the shared term alone: a real key in one
+  // field must never overwrite the others.
+  const { env } = await boot();
+  const input = env.document.getElementById("itad-key");
+  input.value = "my-itad-key";
+  byAction(env, "save-key").dispatch("click");
+  await settle();
+
+  assert.equal(env.localStorage.getItem("itad_api_key"), "my-itad-key", "the real key saved");
+  for (const k of ["steam", "platprices", "sgdb"]) {
+    assert.equal(env.localStorage.getItem(`${k}_api_key`), null, `${k} left untouched`);
+  }
+});
+
 test("GOG link opens auth popup and stores oauth state", async () => {
   const { env } = await boot();
   bringKey(env);
