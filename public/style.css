@@ -417,7 +417,10 @@ button { cursor: pointer; font-family: inherit; }
   gap: var(--space-3);
   margin-left: auto;
 }
-.topbar-actions { display: flex; gap: 0.5rem; }
+/* Wrapping matters more than it looks: four buttons (Scan, API keys, Share,
+   Forget) plus the store chips do not fit a 360px header, and a group that
+   cannot wrap pushes the page sideways instead of dropping onto a row. */
+.topbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; }
 /* The one currency picker, in the header on every screen. Capped so a wide
    symbol-code label ("CA$ CAD") never shoves the actions off the row. */
 .header-currency { max-width: 9.5rem; }
@@ -688,7 +691,7 @@ tr.game-row:hover { background: var(--surface-2); }
 /* Title + slide dots on the two-slide card: the head carries the bottom
    margin the bare h3 used to, so the dots centre against the text. */
 .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.75rem; }
-.chart-head h3 { margin: 0; }
+.chart-head h3 { margin: 0; min-width: 0; }
 .carousel-dots { display: flex; gap: 6px; }
 .carousel-dot { width: 8px; height: 8px; padding: 0; border: 1px solid var(--muted); background: transparent; cursor: pointer; }
 .carousel-dot.active { background: var(--accent); border-color: var(--accent); }
@@ -724,7 +727,9 @@ tr.game-row:hover { background: var(--surface-2); }
 }
 .platform-swatch, .verdict-swatch { width: 10px; height: 10px; border-radius: 0; flex: 0 0 auto; }
 .platform-name, .verdict-name { flex: 1; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.platform-value, .verdict-count { font-variant-numeric: tabular-nums; }
+/* Numbers never shrink: in the carousel each slide is half the card, and a
+   squeezed figure breaks mid-thousand instead of holding its own column. */
+.platform-value, .verdict-count { font-variant-numeric: tabular-nums; flex: 0 0 auto; }
 .platform-legend .platform-row, .verdict-legend .verdict-row { cursor: pointer; }
 .platform-legend .platform-row:hover .platform-name,
 .verdict-legend .verdict-row:hover .verdict-name { color: var(--text); }
@@ -798,9 +803,14 @@ tr.game-row:hover { background: var(--surface-2); }
   padding: 1rem;
   background: rgba(0, 0, 0, 0.55);
 }
-.forget-modal.hidden { display: none; }
+.forget-modal[hidden] { display: none; }
 .forget-card {
   max-width: 30rem;
+  /* A phone held sideways cannot show the whole paragraph, and this dialog has
+     no X to escape it — the card scrolls so Cancel is always reachable. */
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -880,7 +890,7 @@ tr.game-row:hover { background: var(--surface-2); }
    own figure beside them. The placeholder carries the API value, so an empty
    box always reads as "no override". */
 .edit-row { flex-wrap: wrap; }
-.edit-box { display: flex; gap: var(--space-2); align-items: center; margin-left: auto; }
+.edit-box { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-left: auto; }
 .edit-input {
   width: 7rem;
   padding: 0.3rem 0.45rem;
@@ -1047,6 +1057,18 @@ tr.game-row:hover { background: var(--surface-2); }
 .platform-mark { color: var(--muted); flex: 0 0 auto; margin-right: 0.35rem; vertical-align: -2px; }
 td.cell-platform { white-space: nowrap; }
 
+/* Name cell: the text leads and may shrink, every marker after it holds the
+   right edge. Without this each chip sat wherever the title happened to end,
+   so the column read as ragged and no two rows lined up. */
+.cell-name-in { display: flex; align-items: center; gap: 0.5rem; }
+.cell-name-in > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dot {
   width: 7px;
   height: 7px;
@@ -1110,9 +1132,12 @@ td.cell-platform { white-space: nowrap; }
 
 @media (max-width: 600px) {
   .onboarding { padding: 1.5rem 1rem 2rem; }
-  .kpi-value { font-size: 1.2rem; }
-  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .source { font-size: 0.75rem; }
+  /* Not here: `.kpi-grid`'s phone rules. This block sits *before* the grid is
+     defined further down, and a later rule of equal specificity beats it — the
+     two-up grid and its smaller figure were silently dead on every phone (the
+     grid stayed three-up in a 360px column). They now live with the other
+     phone rules for the grid, in the responsive section near the end. */
 }
 
 /* Bring-your-own API keys: a full-width row under the store cards — it is
@@ -1562,6 +1587,28 @@ td.cell-platform { white-space: nowrap; }
    same hue as the Regret tier. */
 .dupe-chip { border-color: var(--danger); color: var(--danger); }
 
+/* The duplicate ear: a title owned on another store wears its marker at the
+   cover's top-right corner, mirroring the verdict badge at top-left. Solid
+   warning red rather than an outline — over arbitrary artwork an outline has
+   nothing to sit against — with a folded corner so it reads as a tab pinned to
+   the edge rather than a label floating on the art. */
+.dup-ear {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  margin-left: 0;
+  padding: 0.15rem 0.35rem;
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #0d1512;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border-radius: 0;
+  border-bottom-left-radius: 3px;
+}
+
 /* ---- cards: cover fallback, badges, hours, price band ---- */
 
 .cover {
@@ -1751,18 +1798,31 @@ td.cell-platform { white-space: nowrap; }
 
   /* header: brand keeps row one; stores and controls wrap beneath it */
   .topbar-right { width: 100%; margin-left: 0; justify-content: space-between; }
+  /* the action group takes the full row and lets its four buttons wrap, with
+     the padding trimmed so more of them fit per line */
+  .topbar-actions { width: 100%; justify-content: flex-start; }
+  .topbar .button { padding: 0.5rem 0.75rem; font-size: 0.85rem; }
 
   /* key fields go single-column: two 440px-tall fields side by side at this
      width leaves every hint broken across three lines */
   .api-keys-fields { grid-template-columns: minmax(0, 1fr); }
 
   .drawer-cover { width: 84px; }
+  /* Two-up on a phone: three columns of a 360px card leave every label wrapped
+     to two lines and every figure fighting its neighbour for width. */
+  .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kpi-grid { column-gap: var(--space-4); }
+  /* `.kpi-grid .kpi-value` (two classes) outranks the `.kpi-value` font-size
+     at the top of this file, so the smaller phone size has to be written at
+     the same specificity or it never applies — which is how ₹5,125.00 ended
+     up wider than its cell in a two-up grid. */
+  .kpi-grid .kpi-value { font-size: 1.1rem; }
 }
 
 @media (max-width: 400px) {
   .hero-figure { font-size: 2.1rem; }
   .kpi-grid { row-gap: var(--space-3); }
+  .kpi-grid .kpi-value { font-size: 1rem; }   /* unwrappable figures stay inside their cell */
   .control { flex: 1 1 100%; }   /* one control per row on the smallest phones */
 }
 
@@ -1772,6 +1832,12 @@ td.cell-platform { white-space: nowrap; }
   .page-num { min-width: 44px; }
   .source { padding: 0.45rem 0.8rem; }
   .source-action { padding: 0.45rem 0.6rem; }
+  .button.small, .forget-actions .button, .footer-forget { min-height: 44px; }
+  /* The carousel dots are 8px of button. The tap area grows around them
+     instead of the marker itself: horizontally only as far as each dot's own
+     gap, or two expanded targets would overlap and steal each other's taps. */
+  .carousel-dot { position: relative; }
+  .carousel-dot::after { content: ""; position: absolute; top: -16px; bottom: -16px; left: -6px; right: -6px; }
 }
 
 /* ============================================================
@@ -1947,7 +2013,11 @@ td.cell-platform { white-space: nowrap; }
   border: 2px solid var(--border);
   object-fit: cover;
 }
-.toy-titles { flex: 1; min-width: 0; }
+/* flex: 1 would set the basis to 0, which hands this box whatever room is left
+   after the badge — about 50px on a phone — and with min-width: 0 the title
+   then paints outside it and across the badge beside it. Growing from the
+   content's own width instead makes the row wrap the badge to its own line. */
+.toy-titles { flex: 1 1 auto; min-width: 0; }
 .toy-price { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.85rem; }
 
 .toy-title {
@@ -2091,6 +2161,11 @@ td.cell-platform { white-space: nowrap; }
 
 .tip {
   position: absolute;
+  /* Out of layout until shown: it is 17rem wide and anchored to a chip that can
+     sit near the right edge, so an invisible panel still counted towards the
+     page's width — three viewports scrolled sideways because of a tooltip nobody
+     could see. The fade it loses on show is the price of not carrying it. */
+  display: none;
   /* Anchored to the chip's left edge rather than centred: every chip here sits
      near the left of its container, and a centred 17rem panel would poke past
      the viewport edge on narrow desktop widths. */
@@ -2121,6 +2196,7 @@ td.cell-platform { white-space: nowrap; }
 }
 .info:hover .tip,
 .info:focus .tip {
+  display: block;
   opacity: 1;
 }
 

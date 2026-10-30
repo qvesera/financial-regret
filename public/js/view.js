@@ -411,7 +411,7 @@ export const view = {
     // Confirmation for the only destructive action here: it takes every
     // credential, library, price and manual figure out of this browser, so it
     // asks first. Deliberately no X — the two answers are the buttons.
-    const forgetModal = this.el("div", "forget-modal hidden");
+    const forgetModal = this.el("div", "forget-modal");
     forgetModal.hidden = true;
     forgetModal.setAttribute("role", "dialog");
     forgetModal.setAttribute("aria-modal", "true");
@@ -1903,17 +1903,26 @@ export const view = {
           // Price, hours and rate (2–4) are numeric: .num right-aligns them on
           // tabular figures so the digits stack down the column.
           const cls = i === 0 ? "cell-name" : (i >= 2 && i <= 4 ? "num" : null);
-          const td = this.el("td", cls, text);
-          // Add-on rows carry a small chip so DLC is legible in the list.
-          if (i === 0 && game.kind === "dlc") td.appendChild(this.el("span", "dlc-chip", "DLC"));
-          // And one when the title is owned on another store, so buying a game
-          // twice shows in the list instead of only behind a click.
-          if (i === 0 && this.dupes.get(game.id)) {
-            td.appendChild(this.dupeChip(this.dupes.get(game.id)));
+          if (i === 0) {
+            // Wrapped in a flex box so the chips sit at the cell's right edge
+            // instead of trailing wherever the title happened to end — the text
+            // leads and shrinks, the markers hold the line.
+            const td = this.el("td", cls);
+            const inner = this.el("div", "cell-name-in");
+            inner.appendChild(this.el("span", null, text));
+            // Add-on rows carry a small chip so DLC is legible in the list.
+            if (game.kind === "dlc") inner.appendChild(this.el("span", "dlc-chip", "DLC"));
+            // And one when the title is owned on another store, so buying a game
+            // twice shows in the list instead of only behind a click.
+            if (this.dupes.get(game.id)) inner.appendChild(this.dupeChip(this.dupes.get(game.id)));
+            // And one for a figure the visitor typed over the store's own, so a
+            // price that differs from IsThereAnyDeal is visibly theirs.
+            if (game.edited) inner.appendChild(this.el("span", "edited-chip", "Edited"));
+            td.appendChild(inner);
+            tr.appendChild(td);
+            return;
           }
-          // And one for a figure the visitor typed over the store's own, so a
-          // price that differs from IsThereAnyDeal is visibly theirs.
-          if (i === 0 && game.edited) td.appendChild(this.el("span", "edited-chip", "Edited"));
+          const td = this.el("td", cls, text);
           tr.appendChild(td);
           return;
         }
@@ -1981,15 +1990,22 @@ export const view = {
       if (game.hours != null && game.hours >= 1) {
         art.appendChild(this.el("span", "card-hours", hours(game.hours)));
       }
+      // The ear: a title owned on another store wears its marker at the cover's
+      // top-right, mirroring the verdict badge at top-left. The platform is
+      // already printed on the card, so the marker claims the fact rather than
+      // naming a store — and it never trails the title, which broke alignment
+      // wherever a name happened to end.
+      if (this.dupes.get(game.id)) {
+        const ear = this.dupeChip(this.dupes.get(game.id));
+        ear.classList.add("dup-ear");
+        art.appendChild(ear);
+      }
       card.appendChild(art);
 
       const meta = this.el("div", "card-meta");
       const titleRow = this.el("p", "card-title", game.name);
       // Same add-on chip as the list, so a cover card reads as DLC too.
       if (game.kind === "dlc") titleRow.appendChild(this.el("span", "dlc-chip", "DLC"));
-      // Same again for an owned-elsewhere title: the grid must not be the view
-      // that hides the duplicate.
-      if (this.dupes.get(game.id)) titleRow.appendChild(this.dupeChip(this.dupes.get(game.id)));
       // And for a figure of the visitor's own: the card shows the number, so it
       // has to show whose number it is.
       if (game.edited) titleRow.appendChild(this.el("span", "edited-chip", "Edited"));

@@ -1,6 +1,6 @@
 /** Client-side persistence: credentials (localStorage) and scan snapshot. */
 
-const CRED_KEYS = ["steam_id", "gog_access_token", "gog_refresh_token", "gog_user_id", "epic_access_token", "epic_refresh_token", "epic_account_id", "amazon_access_token", "amazon_refresh_token", "amazon_serial", "itad_api_key", "steam_api_key", "sgdb_api_key"];
+const CRED_KEYS = ["steam_id", "gog_access_token", "gog_refresh_token", "gog_user_id", "epic_access_token", "epic_refresh_token", "epic_account_id", "amazon_access_token", "amazon_refresh_token", "amazon_serial", "psn_access_token", "psn_refresh_token", "platprices_api_key", "itad_api_key", "steam_api_key", "sgdb_api_key"];
 
 export const store = {
   /** Credentials */

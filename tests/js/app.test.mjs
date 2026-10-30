@@ -1604,6 +1604,26 @@ test("forget takes the visitor's own figures with everything else", async () => 
   assert.deepEqual(store.getEdits(), {}, "and nothing left to re-apply");
 });
 
+test("forget clears every credential a single unlink clears", async () => {
+  const { env, mod } = await boot();
+  await settle();
+
+  // The two lists drifted once: KEY_STORES grew PlayStation, CRED_KEYS did not,
+  // so "Forget my data" left a linked PSN account behind — visible as a store
+  // that reported itself linked with nothing behind it. Keys with no store
+  // entry (a pasted PlatPrices key) belong to Forget too.
+  const keys = new Set(Object.values(mod.KEY_STORES).flat());
+  keys.add("platprices_api_key");
+  assert.ok(keys.has("psn_access_token"), "the fixture covers PlayStation");
+  for (const k of keys) env.localStorage.setItem(k, "sentinel");
+
+  store.forget();
+
+  for (const k of keys) {
+    assert.equal(env.localStorage.getItem(k), null, `${k} must not survive Forget my data`);
+  }
+});
+
 // ---------- forgetting one account ----------
 
 const unlinkButton = (env) => env.root.querySelectorAll(".source-action")
@@ -2236,6 +2256,64 @@ test("findDuplicates flags a title held on two stores, and only that", async () 
     "add-ons are never matched: the base game is the purchase");
 });
 
+test("editions of one title match across stores, different products do not", async () => {
+  const { mod } = await boot();
+  const out = mod.findDuplicates([
+    { id: "Steam:1", name: "The Witcher 3: Wild Hunt - Game of the Year Edition", platform: "Steam", hours: 40 },
+    { id: "GOG:1", name: "The Witcher 3: Wild Hunt - Complete Edition", platform: "GOG", hours: 12 },
+    { id: "Steam:2", name: "The Witcher 3: Wild Hunt", platform: "Steam", hours: 5 },
+    { id: "Epic:2", name: "The Witcher 3: Wild Hunt - Remastered", platform: "Epic", hours: 0 },
+    { id: "Steam:3", name: "Doom", platform: "Steam", hours: 1 },
+    { id: "Epic:3", name: "Doom Eternal", platform: "Epic", hours: 0 },
+    { id: "GOG:4", name: "Edition", platform: "GOG", hours: 1 },
+    { id: "Steam:4", name: "Hades", platform: "Steam", hours: 1 },
+  ]);
+
+  assert.ok(out.has("Steam:1") && out.has("GOG:1"),
+    "Steam's Game of the Year and GOG's Complete are one game, not two");
+  assert.ok(out.has("Steam:2") && out.has("Epic:2"),
+    "the plain base title matches its own Remastered listing");
+  assert.ok(!out.has("Steam:3") && !out.has("Epic:3"),
+    "Doom and Doom Eternal stay different products: 'Eternal' is not an edition");
+  assert.ok(!out.has("GOG:4"),
+    "a title that is only the word Edition never matches everything else");
+});
+
+test("the grid marks a duplicate as an ear on the cover, not inline text", async () => {
+  const { env } = await boot({
+    seed: (e) => {
+      e.localStorage.setItem("steam_id", "76561198000000000");
+      e.localStorage.setItem("epic_access_token", "epic-tok");
+      e.localStorage.setItem("view_mode", "grid");
+      e.fetchRoutes.push((url) => {
+        if (url.includes("/api/steam_games")) return { json: { games: [
+          { id: "Steam:1", name: "Surviving Mars", platform: "Steam", hours: 40, appid: 1 },
+        ] } };
+        if (url.includes("/api/epic_games")) return { json: { games: [
+          { id: "Epic:1", name: "Surviving Mars", platform: "Epic", hours: 4 },
+        ] } };
+        if (url.includes("/api/gog_games")) return { json: { games: [] } };
+        if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 500, "Epic:1": 300 } } };
+        return null;
+      });
+    },
+  });
+  await settle();
+
+  const covers = [...env.root.querySelectorAll(".cover")];
+  assert.equal(covers.length, 2, "both copies render as cards");
+  for (const cover of covers) {
+    const ear = cover.querySelector(".dup-ear");
+    assert.ok(ear, "the marker hangs on the cover itself");
+    assert.equal(ear.textContent, "DUP");
+    assert.ok(ear.getAttribute("aria-label").startsWith("Also owned on"),
+      "and still names the other store, since the marker does not");
+  }
+  assert.ok([...env.root.querySelectorAll(".card-title")]
+    .every((t) => !t.querySelector(".dupe-chip")),
+    "nothing trails the title text any more");
+});
+
 test("two rows on one store are not a cross-library duplicate", async () => {
   const { mod } = await boot();
   // dedupeGames has already collapsed these within a platform; the platform
@@ -2288,6 +2366,10 @@ test("a title owned on two stores is flagged in the list and explained in the dr
   assert.deepEqual(chips.map((c) => c.getAttribute("aria-label")).sort(),
     ["Also owned on Epic", "Also owned on Steam"],
     "the tooltip still names each store, since nothing else does");
+  const nameIn = rows[0].querySelector(".cell-name-in");
+  assert.ok(nameIn, "the name cell wraps its contents so the chips can align");
+  assert.equal(nameIn.querySelector("span").textContent, "Hades", "the title leads the cell");
+  assert.ok(nameIn.querySelector(".dupe-chip"), "and the marker sits after it, at the right edge");
 
   // The drawer spells the other copy out: store, its price today, its playtime.
   rows[0].dispatch("click");
@@ -2329,4 +2411,92 @@ test("a restored snapshot finds its cross-store copies again", async () => {
     "rows came from the snapshot, not a fresh scan");
   assert.equal(env.root.querySelectorAll(".dupe-chip").length, 2,
     "a refresh keeps the flags");
+});
+
+// ---------- the open drawer follows its own saves ----------
+
+const drawerValue = (env, label) => {
+  const row = [...env.root.querySelectorAll(".drawer-row")]
+    .find((r) => r.querySelector("span").textContent === label);
+  return row ? row.querySelector("strong").textContent : null;
+};
+
+test("saving in the drawer updates the drawer itself", async () => {
+  const { env } = await boot({ seed: editSeed });
+  await settle();
+  await openTitle(env, "Hades");
+
+  assert.equal(drawerValue(env, "Current price"), "₹1,000.00", "opens on the store's price");
+  assert.equal(drawerValue(env, "₹ / hour"), "₹50/h", "and the rate it implies");
+
+  await saveFigure(env, "price", 100);
+
+  assert.equal(drawerValue(env, "Current price"), "₹100.00",
+    "the price row follows the save — it used to keep the old number forever");
+  assert.equal(drawerValue(env, "₹ / hour"), "₹5/h",
+    "and the rate is recomputed from it");
+  assert.equal(drawerValue(env, "Playtime"), "20.0 h", "rows the edit did not touch keep their own");
+  const ref = env.root.querySelector(".edit-ref").textContent;
+  assert.ok(ref.includes("₹1,000.00"),
+    `the API reference still names the store's figure: ${ref}`);
+});
+
+test("an open Share preview is never replaced by the inspector's repaint", async () => {
+  const { env } = await boot({ seed: editSeed });
+  await settle();
+  await openTitle(env, "Hades");
+  assert.equal(env.root.querySelector("#drawer-title").textContent, "Game details");
+
+  [...env.root.querySelectorAll("button")].find((b) => b.dataset.action === "share")
+    .dispatch("click");
+  await settle();
+  assert.equal(env.root.querySelector("#drawer-title").textContent, "Share your card",
+    "the export preview took the panel");
+
+  // Anything that re-renders must leave it — openId is still set on a game, so
+  // a guard keyed on that alone would hand the panel back to the inspector.
+  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "regret")
+    .dispatch("click");
+  await settle();
+
+  assert.equal(env.root.querySelector("#drawer-title").textContent, "Share your card",
+    "the preview keeps the panel through a full re-render");
+  assert.ok(env.root.querySelector(".export-preview"), "and its canvas");
+});
+
+test("an unrelated re-render does not wipe a half-typed figure", async () => {
+  const { env } = await boot({ seed: editSeed });
+  await settle();
+  await openTitle(env, "Hades");
+
+  editBox(env, "price").value = "123";
+  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "regret")
+    .dispatch("click");
+  await settle();
+
+  assert.equal(editBox(env, "price").value, "123",
+    "the drawer body was rebuilt, so the value has to be carried across it");
+});
+
+test("a repaint does not blank the cover art", async () => {
+  const seed = (env) => {
+    editSeed(env);
+    env.localStorage.setItem("covers_cache",
+      JSON.stringify({ "Steam:1": "https://cdn.example/hades.png" }));
+  };
+  const { env } = await boot({ seed });
+  await settle();
+  await openTitle(env, "Hades");
+
+  const src = () => {
+    const cover = env.root.querySelector(".drawer-cover");
+    const img = cover && cover.querySelector(".cover-img");
+    return img ? img.getAttribute("src") : null;
+  };
+  assert.equal(src(), "https://cdn.example/hades.png", "stamped when the drawer opened");
+
+  await saveFigure(env, "price", 100);
+
+  assert.equal(src(), "https://cdn.example/hades.png",
+    "and stamped again after the rebuild — renderDrawer paints a fresh img at opacity 0");
 });

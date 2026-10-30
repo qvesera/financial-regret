@@ -115,7 +115,12 @@ function saveUiState(patch) {
 const savedUi = loadUiState();
 
 
-const KEY_STORES = {
+/** Credential keys per linked store, in the order they were added. Exported so
+ *  a test can hold store.forget() to it: forgetting must clear at least what a
+ *  single unlink clears, and the two lists drifted once already (PlayStation
+ *  landed on KEY_STORES and never reached store.js's CRED_KEYS, so a forgotten
+ *  browser still reported PSN as linked). */
+export const KEY_STORES = {
   steam: ["steam_id"],
   gog: ["gog_access_token", "gog_refresh_token", "gog_user_id"],
   epic: ["epic_access_token", "epic_refresh_token", "epic_account_id"],
@@ -146,6 +151,10 @@ let state = {
   search: "",
   scanning: false,
   openId: null,
+  // Which panel the shared drawer currently hosts: the game inspector or the
+  // export preview. They share one element, so a refresh must know which it is
+  // allowed to repaint — see refreshDrawer().
+  drawerKind: null,
   // Card exports: which deck the export drawer is showing, and — on a
   // #card= link — the snapshot another visitor shared.
   exportKind: "wrapped",
@@ -402,6 +411,9 @@ function renderAll() {
   // visitor has entered prices of their own, so say so — only while it is true.
   view.setBasisNote(state.games.filter((g) => g.edited).length);
   view.render(state);
+  // An open inspector follows every render — a Save inside it used to update
+  // the dashboard behind it and leave its own rows stale.
+  refreshDrawer();
   if (state.phase === "ready" && state.viewMode === "grid") {
     applyCovers();
     observeCovers();
@@ -434,10 +446,66 @@ async function fetchAllEpicGames() {
 }
 
 /** Alnum-folded title: case, symbol and spacing variants of one display name
- *  collapse, so "DOOM (2016)" and "doom 2016" are one title. Shared by
- *  dedupeGames and findDuplicates so the two can never disagree about what
- *  counts as the same game. */
+ *  collapse, so "DOOM (2016)" and "doom 2016" are one title. Used by
+ *  dedupeGames, where the key must stay strict — two editions sold on one
+ *  store are two entitlements. */
 const foldName = (name) => (name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** Words-with-spaces normalisation for cross-store matching: unlike foldName,
+ *  it keeps word boundaries, so "Hunt - Game" never fuses into "huntedgame". */
+const wordFold = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/** Trailing edition phrases stripped before comparing two stores' listings,
+ *  longest first so a phrase containing another never stops halfway. Every
+ *  entry appears in wordFold's shape ("Collector's Edition" -> "collector s
+ *  edition"). */
+const EDITION_PHRASES = [
+  "game of the year edition",
+  "game of the year",
+  "goty",
+  "complete edition",
+  "definitive edition",
+  "remastered edition",
+  "remastered",
+  "remaster",
+  "deluxe edition",
+  "ultimate edition",
+  "premium edition",
+  "legendary edition",
+  "anniversary edition",
+  "enhanced edition",
+  "collector s edition",
+  "deluxe",
+  "collection",
+  "bundle",
+  "edition",
+];
+
+/**
+ * One title as two stores would each describe it: words, lowercased, with any
+ * trailing edition phrase removed at a word boundary.
+ *
+ * Steam's "… - Game of the Year Edition" and GOG's "… - Complete Edition" both
+ * reduce to the base title and are flagged as one game owned twice; "Doom" and
+ * "Doom Eternal" do not, because "Eternal" is not an edition of anything. A
+ * bare edition phrase is never the whole key: the length guard leaves a title
+ * that is only "Edition" alone rather than matching it against every other.
+ */
+export function baseTitle(name) {
+  let s = wordFold(name);
+  let stripped = true;
+  while (stripped) {
+    stripped = false;
+    for (const phrase of EDITION_PHRASES) {
+      if (s.length > phrase.length && s.endsWith(` ${phrase}`)) {
+        s = s.slice(0, -(phrase.length + 1)).trim();
+        stripped = true;
+        break;
+      }
+    }
+  }
+  return s;
+}
 
 /** Collapse duplicate entitlements of the same game. Epic returns the base
  *  title plus each DLC/expansion as separate records that share a sandbox, so
@@ -458,10 +526,12 @@ export function dedupeGames(games) {
  *
  *  Two purchases of one game are a regret the dashboard otherwise cannot see:
  *  each copy is its own row with its own price and nothing ties them together.
- *  Matching is folded-title equality only, so it is deliberately conservative
- *  — an edition suffix ("Deluxe") never matches its base game, while a real
- *  name collision (DOOM 1993 vs 2016) does. The UI therefore claims "also on
- *  Epic", never "you paid twice".
+ *  Matching normalises to words and drops trailing edition phrases, so
+ *  Steam's "… Game of the Year Edition" and GOG's "… Complete Edition" are one
+ *  title, while "Doom" and "Doom Eternal" stay different products. A real
+ *  name collision (DOOM 1993 vs 2016) still matches: there is no year or
+ *  cross-store id in the data to separate those. The UI therefore claims
+ *  "also on Epic", never "you paid twice".
  *
  *  Add-ons are skipped: they carry no verdict of their own and the base game
  *  is the purchase. Same-store pairs cannot occur — dedupeGames has already
@@ -470,7 +540,7 @@ export function findDuplicates(games) {
   const byTitle = new Map();
   for (const g of games) {
     if (g.kind === "dlc") continue;
-    const key = foldName(g.name);
+    const key = baseTitle(g.name);
     if (!key) continue;
     if (!byTitle.has(key)) byTitle.set(key, []);
     byTitle.get(key).push(g);
@@ -898,19 +968,56 @@ function openDrawer(id) {
   const game = state.rows.find((g) => g.id === id);
   if (!game || !view.drawer) return;
   state.openId = id;
+  state.drawerKind = "game";
   // Remember where focus came from so closing can put it back.
   lastFocus = document.activeElement && document.activeElement.focus
     ? document.activeElement : null;
   view.renderDrawer(view.drawerBody, game, (state.pricesEff || state.prices)[id], state);
   view.drawer.classList.remove("hidden");
-  applyCovers();                                // stamp the art if its url is cached
-  if (!coversCache.has(id)) queueCovers([id]);  // else fetch it — someone wants to look at it
+  stampDrawerCover(id);
   const close = document.getElementById("drawer-close");
   if (close && typeof close.focus === "function") close.focus();
 }
 
+/** Cover art for a freshly built drawer: stamped from cache at once, fetched
+ *  otherwise. Extracted from openDrawer because renderDrawer paints a new <img>
+ *  at opacity 0 every single time — without this the repaint path would leave a
+ *  blank cover where the art used to be. */
+function stampDrawerCover(id) {
+  applyCovers();
+  if (!coversCache.has(id)) queueCovers([id]);
+}
+
+/** Repaint an open game inspector against current state.
+ *
+ *  renderDrawer has exactly one other caller — openDrawer — so before this the
+ *  panel kept its built DOM through every render: Save moved the table, the
+ *  KPIs and the verdicts while the drawer's own rows still showed the old
+ *  numbers. Now it follows.
+ *
+ *  Two things it must not do: overwrite the export preview (openExporter fills
+ *  the same element without clearing openId, so the guard is drawerKind and not
+ *  openId alone), and steal focus (openDrawer focuses its close button, which
+ *  would yank the caret out of the field being saved). Half-typed figures are
+ *  carried across the rebuild for the same reason the Save buttons exist. */
+function refreshDrawer() {
+  if (state.phase !== "ready" || state.drawerKind !== "game" || !state.openId) return;
+  const game = state.games.find((g) => g.id === state.openId);
+  if (!game) return;
+  const keep = {};
+  for (const [field, input] of Object.entries(view.editInputs || {})) {
+    keep[field] = input ? input.value : "";
+  }
+  view.renderDrawer(view.drawerBody, game, (state.pricesEff || state.prices)[game.id], state);
+  for (const [field, input] of Object.entries(view.editInputs || {})) {
+    if (input && keep[field] !== undefined) input.value = keep[field];
+  }
+  stampDrawerCover(game.id);
+}
+
 function closeDrawer() {
   state.openId = null;
+  state.drawerKind = null;
   if (view.drawer) view.drawer.classList.add("hidden");
   const main = document.getElementById("main");
   if (main && typeof main.focus === "function") main.focus();
@@ -944,6 +1051,7 @@ function openExporter() {
   if (!kinds.includes(state.exportKind)) state.exportKind = "wrapped";
   lastFocus = document.activeElement && document.activeElement.focus
     ? document.activeElement : null;
+  state.drawerKind = "export";
   view.renderExporter(state);
   view.drawer.classList.remove("hidden");
   repaintExportPreview();
@@ -1277,7 +1385,9 @@ function wire(root) {
 /** Cross-tab sync: a link/unlink in another tab re-renders and rescans. */
 function wireCrossWindow() {
   window.addEventListener("storage", (e) => {
-    if (!e.key || !/^(gog_|steam_|epic_|amazon_)/.test(e.key)) return;
+  // psn_ and platprices_ included: forgetting PlayStation's session in another
+  // tab has to clear the link there too — this regex predates PSN.
+  if (!e.key || !/^(gog_|steam_|epic_|amazon_|psn_|platprices_)/.test(e.key)) return;
     state.accounts = linkedAccounts();
     renderAll();
     if (anyLinked(state.accounts) && state.phase !== "loading") scan();
