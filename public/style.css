@@ -13,13 +13,15 @@
   /* Store brands: one token per store, keyed like BRAND_PATHS. The platform
      pie and its legend wear the brand instead of a palette slot, so a store
      keeps its colour wherever it ranks. Brands darker than the 3:1 chart-shape
-     floor on --surface are lifted (Steam's navy, Epic's black); light mode
-     gets the true brand hexes, which read fine on white. */
+     floor on --surface are lifted (Steam's navy, Epic's black); PlayStation
+     wears white — the mark's own colour on dark — because PSN blue sat too
+     close to Steam's. Light mode reverts psn below: white cannot render on
+     white. */
   --brand-epic: #6b6b6b;
   --brand-steam: #2d66d0;
   --brand-gog: #8b5cf6;
   --brand-amazon: #ff9900;
-  --brand-psn: #0070d1;
+  --brand-psn: #ffffff;
   --brand-xbox: #107c10;
 
   /* Verdict tiers: text colours measured ≥4.5:1 on a 10% self-tint over
@@ -103,11 +105,13 @@ body::after {
     --danger: #c0392b;
     --info: #2563eb;
     /* amazon's smile orange can't hold 3:1 on white and darkens here; epic
-       gets closer to Epic black and steam to Steam's true navy. gog/psn/xbox
-       clear white as-is and carry through unchanged */
+       gets closer to Epic black and steam to Steam's true navy; psn reverts
+       to PSN blue because white cannot render on white. gog/xbox clear white
+       as is and carry through unchanged */
     --brand-epic: #333333;
     --brand-steam: #2a475e;
     --brand-amazon: #b45309;
+    --brand-psn: #0070d1;
 
     /* light-mode tier hexes are shape-safe but too pale for small text */
     --tier-worth: #0b6e51;
