@@ -61,7 +61,14 @@ const ownKeyPresent = () => Boolean(
  *  forget one. Limits accumulate -- a chunk that holds no PlayStation rows
  *  never asks PlatPrices, so its silence is not a clean bill of health. */
 function applyPricingNotes(priced) {
-  view.setPricingAttribution(priced.attribution);
+  // A chunk that holds no PlayStation rows never asks PlatPrices, so its
+  // silence is not a retraction: a scan adopts stores one by one, and the
+  // last chunk to land used to erase the credit (and the footer's copy with
+  // it) with its own null. Keep the last credit until a fresh attempt begins
+  // -- state.limited accumulates for the same reason. The footer and the
+  // exported cards both read the kept value.
+  if (priced.attribution) state.pricingAttribution = priced.attribution;
+  view.setPricingAttribution(state.pricingAttribution);
   view.setPsnPricingNote(psnNoteFor(priced.psnReason));
   const incoming = priced.limited || {};
   if (Object.keys(incoming).length) state.limited = { ...state.limited, ...incoming };
@@ -72,6 +79,7 @@ function applyPricingNotes(priced) {
  *  not outlive the attempt that produced it. */
 function beginPricingAttempt() {
   state.limited = {};
+  state.pricingAttribution = null;
   view.setLimitNote(null);
 }
 

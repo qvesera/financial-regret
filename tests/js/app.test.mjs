@@ -1181,6 +1181,41 @@ test("the hero states the spend once, with the stats that back it", async () => 
   assert.ok(env.document.getElementById("hero-spend"), "the value lives once, in the hero");
 });
 
+test("the PlatPrices credit reaches the state the exports read", async () => {
+  // view.setPricingAttribution feeds the footer; the exported cards read
+  // state.pricingAttribution. One hand-off in applyPricingNotes, asserted so
+  // neither half can be dropped while the other keeps passing. The credit
+  // rides the PlayStation half of a pricing answer only — PlatPrices is its
+  // sole source and /api/prices never sets it. The fixture settles PSN first
+  // and Steam after, so this also pins that the last chunk's silence cannot
+  // erase the credit an earlier one earned.
+  const seed = (env) => {
+    env.localStorage.setItem("steam_id", "76561198000000000");
+    env.localStorage.setItem("psn_access_token", "fake-npssO-session");
+    env.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) return { json: steamFixture };
+      if (url.includes("/api/gog_games")) return { json: { games: [] } };
+      if (url.includes("/api/epic_games")) return { json: { games: [] } };
+      if (url.includes("/api/psn_games")) {
+        return { json: { games: [{ id: "PSN:123", name: "Trophy Hunt",
+                                    platform: "PlayStation", hours: 5, titleId: "PPSA1234" }] } };
+      }
+      if (url.includes("/api/psn_prices")) {
+        return { json: { prices: { "PSN:123": 400 }, highs: {}, lows: {},
+                          currency: "INR", attribution: "Powered by PlatPrices", reason: null } };
+      }
+      if (url.includes("/api/prices")) {
+        return { json: { prices: PRICE_MAP, highs: HIGH_MAP, lows: LOW_MAP } };
+      }
+      return null;
+    });
+  };
+  const { mod } = await boot({ seed });
+  await settle();
+  assert.equal(mod.getState().pricingAttribution, "Powered by PlatPrices",
+    "the PlayStation half's credit is kept where cardSpec can find it");
+});
+
 test("the header offers each control exactly once, in plain words", async () => {
   const { env } = await boot({ seed: withSteam });
   await settle();

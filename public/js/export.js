@@ -127,6 +127,11 @@ export function cardSpec(state, kind = "wrapped") {
   const cur = state.currency || "INR";
   const games = state.games || [];
   const rows = state.rows || [];
+  // PlatPrices' free/Indie plans require the credit wherever its data is shown.
+  // The dashboard footer carries it (view.setPricingAttribution); an exported
+  // card is data shown too, so the same string rides the footnote — and the
+  // share links, which carry the spec with it.
+  const credit = state.pricingAttribution ? ` · ${state.pricingAttribution}` : "";
   const base = {
     v: 1,
     kind,
@@ -179,7 +184,7 @@ export function cardSpec(state, kind = "wrapped") {
           meta: `${m.dlcCount} expansion${m.dlcCount === 1 ? "" : "s"}`,
         },
       ].filter(Boolean),
-      footnote: `Judged against your own quartiles · ${iso(Date.now())}`,
+      footnote: `Judged against your own quartiles · ${iso(Date.now())}${credit}`,
     };
   }
 
@@ -204,7 +209,7 @@ export function cardSpec(state, kind = "wrapped") {
         value: perHour(x.rate, cur),
         meta: x.hours == null ? "" : `${x.hours} h`,
       })),
-      footnote: `Ranked from your current view · ${iso(Date.now())}`,
+      footnote: `Ranked from your current view · ${iso(Date.now())}${credit}`,
     };
   }
 
@@ -252,7 +257,7 @@ export function cardSpec(state, kind = "wrapped") {
       badge: TIER_LABEL[tier] || tier,
       stats: stats.slice(0, MAX_STATS),
       rows: list,
-      footnote: `${members.length} games carry this verdict · ${iso(Date.now())}`,
+      footnote: `${members.length} games carry this verdict · ${iso(Date.now())}${credit}`,
     };
   }
 
@@ -283,7 +288,7 @@ export function cardSpec(state, kind = "wrapped") {
           meta: g.hours == null ? "" : `${g.hours} h`,
         };
       }),
-      footnote: `${filters.length ? filters.join(" · ") : "Whole library"} · ${iso(Date.now())}`,
+      footnote: `${filters.length ? filters.join(" · ") : "Whole library"} · ${iso(Date.now())}${credit}`,
     };
   }
 
