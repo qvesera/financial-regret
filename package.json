@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test public/js/*.test.mjs tests/js/*.test.mjs"
+    "test": "node --test public/js/*.test.mjs tests/js/*.test.mjs",
+    "shots": "node scripts/mobile-shots.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
   }
 }
