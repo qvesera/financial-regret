@@ -1903,10 +1903,11 @@ test("a title owned on two stores is flagged in the list and explained in the dr
   assert.equal(rows.length, 2, "each copy keeps its own row and its own price");
   const chips = rows.map((r) => r.querySelector(".dupe-chip"));
   assert.ok(chips.every(Boolean), "every copy points at the other store");
-  assert.deepEqual(chips.map((c) => c.textContent).sort(), ["Epic", "Steam"]);
+  assert.deepEqual(chips.map((c) => c.textContent).sort(), ["DUP", "DUP"],
+    "the chip claims the fact, not the store — the column beside it already says that");
   assert.deepEqual(chips.map((c) => c.getAttribute("aria-label")).sort(),
     ["Also owned on Epic", "Also owned on Steam"],
-    "each names the other store, and says so aloud");
+    "the tooltip still names each store, since nothing else does");
 
   // The drawer spells the other copy out: store, its price today, its playtime.
   rows[0].dispatch("click");

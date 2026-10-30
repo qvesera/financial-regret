@@ -549,14 +549,13 @@ export const view = {
   },
 
   /** The chip a row or card wears when the same title is owned on another
-   *  store. It names that store — "+1" once a third copy exists — because the
-   *  honest claim is "also owned on Epic", never "you paid twice": title
-   *  matching cannot tell which copy was bought, or when. The tooltip carries
-   *  the whole list, so the terse chip still reads on hover and aloud. */
+   *  store. It reads "DUP", not the store's name: the platform is already its
+   *  own column in the list and its own corner label on every card, so naming
+   *  it here would state the obvious twice. The tooltip and the drawer are
+   *  where the detail lives — the chip's job is the claim, not the evidence. */
   dupeChip(others) {
     const names = [...new Set(others.map((o) => o.platform))];
-    const label = names.length > 1 ? `${names[0]} +${names.length - 1}` : names[0];
-    const chip = this.el("span", "dupe-chip", label);
+    const chip = this.el("span", "dupe-chip", "DUP");
     const claim = `Also owned on ${names.join(", ")}`;
     chip.title = claim;
     chip.setAttribute("aria-label", claim);

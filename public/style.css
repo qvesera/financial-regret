@@ -1512,10 +1512,11 @@ td.cell-platform { white-space: nowrap; }
   white-space: nowrap;
 }
 
-/* Owned on another store too. Same geometry as the add-on chip, an accent
-   outline so the two chips never read as one label — and still no tier colour:
-   where a copy lives is a fact about it, not a grade. */
-.dupe-chip { border-color: var(--accent); color: var(--accent); }
+/* Owned on another store too: the tersest marker available, in the warning red
+   because a second purchase is spend worth noticing. An outline rather than a
+   filled pill, so it never reads as the verdict badge beside it — which is the
+   same hue as the Regret tier. */
+.dupe-chip { border-color: var(--danger); color: var(--danger); }
 
 /* ---- cards: cover fallback, badges, hours, price band ---- */
 
