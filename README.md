@@ -50,7 +50,7 @@ docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
 | `CORS_ALLOWED_ORIGINS` | No | Comma-separated origins allowed to call this API cross-origin, e.g. `https://your-app.vercel.app`. Empty — the default — means same-origin only. Wildcards are discarded rather than honoured. |
 | `REQUIRE_USER_KEYS` | No | `1` to ignore the server's `STEAM_API_KEY` / `ITAD_API_KEY` / `PLATPRICES_API_KEY` / `SGDB_API_KEY` and require every visitor to bring their own. Unset — the default — a visitor's own key always wins and the server key fills in when they have none, so the instance works without setup. Set `1` on a public deployment where you would rather refuse than spend your quota. |
 | `TRUST_PROXY` | No | `1` to read the client IP from `X-Forwarded-For`. Only behind a reverse proxy you control — otherwise the per-IP rate limit is trivially bypassed. |
-| `RATE_LIMIT_PER_MIN` | No | Per-IP requests per minute (default 120). |
+| `RATE_LIMIT_PER_MIN` | No | Per-IP requests per minute (default 120), enforced by `server.py` — local, Docker and Render. The Vercel function enforces no app-level limit; the equivalent there is a rate-limiting rule in the Vercel Firewall (one free rule per Hobby project, first 1,000,000 requests a month included). |
 | `PUBLIC_BASE_URL` | No | The URL the app is reached on. OAuth redirect URIs (GOG, Epic) must match what those providers have registered. |
 
 ## Going public
@@ -77,8 +77,9 @@ vercel deploy --prod
 rewrites to the single Python function (300-second budget — a cold price scan
 fits), and the security headers (`nosniff`, `Referrer-Policy`, frame denial,
 strict CSP) ship on every response. Same origin by construction: no CORS
-surface, no `BACKEND_URL` to configure, and the per-IP rate limit sees real
-client IPs instead of an edge proxy's.
+surface, no `BACKEND_URL` to configure. The per-IP rate limit belongs to
+`server.py` and does not run here — on Vercel, add the equivalent as a
+rate-limiting rule in the Firewall (one free rule per Hobby project).
 
 The display currency starts from the visitor's region: the edge's country
 header (Vercel's `x-vercel-ip-country`, Cloudflare's `cf-ipcountry`) rides on

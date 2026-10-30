@@ -65,7 +65,11 @@ rule, and `tests/test_logging.py` pins the consequence.
   `vercel.json` on Vercel.
 * **Paths cannot escape `public/`.** Every dot segment is rejected up front and
   the resolved path is checked against the resolved root.
-* **Per-IP rate limiting** on every endpoint, including `OPTIONS`.
+* **Per-IP rate limiting** on every endpoint, including `OPTIONS` — enforced by
+  `server.py` when it serves (local, Docker, Render). The Vercel deployment
+  enforces none in-app: add a rate-limiting rule in the Vercel Firewall (one
+  free rule per Hobby project, first 1,000,000 allowed requests a month
+  included), or set `REQUIRE_USER_KEYS=1` so there is no shared quota to burn.
 * **The operator's keys are shared by default — and visitors can spend them.**
   `user_key()` prefers the caller's own header key and falls back to the
   server-side `STEAM_API_KEY`, `ITAD_API_KEY`, `PLATPRICES_API_KEY` and
@@ -136,7 +140,9 @@ and is small: disable the two handlers and rewrite the connect copy.
 - [ ] `TRUST_PROXY` **unset** unless a reverse proxy you control is in front.
       Setting it while the API is directly reachable makes the per-IP rate limit
       trivially bypassable by forging `X-Forwarded-For`.
-- [ ] `RATE_LIMIT_PER_MIN` reviewed against your instance size.
+- [ ] `RATE_LIMIT_PER_MIN` reviewed against your instance size — it binds
+      `server.py` only; on Vercel, confirm the Firewall's rate-limiting rule
+      instead, and check it is still active after plan changes.
 - [ ] HTTPS only, terminating at the platform edge.
 - [ ] Rotate any key you have ever pasted into a shared or public environment.
 - [ ] Log shipping reviewed: access logs contain paths, IPs and upstream error
