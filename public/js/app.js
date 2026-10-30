@@ -73,6 +73,7 @@ let state = {
   filter: "All",
   platform: "All",
   tier: "All",
+  verdictSlide: "games",
   viewMode: "list",
   sort: "price-desc",
   search: "",
@@ -901,6 +902,10 @@ function onClick(e) {
       state.tier = t.dataset.tier || "All";
       state.page = 1;
       saveUiState({ tier: state.tier });
+      renderAll();
+      break;
+    case "verdict-slide":
+      state.verdictSlide = t.dataset.slide === "value" ? "value" : "games";
       renderAll();
       break;
     case "clear-filters":

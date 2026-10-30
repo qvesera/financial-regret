@@ -968,6 +968,34 @@ test("the verdict pie splits the library by verdict and filters on click", async
   assert.equal(chip.getAttribute("aria-pressed"), "true", "the facet chip agrees with the chart");
 });
 
+test("the verdict card's carousel swaps to value by verdict", async () => {
+  const { env, mod } = await boot({ seed: verdictSeed });
+  await settle();
+
+  const card = env.root.querySelector(".verdict-list").parentNode;
+  assert.equal(card.querySelector("h3").textContent, "Games by verdict", "first slide counts games");
+  const dots = card.querySelectorAll(".carousel-dot");
+  assert.equal(dots.length, 2, "one dot per slide");
+
+  dots.find((d) => d.dataset.slide === "value").dispatch("click");
+  await settle();
+
+  assert.equal(mod.getState().verdictSlide, "value", "the slide choice lives in state");
+  assert.equal(card.querySelector("h3").textContent, "Value by verdict", "the title follows the slide");
+  const active = dots.find((d) => d.classList.contains("active"));
+  assert.equal(active && active.dataset.slide, "value", "the dot agrees");
+  assert.equal(env.root.querySelector(".carousel-track").style.transform, "translateX(-50%)",
+    "the track slid to the second slide");
+
+  // Value slide: today's price summed per verdict — Regret holds ₹1,500
+  // (₹1,000 + ₹500), Untouched ₹200, and the free/unpriced tiers hold nothing.
+  const legends = env.root.querySelectorAll(".verdict-legend");
+  assert.equal(legends.length, 2, "both slides stay in the deck");
+  const values = legends[1].querySelectorAll(".verdict-count").map((c) => c.textContent);
+  assert.deepEqual(values, ["₹1,500.00", "₹200.00", "₹300.00", "₹100.00", "₹0.00", "₹0.00"],
+    "spend per verdict, in the chips' order");
+});
+
 test("clicking a pie slice filters the table to that platform", async () => {
   const { env, mod } = await boot({ seed: mixedSeed });
   await settle();

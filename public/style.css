@@ -685,13 +685,28 @@ tr.game-row:hover { background: var(--surface-2); }
   margin-bottom: 1rem;
 }
 .chart-card h3 { font-size: 0.9rem; color: var(--muted); margin: 0 0 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+/* Title + slide dots on the two-slide card: the head carries the bottom
+   margin the bare h3 used to, so the dots centre against the text. */
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.75rem; }
+.chart-head h3 { margin: 0; }
+.carousel-dots { display: flex; gap: 6px; }
+.carousel-dot { width: 8px; height: 8px; padding: 0; border: 1px solid var(--muted); background: transparent; cursor: pointer; }
+.carousel-dot.active { background: var(--accent); border-color: var(--accent); }
+.carousel-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .kpi-gauge { display: flex; align-items: center; gap: 0.6rem; }
 .kpi-ring { width: 44px; height: 44px; display: block; flex: 0 0 auto; }
 
 /* Shared by the platform and verdict cards: same pie box, same hover dim, same
    legend rows. They differ only in vocabulary (store vs tier) and colour source
    (brand token vs tier token), which each card's own classes supply. */
-.platform-list, .verdict-list { display: flex; flex-direction: column; }
+.platform-list { display: flex; flex-direction: column; }
+/* The verdict card is the carousel viewport: it clips the track so the
+   incoming slide travels in instead of overflowing the card. The track node
+   survives renders (its transform is the on-screen slide), and each slide is
+   half of the doubled track, so -50% shows the second one. */
+.verdict-list { overflow: hidden; }
+.carousel-track { display: flex; width: 200%; transition: transform var(--dur) var(--ease); }
+.carousel-slide { flex: 0 0 50%; }
 .platform-pie, .verdict-pie { width: 100%; max-width: 150px; aspect-ratio: 1; display: block; margin: 0 auto; }
 .platform-pie path, .platform-pie circle,
 .verdict-pie path, .verdict-pie circle { cursor: pointer; transition: opacity 150ms ease; }

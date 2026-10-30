@@ -1091,11 +1091,29 @@ export const view = {
     const platformList = this.el("div", "platform-list");
     platCard.appendChild(platformList);
     sidebar.appendChild(platCard);
-    // The same picture cut the other way: how the library divides by verdict.
-    // Same card, same pie, and the same tier vocabulary as the facet chips —
-    // counting state.verdicts, so chart and chips can never disagree.
+    // The same picture cut the other way: how the library divides by verdict —
+    // a two-slide carousel (games by verdict / value by verdict) over one shared
+    // tier vocabulary, both cut from state.verdicts so chart, chips and table
+    // can never disagree. The head holds the title and the slide dots; the
+    // title text follows whichever slide is showing (renderVerdicts).
     const verdictCard = this.el("div", "chart-card");
-    verdictCard.appendChild(this.el("h3", null, "Games by verdict"));
+    const verdictHead = this.el("div", "chart-head");
+    const verdictTitle = this.el("h3", null, "Games by verdict");
+    const verdictDots = this.el("div", "carousel-dots");
+    verdictDots.setAttribute("role", "group");
+    verdictDots.setAttribute("aria-label", "Verdict chart slide");
+    for (const [key, label] of [["games", "Games by verdict"], ["value", "Value by verdict"]]) {
+      const dot = this.el("button", "carousel-dot");
+      dot.type = "button";
+      dot.dataset.action = "verdict-slide";
+      dot.dataset.slide = key;
+      dot.setAttribute("aria-label", label);
+      dot.setAttribute("aria-pressed", String(key === "games"));
+      verdictDots.appendChild(dot);
+    }
+    verdictHead.appendChild(verdictTitle);
+    verdictHead.appendChild(verdictDots);
+    verdictCard.appendChild(verdictHead);
     const verdictList = this.el("div", "verdict-list");
     verdictCard.appendChild(verdictList);
     sidebar.appendChild(verdictCard);
@@ -1106,7 +1124,7 @@ export const view = {
 
     // `kpi` is the scope renderKpis queries: it must reach #kpi-regret now
     // that the regret card has moved out of the row.
-    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, verdictList, filterBar, search, sort, platformSelect, headerCells, pagers: [topPager, bottomPager], panel };
+    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, verdictList, verdictTitle, verdictDots, filterBar, search, sort, platformSelect, headerCells, pagers: [topPager, bottomPager], panel };
   },
 
   /** Called on every state change. Rebuilds the phase only when it changes. */
@@ -1162,6 +1180,7 @@ export const view = {
         gridWrap: r.gridWrap, viewToggle: r.viewToggle,
         emptyState: r.empty, coverage: r.coverage, ringSvg: r.ringSvg,
         platformList: r.platformList, verdictList: r.verdictList,
+        verdictTitle: r.verdictTitle, verdictDots: r.verdictDots,
         filterBar: r.filterBar, search: r.search, sort: r.sort,
         platformSelect: r.platformSelect, headerCells: r.headerCells,
         pagers: r.pagers, panel: r.panel,
@@ -1177,7 +1196,7 @@ export const view = {
     this.renderKpis(this.kpi, metrics);
     this.renderRegretRing(this.ringSvg, metrics.regretScore);
     this.renderPlatforms(this.platformList, state.games, state.prices, state.platform);
-    this.renderVerdicts(this.verdictList, state.verdicts, state.tier);
+    this.renderVerdicts(this.verdictList, state);
     this.updateHero(state);
     if (this.distBox) this.renderDistribution(state);
     this.updateSim(state);
@@ -2094,81 +2113,129 @@ export const view = {
     listEl.appendChild(legend);
   },
 
-  /** The verdict pie: one slice per verdict, counting state.verdicts — the
-   *  same map the facet chips count, in the order the chips are laid out, so
-   *  chart, chips and table always tell one story. A slice or legend row
-   *  drives the same "tier" action the chips do. */
-  renderVerdicts(listEl, verdicts, active) {
+  /** The verdict card is a two-slide carousel: games (a count per verdict) and
+   *  value (today's price summed per verdict) — both cut from state.verdicts,
+   *  the map the facet chips count, so chart, chips and table always tell one
+   *  story. The track node survives renders: its transform is the slide on
+   *  screen, and only a stable node can animate. Add-ons carry no verdict, and
+   *  free/unpriced rows sum to nothing on the value slide — they stay listed at
+   *  ₹0 rather than silently vanishing. */
+  renderVerdicts(listEl, state) {
     if (!listEl) return;
-    listEl.textContent = "";
+    const verdicts = state.verdicts;
+    const onValue = state.verdictSlide === "value";
+    if (this.verdictTitle) this.verdictTitle.textContent = onValue ? "Value by verdict" : "Games by verdict";
+    const dots = this.verdictDots ? this.verdictDots.querySelectorAll(".carousel-dot") : [];
+    for (const d of dots) {
+      const on = (d.dataset.slide === "value") === onValue;
+      if (on) d.classList.add("active"); else d.classList.remove("active");
+      d.setAttribute("aria-pressed", String(on));
+    }
+
+    // Whole-library vocabulary in the facet chips' order; unknown trails — it
+    // only appears when the library is too small to form a benchmark.
     const counts = {};
     for (const t of verdicts ? verdicts.values() : []) counts[t] = (counts[t] || 0) + 1;
-    // The facet row owns this sequence (view's tier chips), unknown trailing —
-    // it only appears when the library is too small to form a benchmark.
     const order = ["regret", "untouched", "fair", "worth", "free", "nodata", "unknown"];
-    const entries = order.filter((t) => counts[t]).map((t) => [t, counts[t]]);
-    if (entries.length === 0) {
+    const tiers = order.filter((t) => counts[t]);
+    if (tiers.length === 0) {
+      listEl.textContent = "";
       listEl.appendChild(this.el("p", "muted", "No games yet."));
       return;
     }
-    const total = entries.reduce((s, [, n]) => s + n, 0);
-    const colorFor = (t) => `var(--tier-${t})`;
-    const games = (n) => `${n} ${n === 1 ? "game" : "games"}`;
 
-    // Pie: one slice per verdict, painted in the tier colour the badges wear.
-    const NS = "http://www.w3.org/2000/svg";
-    const svg = document.createElementNS(NS, "svg");
-    svg.setAttribute("class", "verdict-pie");
-    svg.setAttribute("viewBox", "0 0 80 80");
-    svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", "Games by verdict");
-    const cx = 40, cy = 40, r = 36;
-    let a0 = -Math.PI / 2;   // start at 12 o'clock
-    entries.forEach(([tier, count]) => {
-      const frac = total ? count / total : 0;
-      const a1 = a0 + frac * 2 * Math.PI;
-      const fill = colorFor(tier);
-      const pct = total ? Math.round((count / total) * 100) : 0;
-      let slice = null;
-      if (frac >= 0.9999) {                       // one verdict = full circle
-        slice = document.createElementNS(NS, "circle");
-        slice.setAttribute("cx", cx); slice.setAttribute("cy", cy); slice.setAttribute("r", r);
-        slice.setAttribute("fill", fill);
-      } else if (frac > 0) {
-        slice = document.createElementNS(NS, "path");
-        slice.setAttribute("d", pieSlice(cx, cy, r, a0, a1));
-        slice.setAttribute("fill", fill);
-        slice.setAttribute("stroke", "var(--surface)");   // separate slices
-        slice.setAttribute("stroke-width", "1");
-      }
-      if (slice) {
-        const title = document.createElementNS(NS, "title");   // native hover tooltip
-        title.textContent = `${TIER_LABEL[tier] || tier} — ${games(count)} (${pct}%)`;
-        slice.appendChild(title);
-        slice.dataset.action = "tier";             // same filter as the facet chip
-        slice.dataset.tier = tier;
-        if (tier === active && active !== "All") slice.classList.add("is-active");
-        svg.appendChild(slice);
-      }
-      a0 = a1;
-    });
-    listEl.appendChild(svg);
+    // Value buckets: today's price per game by its verdict — whole library
+    // (state.games, never the filtered rows) and the same price source the
+    // platform pie sums, so the two cards agree about what a library is worth.
+    const sums = {};
+    for (const t of tiers) sums[t] = 0;
+    for (const g of state.games || []) {
+      const t = verdicts ? verdicts.get(g.id) : null;
+      const p = state.prices ? state.prices[g.id] : null;
+      if (t in sums && typeof p === "number") sums[t] += p;
+    }
+    const gamesTotal = tiers.reduce((s, t) => s + counts[t], 0);
+    const valueTotal = tiers.reduce((s, t) => s + sums[t], 0);
 
-    // Legend: colour swatch, verdict, count.
-    const legend = this.el("div", "verdict-legend");
-    entries.forEach(([tier, count]) => {
-      const row = this.el("div", "verdict-row");
-      row.dataset.action = "tier";
-      row.dataset.tier = tier;
-      if (tier === active && active !== "All") row.classList.add("is-active");
-      const swatch = this.el("span", "verdict-swatch");
-      swatch.style.background = colorFor(tier);
-      row.appendChild(swatch);
-      row.appendChild(this.el("span", "verdict-name", TIER_LABEL[tier] || tier));
-      row.appendChild(this.el("span", "verdict-count", games(count)));
-      legend.appendChild(row);
-    });
-    listEl.appendChild(legend);
+    const fill = (host, mode) => {
+      host.textContent = "";
+      const isValue = mode === "value";
+      const vals = isValue ? sums : counts;
+      const total = isValue ? valueTotal : gamesTotal;
+      if (isValue && total === 0) {          // all free / all unpriced: no pie to draw
+        host.appendChild(this.el("p", "muted", "No priced games yet."));
+        return;
+      }
+      const colorFor = (t) => `var(--tier-${t})`;
+      const games = (n) => `${n} ${n === 1 ? "game" : "games"}`;
+      const NS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("class", "verdict-pie");
+      svg.setAttribute("viewBox", "0 0 80 80");
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", isValue ? "Value by verdict" : "Games by verdict");
+      const cx = 40, cy = 40, r = 36;
+      let a0 = -Math.PI / 2;   // start at 12 o'clock
+      for (const tier of tiers) {
+        const frac = total ? vals[tier] / total : 0;
+        const a1 = a0 + frac * 2 * Math.PI;
+        const pct = total ? Math.round((vals[tier] / total) * 100) : 0;
+        let slice = null;
+        if (frac >= 0.9999) {                       // one tier = full circle
+          slice = document.createElementNS(NS, "circle");
+          slice.setAttribute("cx", cx); slice.setAttribute("cy", cy); slice.setAttribute("r", r);
+          slice.setAttribute("fill", colorFor(tier));
+        } else if (frac > 0) {
+          slice = document.createElementNS(NS, "path");
+          slice.setAttribute("d", pieSlice(cx, cy, r, a0, a1));
+          slice.setAttribute("fill", colorFor(tier));
+          slice.setAttribute("stroke", "var(--surface)");   // separate slices
+          slice.setAttribute("stroke-width", "1");
+        }
+        if (slice) {
+          const title = document.createElementNS(NS, "title");   // native hover tooltip
+          title.textContent = isValue
+            ? `${TIER_LABEL[tier] || tier} — ${money(vals[tier], this.currency)} (${pct}%)`
+            : `${TIER_LABEL[tier] || tier} — ${games(vals[tier])} (${pct}%)`;
+          slice.appendChild(title);
+          slice.dataset.action = "tier";             // same filter as the facet chip
+          slice.dataset.tier = tier;
+          if (tier === state.tier && state.tier !== "All") slice.classList.add("is-active");
+          svg.appendChild(slice);
+        }
+        a0 = a1;
+      }
+      host.appendChild(svg);
+
+      const legend = this.el("div", "verdict-legend");
+      for (const tier of tiers) {
+        const row = this.el("div", "verdict-row");
+        row.dataset.action = "tier";
+        row.dataset.tier = tier;
+        if (tier === state.tier && state.tier !== "All") row.classList.add("is-active");
+        const swatch = this.el("span", "verdict-swatch");
+        swatch.style.background = colorFor(tier);
+        row.appendChild(swatch);
+        row.appendChild(this.el("span", "verdict-name", TIER_LABEL[tier] || tier));
+        row.appendChild(this.el("span", "verdict-count",
+          isValue ? money(vals[tier], this.currency) : games(vals[tier])));
+        legend.appendChild(row);
+      }
+      host.appendChild(legend);
+    };
+
+    let track = listEl.querySelector(".carousel-track");
+    if (!track) {
+      listEl.textContent = "";
+      track = this.el("div", "carousel-track");
+      track.appendChild(this.el("div", "carousel-slide"));
+      track.appendChild(this.el("div", "carousel-slide"));
+      listEl.appendChild(track);
+    }
+    const slides = track.querySelectorAll(".carousel-slide");
+    fill(slides[0], "games");
+    fill(slides[1], "value");
+    track.style.transform = onValue ? "translateX(-50%)" : "translateX(0)";
   },
 };
 
