@@ -80,19 +80,6 @@ function tierNote(tier) {
   return "No price recorded, so there is nothing to judge.";
 }
 
-/** Is the table narrower than the library? Distinguishes "your filters hid
- *  everything" from "you have no qualifying games yet" — two very different
- *  things to say to someone looking at an empty hall of shame. */
-function filtersActive(state) {
-  if (!state) return false;
-  return Boolean(
-    (state.tier && state.tier !== "All") ||
-    (state.filter && state.filter !== "All") ||
-    (state.platform && state.platform !== "All") ||
-    (state.search || "").trim()
-  );
-}
-
 /** What the keys card says, read from what /api/config reported. Pure, so
  *  the builder and the updater that runs later cannot drift into two
  *  different stories about the same instance: the card builds before the
@@ -1550,35 +1537,31 @@ export const view = {
   updateInsights(state) {
     if (!this.rankLists) return;
     const cur = this.currency;
-    // Some stores report no playtime at all — Amazon pins hours to null by
-    // design, and Epic's playtime endpoint can fail mid-scan. The two rate
-    // lists could never fill from such a view, so their cards leave the page
-    // rather than promising forever that something "qualifies yet". Untouched
-    // is exempt: it ranks by price, and a no-playtime store is exactly where
-    // it earns its keep.
-    const rows = state.rows || [];
-    const noHoursAnywhere = rows.length > 0 && rows.every((r) => r.hours == null);
-    // Every row free: nothing was paid, so Hall of shame has nothing to shame
+    // These three lists are claims about the library, so they are gated on the
+    // library's own composition — never on the facet, the play filter or the
+    // search box. A filter says what to browse; it does not decide whether the
+    // library contains a bad buy. (They used to read the filtered rows here,
+    // which let a search for one title empty "Hall of shame".)
+    const lib = (state.games || []).filter((r) => r.kind !== "dlc");
+    // No store reports playtime at all — Amazon pins hours to null by design,
+    // and Epic's playtime endpoint can fail mid-scan. The two rate lists could
+    // never fill, so their cards leave the page rather than promising forever
+    // that something "qualifies yet". Untouched is exempt: it ranks by price.
+    const noHoursAnywhere = lib.length > 0 && lib.every((r) => r.hours == null);
+    // Every game free: nothing was paid, so Hall of shame has nothing to shame
     // — hiding the card beats an empty one that implies a bad buy exists
     // somewhere. Best value keeps speaking: for free rows its value is hours.
-    const allFree = rows.length > 0 && rows.every((r) => r.price === 0);
-    // Each facet gets the lists whose metric it actually has. Rate lists need
-    // price ÷ hours, which an unopened game can never have: the Untouched
-    // facet holds only those, and Unpriced holds no prices at all, so neither
-    // rate list could ever fill there. The untouched list is the flip side —
-    // its rows exist only under "All verdicts" and the Untouched facet.
-    const tier = state.tier || "All";
-    const noRates = tier === "untouched" || tier === "nodata";
-    const noIdle = tier !== "All" && tier !== "untouched";
+    const allFree = lib.length > 0 && lib.every((r) => r.price === 0);
+    // The untouched list needs an unopened game with a price to show; without
+    // one it would promise spend the library never made.
+    const noIdle = !lib.some((r) => (r.hours == null || r.hours < 1) && r.price != null && r.price > 0);
     for (const kind of ["worst", "best", "untouched"]) {
       const card = this.rankCards && this.rankCards[kind];
       if (card) {
         card.hidden = kind === "worst"
-          ? noRates || allFree || noHoursAnywhere
+          ? noHoursAnywhere || allFree
           : kind === "best"
-            ? noRates || noHoursAnywhere
-            // Untouched ranks by price, so a no-playtime store is exempt —
-            // that is exactly where it earns its keep.
+            ? noHoursAnywhere
             : noIdle || allFree;
       }
       const list = this.rankLists[kind];
@@ -1587,22 +1570,14 @@ export const view = {
       if (kind !== "untouched" && noHoursAnywhere) continue;
       const items = (state.comparators && state.comparators[kind]) || [];
       if (!items.length) {
-        // The list is empty either because nothing qualifies yet or because the
-        // filters hid everything that did — say which, or the reader assumes
-        // the product is broken. Each kind names what *it* needs: the rate
-        // lists need an hour of play (or, in an all-free view, free play),
-        // the untouched list needs a price.
+        // Nothing in the library qualifies for this list. Each kind names what
+        // *it* needs: the rate lists need an hour of play (or, in an all-free
+        // library, free play), the untouched list needs a price.
         const empty = kind === "untouched"
-          ? (filtersActive(state)
-            ? "Nothing in this view is unopened with a price."
-            : "No unopened games with a price.")
+          ? "No unopened games with a price."
           : allFree
-            ? (filtersActive(state)
-              ? "Nothing in this view has an hour of play yet."
-              : "No free game here has been played for an hour yet.")
-            : (filtersActive(state)
-              ? "Nothing in this view has both an hour of play and a price."
-              : "No game has both an hour of play and a price yet.");
+            ? "No free game here has been played for an hour yet."
+            : "No game has both an hour of play and a price yet.";
         list.appendChild(this.el("li", "rank-empty", empty));
         continue;
       }

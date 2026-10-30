@@ -331,10 +331,13 @@ function renderAll() {
   state.bench = benchmark(scored);
   state.verdicts = verdictMap(scored, state.bench);
   state.rows = computeRows();
-  // Ranked from the visible rows, so the hall of shame and best value follow
-  // the filters: hide a store and its games leave the lists with it. Rates and
-  // verdicts are untouched — they were computed above against the whole library.
-  state.comparators = rankGames(state.rows.filter((g) => g.kind !== "dlc"));
+  // Claims about the library are made from the library, never from the browsing
+  // subset: a search for one title must not make it "the worst buy", restate the
+  // regret score as that title's own, or shrink "your whole library" to one row.
+  // A filter is a question about what to look at, not a question about the
+  // library's worth. Add-ons stay out: they carry no independent playtime, so
+  // their spend is read from the Add-on value KPI instead (see computeRegret).
+  state.comparators = rankGames(scored);
   if (!state.comparators.worst.some((t) => t.id === state.simTarget)) {
     state.simTarget = state.comparators.worst.length ? state.comparators.worst[0].id : null;
   }
@@ -348,7 +351,10 @@ function renderAll() {
     "No data": statusPool.filter((x) => x.hours == null).length,
   };
   state.counts = countByPlatform(state.games);
-  state.metrics = computeRegret(state.rows);
+  // Library-wide too, for the same reason as the cards above — and `state.games`
+  // rather than `scored`, because computeRegret pulls add-ons out of the game
+  // metrics itself to report them as their own KPI.
+  state.metrics = computeRegret(state.games);
   state.coverageText = coverageLine();
   view.render(state);
   if (state.phase === "ready" && state.viewMode === "grid") {

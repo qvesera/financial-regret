@@ -1207,7 +1207,7 @@ test("PSN connect opens the sign-in page, never the NPSSO endpoint", async () =>
     "signing in comes before fetching the NPSSO");
 });
 
-test("filtering to a store takes the other stores' games out of the ranked lists", async () => {
+test("filtering a store leaves the ranked lists and the headline alone", async () => {
   const { env, mod } = await boot({ seed: withSteamAndGog });
   await settle();
 
@@ -1216,9 +1216,11 @@ test("filtering to a store takes the other stores' games out of the ranked lists
     return list.querySelectorAll(".rank-name").map((n) => n.textContent);
   };
 
-  const worst = names(".rank-worst");
-  assert.ok(worst.includes("Hades") && worst.includes("Disco Elysium"),
-    `both stores rank before filtering: ${worst}`);
+  const worstBefore = names(".rank-worst");
+  const bestBefore = names(".rank-best");
+  const metricsBefore = { ...mod.getState().metrics };
+  assert.ok(worstBefore.includes("Hades") && worstBefore.includes("Disco Elysium"),
+    `both stores rank unfiltered: ${worstBefore}`);
   const benchBefore = mod.getState().bench;
 
   // The spend-by-platform legend filters TO a store, which hides every other
@@ -1230,62 +1232,60 @@ test("filtering to a store takes the other stores' games out of the ranked lists
   await settle();
 
   assert.equal(mod.getState().platform, "GOG", "the filter took");
-  const after = names(".rank-worst");
-  assert.ok(!after.includes("Hades"), "the hidden store's game is gone");
-  assert.ok(after.includes("Disco Elysium"), "the visible store's game survives");
-  assert.deepEqual(names(".rank-best"), ["Disco Elysium"],
-    "best value re-ranks from what is still visible, not from a stale list");
-
-  // Scoring must not follow the filter — only selection does. A filter that
-  // redefined the benchmark would move every verdict on screen.
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Disco Elysium"],
+    "the table narrowed to the store");
+  assert.deepEqual(names(".rank-worst"), worstBefore,
+    "the ranked lists still describe the whole library, not this view of it");
+  assert.deepEqual(names(".rank-best"), bestBefore);
+  assert.deepEqual(mod.getState().metrics, metricsBefore,
+    "and so do the KPIs, the hero and the coverage line");
   assert.deepEqual(mod.getState().bench, benchBefore, "benchmark is untouched");
 
   gog.dispatch("click");   // the toggle clears itself
   await settle();
   assert.equal(mod.getState().platform, "All");
-  const restored = names(".rank-worst");
-  assert.ok(restored.includes("Disco Elysium") && restored.includes("Hades"),
-    "both return when the filter clears");
+  assert.deepEqual(mod.getState().rows.map((r) => r.name).sort(),
+    ["Cyberpunk 2077", "Disco Elysium", "Elden Ring", "Hades"], "the table comes back");
 });
 
-test("a rank list emptied by a filter says so, and recovers when cleared", async () => {
-  const { env } = await boot({ seed: withSteam });
+test("a filter that empties the table does not empty the insight cards", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
   await settle();
 
   const worst = () => env.root.querySelector(".rank-worst");
-  assert.equal(worst().querySelectorAll(".rank-name").length, 1, "Hades ranks unfiltered");
+  const worstNames = () => worst().querySelectorAll(".rank-name").map((n) => n.textContent);
+  assert.deepEqual(worstNames(), ["Hades"], "Hades ranks unfiltered");
 
   env.root.querySelectorAll(".tab").find((t) => t.dataset.filter === "Unplayed")
     .dispatch("click");
   await settle();
 
-  assert.equal(worst().querySelectorAll(".rank-name").length, 0,
-    "unplayed games are not evidence about value, so nothing ranks");
-  const empty = worst().querySelector(".rank-empty");
-  assert.ok(empty, "the empty list explains itself");
-  assert.ok(empty.textContent.includes("Nothing in this view"),
-    "a filtered-empty list must not claim you have no qualifying games");
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Cyberpunk 2077"],
+    "the table narrowed to the unplayed row");
+  assert.deepEqual(worstNames(), ["Hades"],
+    "the card still names the library's worst buy — it never spoke about the view");
+  assert.ok(!worst().querySelector(".rank-empty"),
+    "and it is not hiding behind an empty state that would now be a lie");
 
   env.root.querySelectorAll(".tab").find((t) => t.dataset.filter === "All")
     .dispatch("click");
   await settle();
-  assert.equal(worst().querySelectorAll(".rank-name").length, 1, "restores when cleared");
+  assert.equal(mod.getState().rows.length, 3, "the table comes back");
 });
 
-test("a store with no playtime takes the rate lists — untouched rides on", async () => {
+test("filtering to a no-playtime store leaves the rate lists standing", async () => {
   const { env, mod } = await boot({ seed: withSteamAndAmazon });
   await settle();
 
   const cards = () => env.root.querySelectorAll(".rank-card");
-  const untouchedCard = () => cards().find((c) => c.querySelector(".rank-untouched"));
   const names = (sel) => env.root.querySelector(sel)
     .querySelectorAll(".rank-name").map((n) => n.textContent);
 
   assert.equal(cards().length, 3, "three ranked cards ship");
-  assert.ok(cards().every((c) => !c.hidden), "visible while any store reports hours");
-  assert.deepEqual(names(".rank-untouched"),
-    ["Cyberpunk 2077", "Elden Ring", "Control", "Crysis"],
-    "unopened, dearest first — ranked by price, not by a rate they cannot have");
+  assert.ok(cards().every((c) => !c.hidden), "the library reports hours, so all three speak");
+  const untouchedBefore = names(".rank-untouched");
+  assert.deepEqual(untouchedBefore, ["Cyberpunk 2077", "Elden Ring", "Control", "Crysis"],
+    "unopened, dearest first — the library's ordering, not the view's");
 
   const amazon = env.root.querySelectorAll(".platform-row")
     .find((r) => r.dataset.platform === "Amazon");
@@ -1295,31 +1295,20 @@ test("a store with no playtime takes the rate lists — untouched rides on", asy
 
   assert.equal(mod.getState().platform, "Amazon", "the filter took");
   const rows = mod.getState().rows;
-  assert.ok(rows.length > 0, "the store has games on the table");
+  assert.equal(rows.length, 2, "two Amazon rows on the table");
   assert.ok(rows.every((r) => r.hours == null), "…and not one of them carries playtime");
-
-  const rateCards = cards().filter((c) => !c.querySelector(".rank-untouched"));
-  assert.equal(rateCards.length, 2, "the two rate lists are still on the page…");
-  assert.ok(rateCards.every((c) => c.hidden),
-    "…but hidden: nothing here could ever rank per hour, and 'nothing qualifies "
-    + "yet' would be a promise they cannot keep");
-  assert.ok(untouchedCard() && !untouchedCard().hidden,
-    "the untouched list stays — it ranks by price, and a store that never "
-    + "reports playtime is exactly where it earns its keep");
-  assert.deepEqual(untouchedCard().querySelectorAll(".rank-name").map((n) => n.textContent),
-    ["Control", "Crysis"], "its own dearest-first ordering, from this view only");
-  assert.equal(untouchedCard().querySelectorAll(".rank-hours").length, 0,
-    "no hours column: an unopened game has no playtime worth printing");
+  assert.ok(cards().every((c) => !c.hidden),
+    "the cards do not follow: the library still has hours, whatever the store shows");
+  assert.deepEqual(names(".rank-untouched"), untouchedBefore,
+    "and the untouched list still ranks the whole library");
 
   amazon.dispatch("click");               // the toggle clears itself
   await settle();
   assert.equal(mod.getState().platform, "All");
-  assert.ok(cards().every((c) => !c.hidden), "the cards return");
-  assert.equal(env.root.querySelector(".rank-worst").querySelectorAll(".rank-name").length, 1,
-    "Hades ranks again once hours exist in view");
+  assert.equal(cards().length, 3, "nothing about the cards depended on the filter");
 });
 
-test("the Free facet ranks Best value by hours and drops Hall of shame", async () => {
+test("the Free facet filters the table without rewriting the library's claims", async () => {
   const { env, mod } = await boot({ seed: (e) => {
     e.localStorage.setItem("steam_id", "76561198000000000");
     e.fetchRoutes.push((url) => {
@@ -1340,26 +1329,102 @@ test("the Free facet ranks Best value by hours and drops Hall of shame", async (
   } });
   await settle();
 
+  const names = (sel) => env.root.querySelector(sel)
+    .querySelectorAll(".rank-name").map((n) => n.textContent);
+  const worstBefore = names(".rank-worst");
+  const bestBefore = names(".rank-best");
+  assert.deepEqual(worstBefore, ["Paid Title"], "one paid game is the library's only bad buy");
+  assert.deepEqual(bestBefore, ["Paid Title"], "…and also its best rate, at ₹25/h");
+
   env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "free")
     .dispatch("click");
   await settle();
 
   assert.equal(mod.getState().rows.length, 3,
     "the facet selects only played free games — unplayed free reads Untouched");
+  assert.deepEqual(names(".rank-worst"), worstBefore,
+    "Hall of shame still ranks the library, not the facet");
+  assert.deepEqual(names(".rank-best"), bestBefore,
+    "and Best value is a library claim too: a paid game beats every free rate");
+  const cards = () => env.root.querySelectorAll(".rank-card");
+  const untouched = cards().find((c) => c.querySelector(".rank-untouched"));
+  assert.ok(untouched && untouched.hidden,
+    "the untouched list leaves because the library has no unopened game with a "
+    + "price — a fact about the library, not about the facet");
+});
+
+test("an all-free library ranks Best value by hours and drops Hall of shame", async () => {
+  const { env } = await boot({ seed: (e) => {
+    e.localStorage.setItem("steam_id", "76561198000000000");
+    e.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) return { json: { games: [
+        { id: "Steam:1", name: "Long One", platform: "Steam", hours: 300, appid: 1 },
+        { id: "Steam:2", name: "Quick One", platform: "Steam", hours: 5, appid: 2 },
+        { id: "Steam:3", name: "Mid One", platform: "Steam", hours: 40, appid: 3 },
+      ] } };
+      if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+      if (url.includes("/api/prices")) return { json: { prices: {
+        "Steam:1": 0, "Steam:2": 0, "Steam:3": 0,
+      } } };
+      return null;
+    });
+  } });
+  await settle();
+
   const cards = () => env.root.querySelectorAll(".rank-card");
   const find = (cls) => cards().find((c) => c.querySelector(cls));
-
-  assert.equal(find(".rank-worst").hidden, true,
-    "no hall of shame in free — nothing was paid, so nothing can be a bad buy");
+  assert.ok(find(".rank-worst").hidden,
+    "nothing was paid, so nothing can be a bad buy — the card leaves rather than promise one");
   const best = find(".rank-best");
-  assert.ok(best && !best.hidden, "Best value still speaks, about play");
+  assert.ok(best && !best.hidden, "Best value keeps speaking, about play");
   assert.deepEqual(best.querySelectorAll(".rank-name").map((n) => n.textContent),
-    ["Marathon F2P", "Mid F2P", "Quick F2P"], "most hours first");
+    ["Long One", "Mid One", "Quick One"], "most hours first");
   assert.equal(best.querySelector(".rank-rate").textContent, "₹0/h",
     "the rate column stays honest about what free costs per hour");
-  assert.equal(find(".rank-untouched").hidden, true,
-    "no unopened paid games can exist in free, so the card leaves rather "
-    + "than explaining its own absence forever");
+  assert.ok(find(".rank-untouched").hidden,
+    "an all-free library has no spend to rank untouched by either");
+});
+
+test("a search narrows the table without touching the headline", async () => {
+  const { env, mod } = await boot({ seed: withSteamAndGog });
+  await settle();
+
+  const metricsBefore = { ...mod.getState().metrics };
+  const worstBefore = mod.getState().comparators.worst.map((t) => t.id);
+
+  const input = env.root.querySelectorAll("input")
+    .find((i) => i.dataset.action === "search");
+  assert.ok(input, "the filter bar offers a search box");
+  input.value = "Hades";
+  input.dispatch("input");
+  await settle();
+
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Hades"],
+    "the table found the one title");
+  assert.deepEqual(mod.getState().metrics, metricsBefore,
+    "the KPIs, the hero and the coverage line are claims about the library, not the search");
+  assert.deepEqual(mod.getState().comparators.worst.map((t) => t.id), worstBefore,
+    "so is the hall of shame");
+  assert.equal(env.root.querySelector(".rank-worst").querySelectorAll(".rank-name").length,
+    worstBefore.length, "and the card still lists every one of them");
+});
+
+test("the coverage line counts one scope", async () => {
+  const { env, mod } = await boot({ seed: withSteamAndAmazon });
+  await settle();
+
+  const line = () => env.root.querySelector(".coverage").textContent;
+  assert.ok(line().includes("2 / 5 games have playtime"), line());
+
+  env.root.querySelectorAll(".platform-row")
+    .find((r) => r.dataset.platform === "Amazon")
+    .dispatch("click");
+  await settle();
+
+  assert.deepEqual(mod.getState().rows.map((r) => r.platform), ["Amazon", "Amazon"],
+    "the table narrowed");
+  assert.ok(line().includes("2 / 5 games have playtime"),
+    "numerator and denominator come from the library, so a filter cannot make them disagree");
 });
 
 test("the visitor's region defaults the currency until they choose one", async () => {
@@ -1395,55 +1460,59 @@ test("the visitor's region defaults the currency until they choose one", async (
   assert.equal(chosen.mod.getState().currency, "JPY", "the saved choice wins");
 });
 
-test("the Untouched facet swaps in the untouched list and drops the rate cards", async () => {
-  const { env } = await boot({ seed: withSteam });
+test("the Untouched facet filters the table and leaves the cards alone", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
   await settle();
 
   const cards = () => env.root.querySelectorAll(".rank-card");
   const find = (cls) => cards().find((c) => c.querySelector(cls));
-  assert.ok(cards().every((c) => !c.hidden),
-    "all three lists start under All verdicts");
+  const names = (cls) => find(cls).querySelectorAll(".rank-name").map((n) => n.textContent);
+  assert.ok(cards().every((c) => !c.hidden), "all three lists start under All verdicts");
+  const worstBefore = names(".rank-worst");
+  const untouchedBefore = names(".rank-untouched");
 
   env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "untouched")
     .dispatch("click");
   await settle();
 
-  assert.equal(find(".rank-worst").hidden, true,
-    "an unopened game has no rate, so Hall of shame cannot speak here");
-  assert.equal(find(".rank-best").hidden, true, "nor can Best value");
-  const untouched = find(".rank-untouched");
-  assert.ok(untouched && !untouched.hidden,
-    "the untouched list takes their place — the only ranking this facet has");
-  assert.deepEqual(untouched.querySelectorAll(".rank-name").map((n) => n.textContent),
-    ["Cyberpunk 2077", "Elden Ring"], "dearest unopened first, from this view");
-  assert.equal(env.root.querySelector(".insights").hidden, false,
-    "a survivor on the page means the row stays");
+  assert.deepEqual(mod.getState().rows.map((r) => r.name), ["Cyberpunk 2077", "Elden Ring"],
+    "the facet narrowed the table to the unopened games");
+  assert.ok(cards().every((c) => !c.hidden),
+    "the cards do not follow: a facet is a browsing choice, not a claim");
+  assert.deepEqual(names(".rank-worst"), worstBefore, "Hall of shame still ranks the library");
+  assert.deepEqual(names(".rank-untouched"), untouchedBefore,
+    "and the untouched list still ranks the library's unopened games");
 
   env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "All")
     .dispatch("click");
   await settle();
-  assert.ok(cards().every((c) => !c.hidden), "clearing the facet restores all three");
+  assert.equal(mod.getState().rows.length, 3, "clearing the facet restores the table");
 });
 
-test("a facet nothing can rank takes the whole insights row away", async () => {
-  const { env } = await boot({ seed: withSteam });
-  await settle();
-
-  // Unpriced = no price on any row, and every list needs money of some kind.
-  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "nodata")
-    .dispatch("click");
+test("a library nothing can rank takes the whole insights row away", async () => {
+  // Every game free and never opened: no bad buy (nothing was paid), no rate
+  // (no hours), nothing unopened-with-a-price to rank by spend. All three cards
+  // are structurally silent, so the row leaves rather than showing three gaps.
+  // This used to be triggered by picking a facet — which was the bug: a facet
+  // is a browsing choice, not a claim about the library.
+  const { env } = await boot({ seed: (e) => {
+    e.localStorage.setItem("steam_id", "76561198000000000");
+    e.fetchRoutes.push((url) => {
+      if (url.includes("/api/steam_games")) return { json: { games: [
+        { id: "Steam:1", name: "Free One", platform: "Steam", hours: null, appid: 1 },
+        { id: "Steam:2", name: "Free Two", platform: "Steam", hours: null, appid: 2 },
+      ] } };
+      if (url.includes("/api/gog_games") || url.includes("/api/epic_games")) return { json: { games: [] } };
+      if (url.includes("/api/prices")) return { json: { prices: { "Steam:1": 0, "Steam:2": 0 } } };
+      return null;
+    });
+  } });
   await settle();
 
   const cards = env.root.querySelectorAll(".rank-card");
-  assert.ok(cards.every((c) => c.hidden), "no card can speak without a price");
+  assert.ok(cards.every((c) => c.hidden), "no card can speak without a price or an hour");
   assert.equal(env.root.querySelector(".insights").hidden, true,
     "three empty cards in a row of gaps beats nothing; the row leaves instead");
-
-  env.root.querySelectorAll(".tier-facet").find((b) => b.dataset.tier === "All")
-    .dispatch("click");
-  await settle();
-  assert.equal(env.root.querySelector(".insights").hidden, false,
-    "and returns the moment something can rank again");
 });
 
 test("every dashboard metric carries a wired explanation chip", async () => {
