@@ -1,4 +1,7 @@
-/** API clients. All tokens travel in headers or JSON bodies — never in URLs. */
+/** API clients. All tokens travel in headers or JSON bodies — never in URLs.
+ *  The only values that ride a query string are public account identifiers
+ *  (steamid, onlineId): a PSN online ID is profile data anybody can look up,
+ *  not a credential, which is why PlayStation sends nothing secret at all. */
 
 import { API_BASE } from "./env.js";
 
@@ -389,51 +392,36 @@ export async function fetchAmazonGames() {
 }
 
 /**
- * PlayStation has no approval screen, so linking is a two-step manual dance.
- * Connect opens the *sign-in* page first — that session is the credential.
- * Opening the NPSSO URL while signed out answers with an `invalid_grant` error,
- * not a login form, so the two URLs can never be the same link.
- */
-export const PSN_SIGNIN_URL = "https://www.playstation.com/";
-
-/** Step two: read the short-lived NPSSO (only works once signed in). */
-export const PSN_NPSSO_URL = "https://ca.account.sony.com/api/v1/ssocookie";
-
-/** Exchange a pasted NPSSO for access + refresh tokens (server-side). */
-export async function exchangePsn(npsso) {
-  const resp = await fetch(apiUrl("/api/psn_exchange"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ npsso }),
-  });
-  if (!resp.ok) {
-    const data = await resp.json().catch(() => ({}));
-    throw new Error(data.error || "PlayStation exchange failed");
-  }
-  return resp.json();
-}
-
-/**
- * Played PSN titles, with real playtime. Sony exposes no owned-but-unplayed
- * list, so this is played-only. Prices are fetched separately by title id, in
- * fetchPsnPrices.
+ * Played PSN titles, with real playtime.
+ *
+ * PlayStation takes no approval screen and this app accepts no PlayStation
+ * credential — the visitor's public online ID is the whole request, and the
+ * server reads the profile's playtime with the operator's own reader account
+ * (PSN_REFRESH_TOKEN). Nothing to paste, nothing handed over.
+ *
+ * Sony exposes no owned-but-unplayed list, so this is played-only. Prices are
+ * fetched separately by title id, in fetchPsnPrices.
  */
 export async function fetchPsnGames() {
-  const accessToken = localStorage.getItem("psn_access_token");
-  const refreshToken = localStorage.getItem("psn_refresh_token");
-  if (!accessToken) return [];
-  const resp = await fetch(apiUrl("/api/psn_games"), {
-    headers: { "X-PSN-Token": accessToken, "X-PSN-Refresh": refreshToken || "" },
-  });
-  if (resp.status === 401) return [];   // relink needed
+  const onlineId = localStorage.getItem("psn_online_id");
+  if (!onlineId) return [];
+  const resp = await fetch(apiUrl(`/api/psn_games?onlineId=${encodeURIComponent(onlineId)}`));
+  // A 404 (typo, or a deleted profile) must not read as "no games": the scan
+  // step shows the server's sentence instead.
   if (!resp.ok) {
     const data = await resp.json().catch(() => ({}));
     throw new Error(data.error || `psn_games ${resp.status}`);
   }
   const data = await resp.json();
-  if (data.new_tokens) {
-    localStorage.setItem("psn_access_token", data.new_tokens.access_token);
-    localStorage.setItem("psn_refresh_token", data.new_tokens.refresh_token);
+  if (data.reason === "empty" || data.reason === "no_titles") {
+    // 200 with nothing behind it. Failing the scan step with the reason beats
+    // a silent blank library: either nothing was ever played, or the profile
+    // hides its gaming history and the visitor can go and open it.
+    throw new Error("That PlayStation profile returned no played titles. Either "
+      + "your account has played nothing this endpoint covers — it lists PS4, "
+      + "PS5 and PC titles only, so PS3/Vita-era play never appears — or “Who "
+      + "can see your gaming history” is set to No one (PS5: Settings → Users "
+      + "and Accounts → Privacy → Gaming | Media): set it to Anyone and scan again.");
   }
   return data.games || [];
 }

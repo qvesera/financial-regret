@@ -222,13 +222,12 @@ const PLATFORMS = [
     key: "psn",
     name: "PlayStation",
     platform: "PlayStation",
-    blurb: "Played titles, with real playtime. Sony has no official API, so this uses the community flow; prices come from PlatPrices when a key is set.",
+    blurb: "Played titles, with real playtime. Sony has no official library API, so this reads what your profile already shows publicly — no sign-in, no password, no token. Prices come from PlatPrices when a key is set.",
     cta: "Connect PlayStation",
     steps: [
-      "Click Connect and sign in on PlayStation's own page. Sony offers no approval screen — the signed-in session is what earns us the next step.",
-      "Still signed in? Open the NPSSO page (link below). It shows one line of JSON, not a website — copy the 64-character npsso value.",
-      "Paste it below straight away; it expires fast. We trade it for a long-lived refresh token and never store the NPSSO itself.",
-      "Sony exposes only played titles, so these arrive with real hours. Prices come from PlatPrices when a key is configured; without one they still count toward time, only spend stays blank.",
+      "Type your PSN online ID below — the name on your profile, not an email address and not an account id.",
+      "Nothing is handed over: the server looks up that public profile and reads the playtime it already shows anyone.",
+      "If no titles come back, set “Who can see your gaming history” to Anyone (PS5: Settings → Users and Accounts → Privacy → Gaming | Media), then scan again.",
     ],
   },
 ];
@@ -714,35 +713,33 @@ export const view = {
   },
 
   /** Collapsed paste fallback used by GOG, Epic, Amazon and PlayStation.
-   *  `link` is an optional page to visit mid-flow — PlayStation needs one,
-   *  because the value to paste lives on a second URL you must be signed in to read. */
-  pasteBlock(kind, label, placeholder, link = null) {
+   *  No link parameter any more: only PlayStation ever carried one, and the
+   *  page it pointed at (Sony's NPSSO endpoint) must not be reachable from
+   *  this app's UI. PlayStation's field holds a public online ID instead —
+   *  and it passes `withButton = false`, because there is nothing to "link":
+   *  its own Connect button submits whatever is typed, so a second small
+   *  button below the field would only ask the same question twice. */
+  pasteBlock(kind, label, placeholder, withButton = true) {
     const d = this.el("details", "paste");
     d.id = `${kind}-paste`;
     d.open = true;   // the steps say "paste it below" — below must be visible
     d.appendChild(this.el("summary", null, label));
-    if (link) {
-      const p = this.el("p", "paste-link");
-      const a = this.el("a", null, link.text);
-      a.href = link.href;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      p.appendChild(a);
-      d.appendChild(p);
-    }
     const input = this.el("input", null);
     input.type = "text";
     input.placeholder = placeholder;
     input.id = `${kind}-code`;
     input.dataset.action = "code-input";
     input.dataset.kind = kind;
-    const btn = this.el("button", "button small", "Link");
-    btn.dataset.action = `submit-${kind}`;
+    let btn = null;
+    if (withButton) {
+      btn = this.el("button", "button small", "Link");
+      btn.dataset.action = `submit-${kind}`;
+    }
     const err = this.el("p", "form-error", "");
     err.id = `${kind}-error`;
     err.hidden = true;
     d.appendChild(input);
-    d.appendChild(btn);
+    if (btn) d.appendChild(btn);
     d.appendChild(err);
     return d;
   },
@@ -819,9 +816,8 @@ export const view = {
           "https://www.amazon.com/?openid.oa2.authorization_code=…"));
       }
       if (p.key === "psn") {
-        card.appendChild(this.pasteBlock("psn", "Paste your NPSSO token",
-          "the 64-character npsso value from the JSON",
-          { href: "https://ca.account.sony.com/api/v1/ssocookie", text: "Open the NPSSO page" }));
+        card.appendChild(this.pasteBlock("psn", "Your PSN online ID",
+          "your Online ID — e. SomePlayer_91", false));
       }
       cards.appendChild(card);
     }
