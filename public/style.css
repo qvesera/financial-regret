@@ -1121,6 +1121,17 @@ td.cell-platform { white-space: nowrap; }
   border: 1px solid var(--border);
 }
 .shared-note { color: var(--muted); margin: 0; max-width: 46ch; }
+/* The line above the button: a promise, so it reads as text, not footnote. */
+.shared-invite { color: var(--text); margin: 0; max-width: 46ch; }
+/* Selectable, and wrapping anywhere: a card payload makes a long URL. */
+.export-link {
+  margin: var(--space-3) 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  word-break: break-all;
+  user-select: all;
+}
+.export-caption { margin: 0.3rem 0 0; font-size: 0.8rem; color: var(--muted); }
 
 /* ---------- responsive ---------- */
 

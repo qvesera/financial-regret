@@ -1129,6 +1129,8 @@ async function repaintExportPreview() {
   if (!cv) return;
   const spec = currentExportSpec();
   if (!spec) { view.exportStatus("Nothing to export in this view."); return; }
+  const link = document.querySelector(".export-link");
+  if (link) link.textContent = shareUrl(spec);
   await renderCardTo(cv, spec);
 }
 
@@ -1198,7 +1200,8 @@ async function copyExportLink() {
     if (typeof navigator !== "undefined" && navigator.clipboard
         && typeof navigator.clipboard.writeText === "function") {
       await navigator.clipboard.writeText(url);
-      view.exportStatus("Link copied — it opens this exact card for anyone.");
+      // The caption under the link field already says what it opens.
+      view.exportStatus("Copied.");
       return;
     }
   } catch { /* clipboard refused: show the link so it can be copied by hand */ }

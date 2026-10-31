@@ -2322,6 +2322,17 @@ test("the Share button ships with the dashboard and opens the deck", async () =>
   const canvas = env.document.getElementById("export-canvas");
   assert.ok(canvas, "a live preview sits in the drawer");
   assert.equal(canvas.width, 1080);
+  const linkBox = env.root.querySelector(".export-link");
+  assert.match(linkBox.textContent, /#card=/, "the drawer shows the link it will copy");
+  assert.ok(env.root.querySelector(".export-caption").textContent.includes("their own way in"),
+    "and says what it opens");
+  const worstChip = env.root.querySelectorAll(".tab")
+    .find((b) => b.dataset.kind === "worst");
+  const beforeLink = linkBox.textContent;
+  worstChip.dispatch("click");
+  await settle();
+  assert.notEqual(env.root.querySelector(".export-link").textContent, beforeLink,
+    "the link follows the card on the preview");
 
   // No clipboard in the stub, so the link itself is shown — still useful.
   const copy = env.root.querySelectorAll("button")
@@ -2362,13 +2373,20 @@ test("a shared card link shows the snapshot, not a signup wall", async () => {
   const makeOwn = env.root.querySelectorAll("button")
     .find((b) => b.dataset.action === "make-own");
   assert.ok(makeOwn, "the way in is offered");
+  assert.equal(makeOwn.textContent, "Judge my library");
+  const invite = env.root.querySelector(".shared-invite");
+  assert.equal(invite.textContent, "Yours gets a damage report of its own.",
+    "the invitation speaks the deck's own language");
+  const kids = [...env.root.querySelector(".shared-card").children];
+  assert.ok(kids.indexOf(invite) < kids.indexOf(env.document.getElementById("shared-canvas")),
+    "and comes before the card, not buried under a 4:5 canvas on a phone");
   assert.equal(env.root.querySelector(".export-preview"), null,
     "no app chrome on a shared card");
 
   makeOwn.dispatch("click");
   await settle();
   assert.equal(mod.getState().phase, "onboarding",
-    "Make your own returns to the landing page, hash or not");
+    "Judge my library returns to the landing page, hash or not");
   assert.equal(env.root.querySelector(".shared-card"), null, "the shared card leaves");
 });
 

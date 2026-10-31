@@ -1722,16 +1722,21 @@ export const view = {
     wrap.appendChild(this.el("p", "shared-note",
       `${who} made this card`
       + `${spec.at ? ` on ${new Date(spec.at).toISOString().slice(0, 10)}` : ""}.`));
+    // The invitation comes before the card, not after it: a shared link is
+    // watched on a phone, where the old order buried the way in under a 4:5
+    // canvas. Top line is why, button is the act, bottom line is how.
+    wrap.appendChild(this.el("p", "shared-invite",
+      "Yours gets a damage report of its own."));
+    const cta = this.el("button", "button primary", "Judge my library");
+    cta.type = "button";
+    cta.dataset.action = "make-own";
+    wrap.appendChild(cta);
     const cv = this.el("canvas");
     cv.id = "shared-canvas";
     cv.width = CARD_W;
     cv.height = CARD_H;
     cv.setAttribute("aria-label", spec.title || "shared card");
     wrap.appendChild(cv);
-    const cta = this.el("button", "button primary", "Make your own");
-    cta.type = "button";
-    cta.dataset.action = "make-own";
-    wrap.appendChild(cta);
     wrap.appendChild(this.el("p", "shared-note",
       "Link a store and your library gets the same treatment."));
     return wrap;
@@ -1763,6 +1768,12 @@ export const view = {
     cv.width = CARD_W;
     cv.height = CARD_H;
     body.appendChild(cv);
+    // The link is shown, not only copied: a desktop with a blocked clipboard
+    // should still see what will be sent. Filled by repaintExportPreview on
+    // open and on every kind change, so it always matches the preview.
+    body.appendChild(this.el("p", "export-link"));
+    body.appendChild(this.el("p", "export-caption",
+      "They see your card, then their own way in."));
     const acts = this.el("div", "export-actions");
     [["export-download", "Download PNG"], ["export-share", "Share…"], ["export-copy", "Copy link"]]
       .forEach(([action, label]) => {
