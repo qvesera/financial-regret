@@ -11,7 +11,7 @@ import { view } from "./view.js";
 import { computeRegret } from "./regret.js";
 import { currencyForCountry } from "./format.js";
 import { paintVerdictToy, repaintVerdictToy, setToyAnchor, TOY_GAME } from "./arcade.js";
-import { cardSpec, cardBlob, renderCardTo, shareUrl, decodeCard, exportKinds } from "./export.js";
+import { cardSpec, cardBlob, renderCardTo, shareUrl, sharePayload, decodeCard, exportKinds } from "./export.js";
 import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
 import { applyEdits, parseEdit } from "./edits.js";
 
@@ -1183,7 +1183,8 @@ async function shareExport() {
     ? new File([blob], exportFileName(spec), { type: "image/png" }) : null;
   if (file && typeof nav.canShare === "function" && nav.canShare({ files: [file] })) {
     try {
-      await nav.share({ files: [file], title: spec.title, text: "My library, judged." });
+      const payload = sharePayload(spec);
+      await nav.share({ files: [file], title: payload.title, text: payload.text });
       view.exportStatus("Shared.");
       return;
     } catch { /* dismissed: fall through to a download */ }

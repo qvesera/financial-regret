@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installEnv } from "./dom-stub.mjs";
 import { encodeCard } from "../../public/js/export.js";
+import { SHARED_VERDICTS } from "../../public/js/verdict.js";
 import { store } from "../../public/js/store.js";
 
 const settle = async () => { for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0)); };
@@ -2388,6 +2389,40 @@ test("a shared card link shows the snapshot, not a signup wall", async () => {
   assert.equal(mod.getState().phase, "onboarding",
     "Judge my library returns to the landing page, hash or not");
   assert.equal(env.root.querySelector(".shared-card"), null, "the shared card leaves");
+});
+
+test("a shared card reads its verdict from the score the card carries", async () => {
+  const base = {
+    v: 1, kind: "wrapped", title: "WRAPPED", at: Date.now(), who: "Sir Regrets",
+    eyebrow: "YOUR LIBRARY, JUDGED", badge: "12 GAMES", rows: [], footnote: "",
+  };
+  // The score rides the spec now; links minted before it still read their
+  // printed stat, and neither reads as Unknown rather than a guess.
+  const scored = await boot({ seed: (e) => {
+    e.window.location.hash = `#card=${encodeCard({ ...base, regret: 0.7 })}`;
+  } });
+  await settle();
+  assert.ok(SHARED_VERDICTS.ruin.includes(
+    scored.env.root.querySelector(".shared-verdict").textContent),
+    "a scored link reads the Ruin band");
+
+  const legacy = await boot({ seed: (e) => {
+    e.window.location.hash = `#card=${encodeCard({
+      ...base, stats: [{ label: "REGRET SCORE", value: "70%" }],
+    })}`;
+  } });
+  await settle();
+  assert.ok(SHARED_VERDICTS.ruin.includes(
+    legacy.env.root.querySelector(".shared-verdict").textContent),
+    "a pre-score link still reads its printed stat");
+
+  const bare = await boot({ seed: (e) => {
+    e.window.location.hash = `#card=${encodeCard({ ...base, stats: [] })}`;
+  } });
+  await settle();
+  assert.ok(SHARED_VERDICTS.unknown.includes(
+    bare.env.root.querySelector(".shared-verdict").textContent),
+    "with nothing to judge by, the Unknown set says so");
 });
 
 test("the wordmark takes you back to the landing page", async () => {

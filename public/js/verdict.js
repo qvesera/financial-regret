@@ -182,3 +182,72 @@ export function comparators(rows, limit = 5) {
     untouched,
   };
 }
+
+/** The banded one-liners a shared card's page shows about its author's shelf.
+ *  The band comes from the regret score; the line is picked at random within
+ *  it, so a reload feels alive without inventing new verdicts per visit.
+ *  Impersonal on purpose — the reader is looking at someone else's library. */
+export const SHARED_VERDICTS = {
+  pristine: [
+    "Nothing unplayed. The shelf is clean.",
+    "Every rupee has hours behind it.",
+    "No backlog. Suspicious, but respect.",
+    "Played everything. Nothing to regret.",
+    "The report is boring. That's the point.",
+  ],
+  tidy: [
+    "A tidy shelf, barely a dent.",
+    "The backlog is a rounding error.",
+    "One or two stragglers. That's discipline.",
+    "A few sealed boxes on an otherwise honest shelf.",
+  ],
+  ordinary: [
+    "A normal amount of good intentions.",
+    "The backlog is a habit, not a crisis.",
+    "Buys games. Mostly plays them. Mostly.",
+    "Nothing here would embarrass anyone at a dinner party.",
+  ],
+  warning: [
+    "The backlog has started paying rent.",
+    "A quarter of the shelf is decoration.",
+    "Buying faster than playing.",
+    "The case for \"I'll get to it\" is getting thin.",
+  ],
+  shame: [
+    "The shelf is mostly a museum.",
+    "Half the library has never loaded a save.",
+    "The wallet is doing the playing.",
+    "This is a collection, not a hobby.",
+  ],
+  ruin: [
+    "Welcome to the hall of shame.",
+    "The backlog is the library now.",
+    "Funded the industry single-handedly.",
+    "Purchases outnumber play sessions.",
+    "At this point the shelf buys games, not the person.",
+  ],
+  unknown: [
+    "No playtime reported. No verdict either.",
+    "Verdict withheld: nobody measured the hours.",
+    "Can't judge what nobody recorded.",
+  ],
+};
+
+/** One line from the band the regret score earns. Regret is the share of
+ *  known money sitting in barely-played games: 0 is a shelf with no backlog,
+ *  high is the hall of shame. Missing score (old links, unknown playtime)
+ *  reads the Unknown set rather than guessing. */
+export function sharedVerdict(score) {
+  const s = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : null;
+  let band = "unknown";
+  if (s !== null) {
+    if (s === 0) band = "pristine";
+    else if (s < 0.10) band = "tidy";
+    else if (s < 0.25) band = "ordinary";
+    else if (s < 0.45) band = "warning";
+    else if (s < 0.65) band = "shame";
+    else band = "ruin";
+  }
+  const lines = SHARED_VERDICTS[band];
+  return lines[Math.floor(Math.random() * lines.length)];
+}

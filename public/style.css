@@ -1123,6 +1123,9 @@ td.cell-platform { white-space: nowrap; }
 .shared-note { color: var(--muted); margin: 0; max-width: 46ch; }
 /* The line above the button: a promise, so it reads as text, not footnote. */
 .shared-invite { color: var(--text); margin: 0; max-width: 46ch; }
+/* The banded verdict: a line about the shelf, so it reads as text — a touch
+   above the note, never louder than the card above it. */
+.shared-verdict { color: var(--text); font-size: 1.05rem; margin: 0; max-width: 46ch; }
 /* Selectable, and wrapping anywhere: a card payload makes a long URL. */
 .export-link {
   margin: var(--space-3) 0 0;

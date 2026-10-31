@@ -1,6 +1,6 @@
 /** DOM builders. textContent only — never innerHTML with user data. */
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
-import { TIER_LABEL, coverHue, headline as buildHeadline, whatIf } from "./verdict.js";
+import { TIER_LABEL, coverHue, headline as buildHeadline, sharedVerdict, whatIf } from "./verdict.js";
 import { renderVerdictToy, repaintVerdictToy } from "./arcade.js";
 import { CARD_W, CARD_H, exportKinds, kindLabel, rupeeSvg, pixelCapRatio } from "./export.js";
 
@@ -1722,6 +1722,14 @@ export const view = {
     wrap.appendChild(this.el("p", "shared-note",
       `${who} made this card`
       + `${spec.at ? ` on ${new Date(spec.at).toISOString().slice(0, 10)}` : ""}.`));
+    // The verdict: banded by the regret score the card carries. Links minted
+    // before the score rode the spec still read it off the printed stat; with
+    // neither, the Unknown set says so instead of guessing.
+    const statScore = (spec.stats || []).find((s) => s.label === "REGRET SCORE");
+    const printed = statScore && /^[\d.]+ ?%$/.test(String(statScore.value).trim())
+      ? parseFloat(statScore.value) / 100 : null;
+    wrap.appendChild(this.el("p", "shared-verdict",
+      sharedVerdict(typeof spec.regret === "number" ? spec.regret : printed)));
     // The invitation comes before the card, not after it: a shared link is
     // watched on a phone, where the old order buried the way in under a 4:5
     // canvas. Top line is why, button is the act, bottom line is how.
