@@ -11,8 +11,8 @@ import { view } from "./view.js";
 import { computeRegret } from "./regret.js";
 import { currencyForCountry } from "./format.js";
 import { paintVerdictToy, repaintVerdictToy, setToyAnchor, TOY_GAME } from "./arcade.js";
-import { cardSpec, cardBlob, renderCardTo, shareUrl, decodeCard, exportKinds } from "./export.js";
-import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
+import { cardSpec, cardBlob, renderCardTo, shareUrl, sharePayload, decodeCard, exportKinds } from "./export.js";
+import { benchmark, verdictMap, comparators as rankGames, shareNudge } from "./verdict.js";
 import { applyEdits, parseEdit } from "./edits.js";
 
 /** UI state worth keeping across reloads — filters and the what-if setting.
@@ -1129,6 +1129,10 @@ async function repaintExportPreview() {
   if (!cv) return;
   const spec = currentExportSpec();
   if (!spec) { view.exportStatus("Nothing to export in this view."); return; }
+  const link = document.querySelector(".export-link");
+  if (link) link.textContent = shareUrl(spec);
+  const caption = document.querySelector(".export-caption");
+  if (caption) caption.textContent = shareNudge(spec.regret);
   await renderCardTo(cv, spec);
 }
 
@@ -1181,7 +1185,8 @@ async function shareExport() {
     ? new File([blob], exportFileName(spec), { type: "image/png" }) : null;
   if (file && typeof nav.canShare === "function" && nav.canShare({ files: [file] })) {
     try {
-      await nav.share({ files: [file], title: spec.title, text: "My library, judged." });
+      const payload = sharePayload(spec);
+      await nav.share({ files: [file], title: payload.title, text: payload.text });
       view.exportStatus("Shared.");
       return;
     } catch { /* dismissed: fall through to a download */ }
@@ -1198,7 +1203,8 @@ async function copyExportLink() {
     if (typeof navigator !== "undefined" && navigator.clipboard
         && typeof navigator.clipboard.writeText === "function") {
       await navigator.clipboard.writeText(url);
-      view.exportStatus("Link copied — it opens this exact card for anyone.");
+      // The caption under the link field already says what it opens.
+      view.exportStatus("Copied.");
       return;
     }
   } catch { /* clipboard refused: show the link so it can be copied by hand */ }

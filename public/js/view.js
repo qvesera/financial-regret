@@ -1,6 +1,6 @@
 /** DOM builders. textContent only — never innerHTML with user data. */
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
-import { TIER_LABEL, coverHue, headline as buildHeadline, whatIf } from "./verdict.js";
+import { TIER_LABEL, coverHue, headline as buildHeadline, sharedVerdict, whatIf } from "./verdict.js";
 import { renderVerdictToy, repaintVerdictToy } from "./arcade.js";
 import { CARD_W, CARD_H, exportKinds, kindLabel, rupeeSvg, pixelCapRatio } from "./export.js";
 
@@ -1722,16 +1722,29 @@ export const view = {
     wrap.appendChild(this.el("p", "shared-note",
       `${who} made this card`
       + `${spec.at ? ` on ${new Date(spec.at).toISOString().slice(0, 10)}` : ""}.`));
+    // The verdict: banded by the regret score the card carries. Links minted
+    // before the score rode the spec still read it off the printed stat; with
+    // neither, the Unknown set says so instead of guessing.
+    const statScore = (spec.stats || []).find((s) => s.label === "REGRET SCORE");
+    const printed = statScore && /^[\d.]+ ?%$/.test(String(statScore.value).trim())
+      ? parseFloat(statScore.value) / 100 : null;
+    wrap.appendChild(this.el("p", "shared-verdict",
+      sharedVerdict(typeof spec.regret === "number" ? spec.regret : printed)));
+    // The invitation comes before the card, not after it: a shared link is
+    // watched on a phone, where the old order buried the way in under a 4:5
+    // canvas. Top line is why, button is the act, bottom line is how.
+    wrap.appendChild(this.el("p", "shared-invite",
+      "Your library, up next."));
+    const cta = this.el("button", "button primary", "Judge my library");
+    cta.type = "button";
+    cta.dataset.action = "make-own";
+    wrap.appendChild(cta);
     const cv = this.el("canvas");
     cv.id = "shared-canvas";
     cv.width = CARD_W;
     cv.height = CARD_H;
     cv.setAttribute("aria-label", spec.title || "shared card");
     wrap.appendChild(cv);
-    const cta = this.el("button", "button primary", "Make your own");
-    cta.type = "button";
-    cta.dataset.action = "make-own";
-    wrap.appendChild(cta);
     wrap.appendChild(this.el("p", "shared-note",
       "Link a store and your library gets the same treatment."));
     return wrap;
@@ -1763,6 +1776,14 @@ export const view = {
     cv.width = CARD_W;
     cv.height = CARD_H;
     body.appendChild(cv);
+    // The link is shown, not only copied: a desktop with a blocked clipboard
+    // should still see what will be sent. Filled by repaintExportPreview on
+    // open and on every kind change, so it always matches the preview.
+    body.appendChild(this.el("p", "export-link"));
+    // Filled by repaintExportPreview with a nudge that matches the card's
+    // band — pride for a clean shelf, shame for a museum — so the drawer and
+    // the shared page never disagree about what they are looking at.
+    body.appendChild(this.el("p", "export-caption"));
     const acts = this.el("div", "export-actions");
     [["export-download", "Download PNG"], ["export-share", "Share…"], ["export-copy", "Copy link"]]
       .forEach(([action, label]) => {

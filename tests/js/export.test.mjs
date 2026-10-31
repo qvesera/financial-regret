@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  cardSpec, encodeCard, decodeCard, shareUrl, drawCard, drawRupee, rupeeSvg,
+  cardSpec, encodeCard, decodeCard, shareUrl, sharePayload, drawCard, drawRupee, rupeeSvg,
   exportKinds, kindLabel, pixelCapRatio, RUPEE_ASPECT, CARD_TOKENS, CARD_W, CARD_H,
 } from "../../public/js/export.js";
 import { benchmark, verdictMap, comparators } from "../../public/js/verdict.js";
@@ -166,6 +166,35 @@ test("a share link round-trips and refuses anything else", () => {
   const truncated = btoa("{not json");
   assert.equal(decodeCard(`#card=${truncated}`), null, "a corrupt payload never throws");
   assert.ok(shareUrl(spec, "https://x.test").startsWith("https://x.test/#card="));
+});
+
+test("the share payload carries the verdict line and the link back", () => {
+  // nav.share itself cannot run in the stub — cardBlob needs a real canvas —
+  // so the payload builder is the logic under test, and the call site is one
+  // line reading it.
+  const spec = cardSpec(makeState(), "wrapped");
+  const payload = sharePayload(spec, "https://x.test");
+  assert.equal(payload.title, spec.title);
+  assert.ok(payload.text.startsWith("The damage report · my library, judged."),
+    payload.text);
+  const url = payload.text.slice(payload.text.indexOf("at ") + 3);
+  assert.ok(url.startsWith("https://x.test/#card="), url);
+  assert.deepEqual(decodeCard(url.replace("https://x.test", "")), spec,
+    "the link in the sentence opens this exact card");
+});
+
+test("every card carries the library's regret score, whatever the view", () => {
+  // The banded verdict on the shared page reads this field; it must describe
+  // the shelf, not the facet the sharer happened to be looking at.
+  const gogOnly = makeState({
+    platform: "GOG",
+    rows: GAMES.filter((g) => g.platform === "GOG"),
+  });
+  for (const kind of ["wrapped", "worst", "best", "view", "verdict:regret"]) {
+    const spec = cardSpec(gogOnly, kind);
+    assert.equal(spec.regret, computeRegret(GAMES).regretScore,
+      `${kind} carries the whole library's score, not the GOG slice`);
+  }
 });
 
 function fakeCtx() {

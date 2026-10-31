@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   benchmark, rateSamples, verdictOf, verdictMap, whatIf, coverHue, headline, comparators,
-  TIER_LABEL,
+  TIER_LABEL, SHARED_VERDICTS, sharedVerdict, verdictBand, SHARE_NUDGE_SETS, shareNudge,
 } from "../../public/js/verdict.js";
 
 const g = (id, name, hours, price) => ({ id, name, hours, price, platform: "Steam" });
@@ -197,5 +197,56 @@ test("every tier has a human label", () => {
   for (const t of ["worth", "fair", "regret", "untouched", "nodata", "unknown"]) {
     assert.ok(TIER_LABEL[t], `${t} labelled`);
   }
+});
+
+test("the shared verdict bands the regret score, and every line is on-brand", () => {
+  // The band is the whole contract: score in, line from that band out. The
+  // line itself is random by design, so membership is what gets asserted —
+  // never a specific string.
+  assert.ok(Object.values(SHARED_VERDICTS).every((set) => set.length >= 3),
+    "every band has enough lines that a reload feels alive");
+  const cases = [
+    [0, "pristine"], [0.09, "tidy"], [0.10, "ordinary"], [0.24, "ordinary"],
+    [0.25, "warning"], [0.44, "warning"], [0.45, "shame"], [0.64, "shame"],
+    [0.65, "ruin"], [0.99, "ruin"], [null, "unknown"], [NaN, "unknown"],
+  ];
+  for (const [score, band] of cases) {
+    for (let i = 0; i < 25; i += 1) {
+      const line = sharedVerdict(score);
+      assert.ok(SHARED_VERDICTS[band].includes(line),
+        `${score} lands in ${band}: ${line}`);
+    }
+  }
+  // Out-of-range scores read as their clamped selves, not as chaos.
+  assert.ok(SHARED_VERDICTS.pristine.includes(sharedVerdict(-0.5)));
+  assert.ok(SHARED_VERDICTS.ruin.includes(sharedVerdict(3)));
+});
+
+test("the drawer nudge rides the same bands the page verdict judges with", () => {
+  // The caption under the copy link and the verdict on the shared page must
+  // never disagree: one band table feeds both.
+  const groupOf = {
+    pristine: "pride", tidy: "pride",
+    ordinary: "neutral", warning: "neutral",
+    shame: "shame", ruin: "shame",
+    unknown: "neutral",
+  };
+  const cases = [
+    [0, "pride"], [0.09, "pride"], [0.10, "neutral"], [0.24, "neutral"],
+    [0.25, "neutral"], [0.44, "neutral"], [0.45, "shame"], [0.64, "shame"],
+    [0.65, "shame"], [0.99, "shame"], [null, "neutral"], [NaN, "neutral"],
+  ];
+  for (const [score, group] of cases) {
+    assert.equal(groupOf[verdictBand(score)], group, `${score} bands as ${group}`);
+    for (let i = 0; i < 25; i += 1) {
+      const line = shareNudge(score);
+      assert.ok(SHARE_NUDGE_SETS[group].includes(line),
+        `${score} nudges ${group}: ${line}`);
+    }
+    // The page verdict and the drawer nudge always read the same band.
+    assert.ok(SHARED_VERDICTS[verdictBand(score)].includes(sharedVerdict(score)));
+  }
+  assert.ok(SHARE_NUDGE_SETS.pride.includes(shareNudge(-1)), "clamped low");
+  assert.ok(SHARE_NUDGE_SETS.shame.includes(shareNudge(4)), "clamped high");
 });
 

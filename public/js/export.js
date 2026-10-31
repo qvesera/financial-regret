@@ -132,6 +132,11 @@ export function cardSpec(state, kind = "wrapped") {
   // card is data shown too, so the same string rides the footnote — and the
   // share links, which carry the spec with it.
   const credit = state.pricingAttribution ? ` · ${state.pricingAttribution}` : "";
+  // The library's own metrics, from the library itself — never the filtered
+  // view. The regret score on a shared card describes the shelf, so the
+  // banded verdict on the receiving page reads the right number whatever
+  // facet the sharer was looking at when they exported.
+  const libMetrics = computeRegret(games);
   const base = {
     v: 1,
     kind,
@@ -142,6 +147,9 @@ export function cardSpec(state, kind = "wrapped") {
     // signed by a person, not by whichever hostname served the page.
     who: state.steamPersona || null,
     src: currentHost(),
+    // Additive since the banded-verdict change; v stays 1, and links minted
+    // before it simply lack the field.
+    regret: libMetrics.regretScore ?? null,
   };
 
   if (kind === "wrapped") {
@@ -149,9 +157,9 @@ export function cardSpec(state, kind = "wrapped") {
     // Wrapped is the whole library, whatever the filters say. state.metrics
     // and state.comparators are built from the *filtered* rows (the dashboard
     // KPIs follow the table), and the summary card is the one someone
-    // screenshots — it has to be the full story, so both are recomputed here
-    // from the library itself.
-    const m = computeRegret(games);
+    // screenshots — it has to be the full story, so both come from the
+    // library itself (libMetrics above), never from the view.
+    const m = libMetrics;
     const c = rankGames(games);
     const worst = (c.worst || [])[0];
     const best = (c.best || [])[0];
@@ -330,6 +338,16 @@ export function shareUrl(spec, origin) {
     || (typeof window !== "undefined" && window.location && window.location.origin)
     || "";
   return `${o}/#card=${encodeCard(spec)}`;
+}
+
+/** What a share sheet should send. The URL rides in `text`, not `url`: most
+ *  targets drop `url` when a file is attached, and the sheet is sharing the
+ *  PNG — the address has to survive inside the sentence. */
+export function sharePayload(spec, origin) {
+  return {
+    title: spec.title,
+    text: `The damage report · my library, judged. Get your verdict at ${shareUrl(spec, origin)}`,
+  };
 }
 
 /* ---------- the painter ---------- */

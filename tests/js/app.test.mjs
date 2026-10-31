@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installEnv } from "./dom-stub.mjs";
 import { encodeCard } from "../../public/js/export.js";
+import { SHARED_VERDICTS, SHARE_NUDGE_SETS } from "../../public/js/verdict.js";
 import { store } from "../../public/js/store.js";
 
 const settle = async () => { for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0)); };
@@ -2322,6 +2323,17 @@ test("the Share button ships with the dashboard and opens the deck", async () =>
   const canvas = env.document.getElementById("export-canvas");
   assert.ok(canvas, "a live preview sits in the drawer");
   assert.equal(canvas.width, 1080);
+  const linkBox = env.root.querySelector(".export-link");
+  assert.match(linkBox.textContent, /#card=/, "the drawer shows the link it will copy");
+  assert.ok(SHARE_NUDGE_SETS.shame.includes(env.root.querySelector(".export-caption").textContent),
+    "the nudge matches the shelf's band — this fixture sits at 62.5% regret");
+  const worstChip = env.root.querySelectorAll(".tab")
+    .find((b) => b.dataset.kind === "worst");
+  const beforeLink = linkBox.textContent;
+  worstChip.dispatch("click");
+  await settle();
+  assert.notEqual(env.root.querySelector(".export-link").textContent, beforeLink,
+    "the link follows the card on the preview");
 
   // No clipboard in the stub, so the link itself is shown — still useful.
   const copy = env.root.querySelectorAll("button")
@@ -2362,14 +2374,55 @@ test("a shared card link shows the snapshot, not a signup wall", async () => {
   const makeOwn = env.root.querySelectorAll("button")
     .find((b) => b.dataset.action === "make-own");
   assert.ok(makeOwn, "the way in is offered");
+  assert.equal(makeOwn.textContent, "Judge my library");
+  const invite = env.root.querySelector(".shared-invite");
+  assert.equal(invite.textContent, "Your library, up next.",
+    "the invitation speaks the deck's own language");
+  const kids = [...env.root.querySelector(".shared-card").children];
+  assert.ok(kids.indexOf(invite) < kids.indexOf(env.document.getElementById("shared-canvas")),
+    "and comes before the card, not buried under a 4:5 canvas on a phone");
   assert.equal(env.root.querySelector(".export-preview"), null,
     "no app chrome on a shared card");
 
   makeOwn.dispatch("click");
   await settle();
   assert.equal(mod.getState().phase, "onboarding",
-    "Make your own returns to the landing page, hash or not");
+    "Judge my library returns to the landing page, hash or not");
   assert.equal(env.root.querySelector(".shared-card"), null, "the shared card leaves");
+});
+
+test("a shared card reads its verdict from the score the card carries", async () => {
+  const base = {
+    v: 1, kind: "wrapped", title: "WRAPPED", at: Date.now(), who: "Sir Regrets",
+    eyebrow: "YOUR LIBRARY, JUDGED", badge: "12 GAMES", rows: [], footnote: "",
+  };
+  // The score rides the spec now; links minted before it still read their
+  // printed stat, and neither reads as Unknown rather than a guess.
+  const scored = await boot({ seed: (e) => {
+    e.window.location.hash = `#card=${encodeCard({ ...base, regret: 0.7 })}`;
+  } });
+  await settle();
+  assert.ok(SHARED_VERDICTS.ruin.includes(
+    scored.env.root.querySelector(".shared-verdict").textContent),
+    "a scored link reads the Ruin band");
+
+  const legacy = await boot({ seed: (e) => {
+    e.window.location.hash = `#card=${encodeCard({
+      ...base, stats: [{ label: "REGRET SCORE", value: "70%" }],
+    })}`;
+  } });
+  await settle();
+  assert.ok(SHARED_VERDICTS.ruin.includes(
+    legacy.env.root.querySelector(".shared-verdict").textContent),
+    "a pre-score link still reads its printed stat");
+
+  const bare = await boot({ seed: (e) => {
+    e.window.location.hash = `#card=${encodeCard({ ...base, stats: [] })}`;
+  } });
+  await settle();
+  assert.ok(SHARED_VERDICTS.unknown.includes(
+    bare.env.root.querySelector(".shared-verdict").textContent),
+    "with nothing to judge by, the Unknown set says so");
 });
 
 test("the wordmark takes you back to the landing page", async () => {

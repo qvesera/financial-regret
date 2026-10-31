@@ -182,3 +182,109 @@ export function comparators(rows, limit = 5) {
     untouched,
   };
 }
+
+/** The banded one-liners a shared card's page shows about its author's shelf.
+ *  The band comes from the regret score; the line is picked at random within
+ *  it, so a reload feels alive without inventing new verdicts per visit.
+ *  Impersonal on purpose — the reader is looking at someone else's library. */
+export const SHARED_VERDICTS = {
+  pristine: [
+    "Nothing unplayed. The shelf is clean.",
+    "Every rupee has hours behind it.",
+    "No backlog. Suspicious, but respect.",
+    "Played everything. Nothing to regret.",
+    "The report is boring. That's the point.",
+  ],
+  tidy: [
+    "A tidy shelf, barely a dent.",
+    "The backlog is a rounding error.",
+    "One or two stragglers. That's discipline.",
+    "A few sealed boxes on an otherwise honest shelf.",
+  ],
+  ordinary: [
+    "A normal amount of good intentions.",
+    "The backlog is a habit, not a crisis.",
+    "Buys games. Mostly plays them. Mostly.",
+    "Nothing here would embarrass anyone at a dinner party.",
+  ],
+  warning: [
+    "The backlog has started paying rent.",
+    "A quarter of the shelf is decoration.",
+    "Buying faster than playing.",
+    "The case for \"I'll get to it\" is getting thin.",
+  ],
+  shame: [
+    "The shelf is mostly a museum.",
+    "Half the library has never loaded a save.",
+    "The wallet is doing the playing.",
+    "This is a collection, not a hobby.",
+  ],
+  ruin: [
+    "Welcome to the hall of shame.",
+    "The backlog is the library now.",
+    "Funded the industry single-handedly.",
+    "Purchases outnumber play sessions.",
+    "At this point the shelf buys games, not the person.",
+  ],
+  unknown: [
+    "No playtime reported. No verdict either.",
+    "Verdict withheld: nobody measured the hours.",
+    "Can't judge what nobody recorded.",
+  ],
+};
+
+/** The band a regret score earns. One table feeds both features: the shared
+ *  page's verdict line and the drawer's share nudge. */
+export function verdictBand(score) {
+  const s = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : null;
+  if (s === null) return "unknown";
+  if (s === 0) return "pristine";
+  if (s < 0.10) return "tidy";
+  if (s < 0.25) return "ordinary";
+  if (s < 0.45) return "warning";
+  if (s < 0.65) return "shame";
+  return "ruin";
+}
+
+/** Imperative cousins of SHARED_VERDICTS, shown to the sharer under the copy
+ *  link: pride when the shelf is clean, shame when it is a museum, neutral in
+ *  between — and for a card with no score to judge by. */
+export const SHARE_NUDGE_SETS = {
+  pride: [
+    "Share your pride.",
+    "A clean shelf deserves a witness.",
+    "Show the shelf. It can take it.",
+  ],
+  neutral: [
+    "Send the damage report.",
+    "Share the card as it stands.",
+    "Hand over the verdict.",
+  ],
+  shame: [
+    "Share your shame.",
+    "Broadcast the damage.",
+    "Own the backlog.",
+  ],
+};
+
+const NUDGE_BY_BAND = {
+  pristine: "pride", tidy: "pride",
+  ordinary: "neutral", warning: "neutral",
+  shame: "shame", ruin: "shame",
+  unknown: "neutral",
+};
+
+/** One nudge from the group the score's band earns. */
+export function shareNudge(score) {
+  const set = SHARE_NUDGE_SETS[NUDGE_BY_BAND[verdictBand(score)]];
+  return set[Math.floor(Math.random() * set.length)];
+}
+
+/** One line from the band the regret score earns. Regret is the share of
+ *  known money sitting in barely-played games: 0 is a shelf with no backlog,
+ *  high is the hall of shame. Missing score (old links, unknown playtime)
+ *  reads the Unknown set rather than guessing. */
+export function sharedVerdict(score) {
+  const lines = SHARED_VERDICTS[verdictBand(score)];
+  return lines[Math.floor(Math.random() * lines.length)];
+}
