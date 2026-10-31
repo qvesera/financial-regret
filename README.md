@@ -7,7 +7,7 @@ A browser-based dashboard that shows how much you have spent on games versus how
 ## Features
 
 - **Steam, GOG, Epic Games, Amazon Luna** — Steam auto-redirects (OpenID); GOG, Epic and Amazon land you on the provider's own domain (none allow a custom redirect URI for their public/device client), so the code is collected by paste. Amazon has no public library API, so it registers a virtual Games-launcher device (undocumented / alpha) and, having no playtime API, its rows are priced but excluded from per-hour ratios
-- **PlayStation** — owned-and-played titles via the community gamelist endpoint (Sony offers no official library API, so sign-in comes first). Prices come from **PlatPrices**, joined on the PSN title id rather than the title text. They only appear when a `PLATPRICES_API_KEY` is set — without one the rows still count toward playtime, they simply render as Unpriced
+- **PlayStation** — played titles with real playtime, read from your **public PSN profile**: type your online ID and nothing else. No sign-in, no password, no token ever reaches this site — the server reads the playtime your profile already shows anyone, with its own reader account (self-hosted operators mint one once with `scripts/psn_login.py`). Prices come from **PlatPrices**, joined on the PSN title id rather than the title text. They only appear when a `PLATPRICES_API_KEY` is set — without one the rows still count toward playtime, they simply render as Unpriced
 - **Real regret metric** — library value, backlog value (unplayed), regret score, and coverage, all shown in your chosen currency
 - **Verdict engine** — every game is judged against *your own* library's price-per-hour quartiles (worth it / fair / regret / untouched), so the thresholds follow how you spend rather than a hardcoded number. It surfaces as a box plot of the distribution, a badge on every row and card, and a plain-language explanation in the game inspector
 - **What-if slider** — replay any regrettable purchase at 1–60 hours and watch its rate and verdict change
@@ -45,6 +45,7 @@ docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
 | `SGDB_API_KEY` | No | SteamGridDB key used as the fallback for cover art. A browser-supplied key (dashboard → API keys → SteamGridDB) takes precedence and is sent per-request as `X-SGDB-Key`; without either, the covers endpoint returns no art. |
 | `GOG_CLIENT_ID` | No | GOG OAuth client ID. Defaults to public PKCE client. |
 | `EPIC_CLIENT_ID` | No | Epic OAuth client ID. Defaults to public PKCE client. |
+| `PSN_REFRESH_TOKEN` | For the PlayStation store | The reader token that lets this server fetch PlayStation playtime from **public** profiles. Mint it once on your own machine — `python3 scripts/psn_login.py` prompts for an NPSSO (hidden, never stored), exchanges it locally and prints a refresh token to paste here. It is an API credential, not a web session: it cannot sign in to the PlayStation website, and no visitor ever supplies one — linking PlayStation is just typing a public online ID. Without it, the PlayStation step reports it is unconfigured and nothing else is affected. Regenerate roughly every two months, or when `/api/psn_games` answers `refresh_failed`. |
 | `PORT` | No | Port to listen on (default 3000; `run.sh` passes 8089). |
 | `HOST` | No | Host to bind (default 0.0.0.0). |
 | `CORS_ALLOWED_ORIGINS` | No | Comma-separated origins allowed to call this API cross-origin, e.g. `https://your-app.vercel.app`. Empty — the default — means same-origin only. Wildcards are discarded rather than honoured. |
@@ -108,8 +109,10 @@ so and points at API keys rather than leaving a blank price column. Set
 
 Before inviting anyone, read **[SECURITY.md](SECURITY.md)**. Two things
 especially: without `REQUIRE_USER_KEYS=1` every visitor spends your API quota
-(the rate-limit note is what tells them to bring their own), and PlayStation
-support means users paste a PSN session token into your site.
+(the rate-limit note is what tells them to bring their own), and the only
+credential this server holds for PlayStation is your own reader token —
+visitors hand over nothing, which is exactly why the PlayStation flow is a
+public online ID and not a token field.
 
 ## Tests
 
@@ -121,6 +124,12 @@ npm run shots                               # phone-width layout gate (needs Pla
 
 ## Known limits
 
+- **PlayStation is played-only, and can come back empty.** Sony exposes no
+  owned-but-never-played list, so PSN titles contribute no backlog — only real
+  hours, and only **PS4, PS5 and PC** titles: PS3/Vita-era play is not in the
+  endpoint at all. An empty answer means one of those two things — no covered
+  titles, or a profile whose **Who can see your gaming history** is not set to
+  Anyone — and the dashboard names both rather than showing a blank library.
 - **Steam and PlayStation expansions are not tagged as DLC.** Their APIs expose
   no reliable add-on signal, so a Steam season pass counts as an ordinary game:
   it inflates library value and the Add-on value tile stays empty for those

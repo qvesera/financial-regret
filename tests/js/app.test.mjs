@@ -1192,7 +1192,7 @@ test("the PlatPrices credit reaches the state the exports read", async () => {
   // erase the credit an earlier one earned.
   const seed = (env) => {
     env.localStorage.setItem("steam_id", "76561198000000000");
-    env.localStorage.setItem("psn_access_token", "fake-npssO-session");
+    env.localStorage.setItem("psn_online_id", "FakePlayer_91");
     env.fetchRoutes.push((url) => {
       if (url.includes("/api/steam_games")) return { json: steamFixture };
       if (url.includes("/api/gog_games")) return { json: { games: [] } };
@@ -1311,49 +1311,72 @@ test("the ranked insight lists name the worst and the best buy", async () => {
 });
 
 
-// Sony has no approval screen, so PlayStation linking is two manual steps and
-// the Connect button may only perform step one: get a signed-in session on
-// playstation.com. This pins the order, because getting it wrong is invisible
-// in code review and instantly visible to the user: the NPSSO endpoint opened
-// cold answers a signed-out browser with `invalid_grant` JSON, never a login
-// form, so there is nothing there to sign in on.
-test("PSN connect opens the sign-in page, never the NPSSO endpoint", async () => {
+// PlayStation carries no credential: the visitor types a public online ID and
+// the server reads that profile's playtime with the operator's own reader
+// account. This pins the shape a data provider was shown — a deployed build
+// with no field asking for a PSN session — because the day one reappears, the
+// approval that rests on it is void. Every assertion here is about absence.
+test("PlayStation asks for an online ID and never for a token", async () => {
   const { env } = await boot();
   bringKey(env);
 
   byAction(env, "link", "psn").dispatch("click");
   await settle();
 
-  assert.equal(env.opened.length, 1, "one popup, for the sign-in step");
-  const signIn = new URL(env.opened[0].url);
-  assert.equal(signIn.origin, "https://www.playstation.com", "step one is the sign-in page");
-  assert.ok(!env.opened[0].url.includes("ssocookie"),
-    "must not open the NPSSO endpoint cold — it answers invalid_grant");
-  assert.ok(!env.opened[0].url.includes("ca.account.sony.com"),
-    "no Sony account endpoint on the first step");
+  assert.equal(env.opened.length, 0, "no popup: there is nothing to sign in to");
 
   const card = env.root.querySelectorAll(".platform-card")
     .find((c) => c.dataset.platform === "psn");
   assert.ok(card, "psn card rendered");
 
-  // Step two must be reachable: the paste block carries a real link to the
-  // NPSSO page, because that is where the value to paste actually lives.
+  const anchors = card.querySelectorAll("a").map((a) => String(a.href || ""));
+  assert.deepEqual(anchors, [],
+    "the card links nowhere — least of all to a Sony account endpoint");
+
+  // One action on the whole card: there is no second "Link" button, because
+  // nothing is being linked — Connect is the submit button for the field.
+  const buttons = card.querySelectorAll("button");
+  assert.equal(buttons.length, 1, "exactly one button: Connect PlayStation");
+  assert.equal(buttons[0].dataset.action, "link", "and it is the connect action");
+
+  const text = card.textContent.toLowerCase();
+  assert.ok(!text.includes("npsso"), "no NPSSO wording anywhere in the card");
+  assert.ok(!text.includes("ssocookie"), "no link to the SSO cookie endpoint");
+  assert.ok(text.includes("online id"), "the field is an online ID");
+
   const paste = env.document.getElementById("psn-paste");
-  assert.ok(paste, "psn paste block exists");
-  assert.equal(paste.open, true, "paste block visible, since the steps say 'below'");
+  assert.ok(paste, "the online ID field exists");
+  assert.equal(paste.open, true, "visible, since the steps say 'below'");
+});
 
-  const linkRow = paste.querySelector(".paste-link");
-  assert.ok(linkRow, "paste block links to the NPSSO page");
-  const anchor = linkRow.children.find((c) => String(c.tagName).toLowerCase() === "a");
-  assert.ok(anchor, "the link is a real anchor, not plain text");
-  assert.equal(anchor.href, "https://ca.account.sony.com/api/v1/ssocookie");
-  assert.equal(anchor.target, "_blank", "opens beside the app, not in place");
+test("an online ID is the whole link, and a malformed one is refused", async () => {
+  const { env, mod } = await boot();
+  bringKey(env);
+  byAction(env, "link", "psn").dispatch("click");
+  await settle();
 
-  // And the copy has to lead with the sign-in, then the token.
-  const steps = card.querySelector(".pc-steps").textContent.toLowerCase();
-  assert.ok(steps.includes("sign in"), "step one says to sign in");
-  assert.ok(steps.indexOf("sign in") < steps.indexOf("npsso"),
-    "signing in comes before fetching the NPSSO");
+  const input = env.document.getElementById("psn-code");
+
+  // Not an online ID: nothing may be stored, and the field must say why.
+  // The Connect button is the submit control — there is no second button.
+  input.value = "not a valid!! id";
+  byAction(env, "link", "psn").dispatch("click");
+  await settle();
+  assert.equal(env.localStorage.getItem("psn_online_id"), null,
+    "a malformed ID is never stored");
+  const err = env.document.getElementById("psn-error");
+  assert.ok(err && err.hidden === false, "the refusal is visible");
+  assert.ok(String(err.textContent).toLowerCase().includes("online id"),
+    "and it names the field");
+
+  // A real one, submitted the other way a field is normally submitted: Enter.
+  input.value = "SomePlayer_91";
+  input.dispatch("keydown", { key: "Enter" });
+  await settle();
+  assert.equal(env.localStorage.getItem("psn_online_id"), "SomePlayer_91");
+  assert.equal(env.localStorage.getItem("psn_access_token"), null,
+    "no session token is ever held by the browser");
+  assert.equal(mod.getState().accounts.psn, true, "the ID alone marks it linked");
 });
 
 test("filtering a store leaves the ranked lists and the headline alone", async () => {

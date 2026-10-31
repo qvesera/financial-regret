@@ -133,7 +133,9 @@ export const KEY_STORES = {
   gog: ["gog_access_token", "gog_refresh_token", "gog_user_id"],
   epic: ["epic_access_token", "epic_refresh_token", "epic_account_id"],
   amazon: ["amazon_access_token", "amazon_refresh_token", "amazon_serial"],
-  psn: ["psn_access_token", "psn_refresh_token"],
+  // psn_online_id is the link itself; the two token keys are legacy entries
+  // kept so unlink and forget still clear what older versions left behind.
+  psn: ["psn_online_id", "psn_access_token", "psn_refresh_token"],
 };
 
 let state = {
@@ -212,7 +214,8 @@ function linkedAccounts() {
     gog: Boolean(localStorage.getItem("gog_access_token")),
     epic: Boolean(localStorage.getItem("epic_access_token")),
     amazon: Boolean(localStorage.getItem("amazon_access_token")),
-    psn: Boolean(localStorage.getItem("psn_access_token")),
+    // The online ID *is* the link: PlayStation carries no token of ours.
+    psn: Boolean(localStorage.getItem("psn_online_id")),
   };
 }
 
@@ -846,13 +849,16 @@ function linkPlatform(platform) {
       })
       .catch((e) => showFormError("amazon", String((e && e.message) || e)));
   } else if (platform === "psn") {
-    // Sony offers no approval screen, so this is a two-step manual flow and the
-    // button only performs step one: get a signed-in session on playstation.com.
-    // The NPSSO URL answers a signed-out browser with invalid_grant JSON, never
-    // a login form — so we must not send them there first. Step two (grab the
-    // NPSSO) is the link inside the paste block, which the steps point at.
+    // No sign-in, no popup, no credential — one field and one action. The
+    // card's own button submits whatever has been typed (Enter in the field
+    // does the same); with an empty field it only brings the cursor there.
     ensurePasteSurface(platform);
-    window.open(api.PSN_SIGNIN_URL, "psn-signin", "width=520,height=700");
+    const box = document.getElementById("psn-code");
+    if (box && box.value.trim()) {
+      submitPaste("psn");
+      return;
+    }
+    if (box && typeof box.focus === "function") box.focus();
   }
 }
 
@@ -950,9 +956,9 @@ function submitPaste(kind) {
     return;
   }
   if (kind === "psn") {
-    // A raw NPSSO token, not a redirect URL or auth code — it must clear the
-    // parse below, which would reject it, so it branches here instead.
-    finishPsnExchange(text);
+    // An online ID, not a redirect URL or auth code — it must clear the parse
+    // below, which would reject it, so it branches here instead.
+    linkPsnOnlineId(text);
     return;
   }
   const code = api.parseAuthCode(text);
@@ -1020,19 +1026,19 @@ async function finishAmazonExchange(code) {
   }
 }
 
-/** Exchange a pasted PSN NPSSO for tokens, then rescan. */
-async function finishPsnExchange(npsso) {
-  try {
-    const data = await api.exchangePsn(npsso.trim());
-    if (!data.access_token) throw new Error("PlayStation exchange returned no access token");
-    localStorage.setItem("psn_access_token", data.access_token);
-    if (data.refresh_token) localStorage.setItem("psn_refresh_token", data.refresh_token);
-    const box = document.getElementById("psn-code");
-    if (box) box.value = "";
-    await scan();
-  } catch (e) {
-    showFormError("psn", String((e && e.message) || e));
+/** PlayStation link: a public online ID, never a token. */
+function linkPsnOnlineId(raw) {
+  const onlineId = raw.trim();
+  if (!/^[A-Za-z0-9._ \-]{2,16}$/.test(onlineId)) {
+    showFormError("psn",
+      "That is not a PSN Online ID — it is your username, the name on your own "
+      + "profile: 2–16 letters, digits, spaces, dot, dash or underscore.");
+    return;
   }
+  localStorage.setItem("psn_online_id", onlineId);
+  const box = document.getElementById("psn-code");
+  if (box) box.value = "";
+  scan();
 }
 
 /** Exchange a pasted Epic authorizationCode in this window — no callback page. */
@@ -1371,7 +1377,9 @@ function onClick(e) {
     case "submit-gog": submitPaste("gog"); break;
     case "submit-epic": submitPaste("epic"); break;
     case "submit-amazon": submitPaste("amazon"); break;
-    case "submit-psn": submitPaste("psn"); break;
+    // PlayStation has no submit button on the card — its Connect button
+    // submits the field (and Enter does too), so there is no "submit-psn"
+    // action to dispatch to. See view.pasteBlock(..., withButton = false).
     case "save-key": saveApiKey(t.dataset.kind); break;
     case "save-edit": saveEdit(t.dataset.id, t.dataset.field); break;
     case "reset-edit": saveEdit(t.dataset.id, t.dataset.field, ""); break;

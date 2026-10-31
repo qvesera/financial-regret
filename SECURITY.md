@@ -19,14 +19,20 @@ tractable at all.
 
 The realistic bad outcomes are, in order: a stranger spends someone else's API
 quota; a malicious website drives the API using a visitor's stored credentials;
-a log aggregator ends up holding someone's PSN token; the server host is
+a log aggregator ends up holding an operator key; the server host is
 compromised and credentials in flight are captured. The first three are
 addressed below. The last is not solvable — see *Residual risks*.
 
+The PlayStation case that used to sit at the top of this list — a visitor's
+PSN web session crossing the wire — no longer exists, because no visitor ever
+supplies one (see *PlayStation* below).
+
 ## What the server sees
 
-Every credential is a **request-scoped secret**. None is written to disk and
-none is kept in a cache.
+Every credential a **caller** brings is a **request-scoped secret**. None is
+written to disk and none is kept in a cache. The one standing credential is
+the operator's own PlayStation reader token, read from `PSN_REFRESH_TOKEN`
+and held in memory between refreshes.
 
 | Source | Credential | Arrives in | Lives until |
 |---|---|---|---|
@@ -37,11 +43,13 @@ none is kept in a cache.
 | GOG | OAuth access + refresh | `X-GOG-Token`, `X-GOG-Refresh` | response sent |
 | Epic | OAuth access + refresh | `X-Epic-Token`, `X-Epic-Refresh` | response sent |
 | Amazon | device bearer token | `X-Amazon-Token` header | response sent |
-| **PlayStation** | **NPSSO cookie** | **JSON body of `POST /api/psn_exchange`** | exchange completes |
-| PlayStation | OAuth access + refresh | `X-PSN-Token`, `X-PSN-Refresh` | response sent |
+| **PlayStation** | **none from the visitor — a public online ID** | **`?onlineId=` query value** | response sent |
+| PlayStation | operator's reader refresh token | `PSN_REFRESH_TOKEN` (env) | persistent, by design |
 
 The browser is the only durable copy: it keeps OAuth tokens in `localStorage`
 under keys like `psn_access_token`, and reads them back for the next request.
+PlayStation is the exception — it holds only `psn_online_id`, a public profile
+name.
 
 Credentials are **never placed in a URL**. `public/js/api.js` opens with that
 rule, and `tests/test_logging.py` pins the consequence.
@@ -87,27 +95,44 @@ in their client-side integrations and in countless open-source projects. They
 identify the application, not a user. Override them if you register your own
 app; do not treat their presence in the repository as a leak.
 
-## PlayStation: the decision to keep it public
+## PlayStation: why no visitor credential exists
 
-This is the one credential that is not an API key. An **NPSSO token is a PSN
-web session**: whoever holds it is signed in as that account, and users are
-asked to paste one into this application.
+An **NPSSO token is a PSN web session**: whoever holds it is signed in as that
+account. This project used to ask visitors to paste one, and that is why no
+data provider would issue it an API key. A deployed site cannot prove to an
+outsider that it runs the published code, so a site that receives session
+tokens can be turned into a collector at any time — by its operator or by
+whoever compromises it. No amount of "we do not store it" answers that.
 
-The decision is to keep PlayStation support on public deployments, on this
-basis:
+The design is now the answer instead of the argument, and
+`tests/test_psn_games.py` pins every part of it:
 
-* **The pasted token is exchanged, not stored.** `backend/psn_exchange.py` turns it
-  into a Sony access + refresh token pair and returns those to the browser. The
-  NPSSO itself is not cached, not logged and not persisted.
-* **The server never decides what to do with it.** It is an opaque string in a
-  request body, forwarded to Sony and then gone.
-* **The exposure is therefore the same as any HTTPS request**, plus the standing
-  risk that the host is compromised while the request is in flight.
+* **No route accepts a PSN credential.** `backend/psn_exchange.py` — the
+  handler that took a visitor's NPSSO — is deleted. `GET /api/psn_games` reads
+  `?onlineId=` and never consults an `X-PSN-*` header; a test asserts the file
+  is gone and the header string is absent from the handler's source.
+* **The visitor supplies a public identifier only.** An online ID is the name
+  on a profile — data Sony already shows anyone who looks. The PlayStation card
+  has no token field and no link to any Sony account endpoint; the test checks
+  the card contains neither "NPSSO" nor "ssocookie" and carries no anchors at all.
+* **The one credential is yours, and it is not a session.**
+  `PSN_REFRESH_TOKEN` is minted on your machine by `scripts/psn_login.py` from
+  your own (ideally throwaway) account's NPSSO, then pasted into the
+  server's environment. It mints short-lived API access for reading public
+  playtime and cannot sign in to the PlayStation website. It is the same
+  category as `STEAM_API_KEY` — an operator key, rotatable by running one
+  script again.
+* **The profile lookup spends no token at all.** `profile2` is asked with no
+  `Authorization` header, so even the reader account's quota is reserved for
+  the playtime call itself.
 
-What this does *not* buy you: it does not make pasting a session token a good
-idea, and it does not remove your responsibility if the host is breached. The
-alternative — dropping PlayStation from public deployments — remains available
-and is small: disable the two handlers and rewrite the connect copy.
+What remains honest to say: reading profiles through an unofficial endpoint is
+against Sony's wishes if not quite their letter; one reader account's quota is
+a real ceiling (mitigated by the 24-hour-style caching elsewhere and your
+per-IP limit); and a profile that answers 200 with nothing in it has either
+hidden its "gaming history" or only ever played PS3/Vita-era titles this
+endpoint does not list — the UI names both causes instead of only the privacy
+switch. Those are reliability limits, not credential risks.
 
 ## Residual risks you accept by going public
 

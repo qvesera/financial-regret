@@ -68,11 +68,13 @@ test("Epic's rate limit reads as a sentence a person can act on", async () => {
 test("credentials never ride in the URL", async () => {
   // api.js's header promise: "All tokens travel in headers or JSON bodies —
   // never in URLs." URLs end up in access logs, history and Referer headers.
-  const secrets = ["SECRET-STEAM", "SECRET-GOG", "SECRET-EPIC", "SECRET-PSN", "SECRET-AMZN"];
+  // PlayStation deliberately sits out this list: it has no token at all. Its
+  // online ID is public profile data, asserted just below by its presence.
+  const secrets = ["SECRET-STEAM", "SECRET-GOG", "SECRET-EPIC", "SECRET-AMZN"];
   const mem = new Map([
     ["steam_api_key", secrets[0]], ["gog_access_token", secrets[1]],
-    ["epic_access_token", secrets[2]], ["psn_access_token", secrets[3]],
-    ["amazon_access_token", secrets[4]],
+    ["epic_access_token", secrets[2]], ["amazon_access_token", secrets[3]],
+    ["psn_online_id", "PublicPlayer_91"],
   ]);
   globalThis.localStorage = {
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
@@ -97,4 +99,9 @@ test("credentials never ride in the URL", async () => {
       assert.ok(!url.includes(secret), `${secret} appeared in ${url}`);
     }
   }
+  // The one identifier that does ride a query string, because a PSN online ID
+  // is profile data anybody can already look up — not a credential.
+  const psn = calls.find((c) => c.url.includes("/api/psn_games"));
+  assert.ok(psn, "PlayStation was called");
+  assert.ok(psn.url.includes("onlineId=PublicPlayer_91"), psn.url);
 });
