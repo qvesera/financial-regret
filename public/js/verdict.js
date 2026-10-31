@@ -233,21 +233,58 @@ export const SHARED_VERDICTS = {
   ],
 };
 
+/** The band a regret score earns. One table feeds both features: the shared
+ *  page's verdict line and the drawer's share nudge. */
+export function verdictBand(score) {
+  const s = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : null;
+  if (s === null) return "unknown";
+  if (s === 0) return "pristine";
+  if (s < 0.10) return "tidy";
+  if (s < 0.25) return "ordinary";
+  if (s < 0.45) return "warning";
+  if (s < 0.65) return "shame";
+  return "ruin";
+}
+
+/** Imperative cousins of SHARED_VERDICTS, shown to the sharer under the copy
+ *  link: pride when the shelf is clean, shame when it is a museum, neutral in
+ *  between — and for a card with no score to judge by. */
+export const SHARE_NUDGE_SETS = {
+  pride: [
+    "Share your pride.",
+    "A clean shelf deserves a witness.",
+    "Show the shelf. It can take it.",
+  ],
+  neutral: [
+    "Send the damage report.",
+    "Share the card as it stands.",
+    "Hand over the verdict.",
+  ],
+  shame: [
+    "Share your shame.",
+    "Broadcast the damage.",
+    "Own the backlog.",
+  ],
+};
+
+const NUDGE_BY_BAND = {
+  pristine: "pride", tidy: "pride",
+  ordinary: "neutral", warning: "neutral",
+  shame: "shame", ruin: "shame",
+  unknown: "neutral",
+};
+
+/** One nudge from the group the score's band earns. */
+export function shareNudge(score) {
+  const set = SHARE_NUDGE_SETS[NUDGE_BY_BAND[verdictBand(score)]];
+  return set[Math.floor(Math.random() * set.length)];
+}
+
 /** One line from the band the regret score earns. Regret is the share of
  *  known money sitting in barely-played games: 0 is a shelf with no backlog,
  *  high is the hall of shame. Missing score (old links, unknown playtime)
  *  reads the Unknown set rather than guessing. */
 export function sharedVerdict(score) {
-  const s = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : null;
-  let band = "unknown";
-  if (s !== null) {
-    if (s === 0) band = "pristine";
-    else if (s < 0.10) band = "tidy";
-    else if (s < 0.25) band = "ordinary";
-    else if (s < 0.45) band = "warning";
-    else if (s < 0.65) band = "shame";
-    else band = "ruin";
-  }
-  const lines = SHARED_VERDICTS[band];
+  const lines = SHARED_VERDICTS[verdictBand(score)];
   return lines[Math.floor(Math.random() * lines.length)];
 }

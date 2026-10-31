@@ -1734,7 +1734,7 @@ export const view = {
     // watched on a phone, where the old order buried the way in under a 4:5
     // canvas. Top line is why, button is the act, bottom line is how.
     wrap.appendChild(this.el("p", "shared-invite",
-      "Yours gets a damage report of its own."));
+      "Your library, up next."));
     const cta = this.el("button", "button primary", "Judge my library");
     cta.type = "button";
     cta.dataset.action = "make-own";
@@ -1780,8 +1780,10 @@ export const view = {
     // should still see what will be sent. Filled by repaintExportPreview on
     // open and on every kind change, so it always matches the preview.
     body.appendChild(this.el("p", "export-link"));
-    body.appendChild(this.el("p", "export-caption",
-      "They see your card, then their own way in."));
+    // Filled by repaintExportPreview with a nudge that matches the card's
+    // band — pride for a clean shelf, shame for a museum — so the drawer and
+    // the shared page never disagree about what they are looking at.
+    body.appendChild(this.el("p", "export-caption"));
     const acts = this.el("div", "export-actions");
     [["export-download", "Download PNG"], ["export-share", "Share…"], ["export-copy", "Copy link"]]
       .forEach(([action, label]) => {

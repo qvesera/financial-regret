@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installEnv } from "./dom-stub.mjs";
 import { encodeCard } from "../../public/js/export.js";
-import { SHARED_VERDICTS } from "../../public/js/verdict.js";
+import { SHARED_VERDICTS, SHARE_NUDGE_SETS } from "../../public/js/verdict.js";
 import { store } from "../../public/js/store.js";
 
 const settle = async () => { for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0)); };
@@ -2325,8 +2325,8 @@ test("the Share button ships with the dashboard and opens the deck", async () =>
   assert.equal(canvas.width, 1080);
   const linkBox = env.root.querySelector(".export-link");
   assert.match(linkBox.textContent, /#card=/, "the drawer shows the link it will copy");
-  assert.ok(env.root.querySelector(".export-caption").textContent.includes("their own way in"),
-    "and says what it opens");
+  assert.ok(SHARE_NUDGE_SETS.shame.includes(env.root.querySelector(".export-caption").textContent),
+    "the nudge matches the shelf's band — this fixture sits at 62.5% regret");
   const worstChip = env.root.querySelectorAll(".tab")
     .find((b) => b.dataset.kind === "worst");
   const beforeLink = linkBox.textContent;
@@ -2376,7 +2376,7 @@ test("a shared card link shows the snapshot, not a signup wall", async () => {
   assert.ok(makeOwn, "the way in is offered");
   assert.equal(makeOwn.textContent, "Judge my library");
   const invite = env.root.querySelector(".shared-invite");
-  assert.equal(invite.textContent, "Yours gets a damage report of its own.",
+  assert.equal(invite.textContent, "Your library, up next.",
     "the invitation speaks the deck's own language");
   const kids = [...env.root.querySelector(".shared-card").children];
   assert.ok(kids.indexOf(invite) < kids.indexOf(env.document.getElementById("shared-canvas")),

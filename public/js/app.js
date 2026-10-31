@@ -12,7 +12,7 @@ import { computeRegret } from "./regret.js";
 import { currencyForCountry } from "./format.js";
 import { paintVerdictToy, repaintVerdictToy, setToyAnchor, TOY_GAME } from "./arcade.js";
 import { cardSpec, cardBlob, renderCardTo, shareUrl, sharePayload, decodeCard, exportKinds } from "./export.js";
-import { benchmark, verdictMap, comparators as rankGames } from "./verdict.js";
+import { benchmark, verdictMap, comparators as rankGames, shareNudge } from "./verdict.js";
 import { applyEdits, parseEdit } from "./edits.js";
 
 /** UI state worth keeping across reloads — filters and the what-if setting.
@@ -1131,6 +1131,8 @@ async function repaintExportPreview() {
   if (!spec) { view.exportStatus("Nothing to export in this view."); return; }
   const link = document.querySelector(".export-link");
   if (link) link.textContent = shareUrl(spec);
+  const caption = document.querySelector(".export-caption");
+  if (caption) caption.textContent = shareNudge(spec.regret);
   await renderCardTo(cv, spec);
 }
 
