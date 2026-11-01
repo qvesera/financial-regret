@@ -133,22 +133,18 @@ def vercel(args: list, token: str | None = None, stdin: str | None = None):
 
 
 def push_to_vercel(refresh: str, token: str | None) -> str:
-    """Set the production env var, link the directory if needed, deploy.
+    """Link the directory, set the production env var, deploy.
 
-    Env and deploy are one step on purpose: a new env var only reaches a live
+    Link comes first on purpose: every `vercel env` command needs a linked
+    project, so an unlinked checkout (CI) must be linked before anything else
+    -- otherwise the very first CLI call dies and the error blames the token.
+
+    Env and deploy are one step too: a new env var only reaches a live
     deployment when a new deployment exists, so either half alone is a no-op
     that still exits green.
 
     Returns the production URL to verify against.
     """
-    rm = vercel(["env", "rm", KEY, "production", "--yes"], token=token)
-    if rm.returncode and "not found" not in (rm.stderr + rm.stdout).lower():
-        # "not found" is the normal first run; anything else is a real refusal.
-        fail(f"vercel env rm failed: {(rm.stderr or rm.stdout).strip()[:300]}")
-    add = vercel(["env", "add", KEY, "production"], token=token, stdin=refresh + "\n")
-    if add.returncode:
-        fail(f"vercel env add failed: {(add.stderr or add.stdout).strip()[:300]}")
-
     if not (ROOT / ".vercel" / "project.json").is_file():
         if not VERCEL_PROJECT:
             fail("directory is not linked and VERCEL_PROJECT is unset -- link "
@@ -156,6 +152,17 @@ def push_to_vercel(refresh: str, token: str | None) -> str:
         link = vercel(["link", "--yes", "--project", VERCEL_PROJECT], token=token)
         if link.returncode:
             fail(f"vercel link failed: {(link.stderr or link.stdout).strip()[:300]}")
+
+    # `--environment`, not the positional argument: the CLI has deprecated it.
+    rm = vercel(["env", "rm", KEY, "--environment", "production", "--yes"],
+                token=token)
+    if rm.returncode and "not found" not in (rm.stderr + rm.stdout).lower():
+        # "not found" is the normal first run; anything else is a real refusal.
+        fail(f"vercel env rm failed: {(rm.stderr or rm.stdout).strip()[:300]}")
+    add = vercel(["env", "add", KEY, "--environment", "production"],
+                 token=token, stdin=refresh + "\n")
+    if add.returncode:
+        fail(f"vercel env add failed: {(add.stderr or add.stdout).strip()[:300]}")
 
     dep = vercel(["deploy", "--prod", "--yes"], token=token)
     if dep.returncode:
@@ -248,7 +255,13 @@ def main() -> None:
           + (f"; {age} days old" if age is not None else ""))
     ttl = payload.get("refresh_token_expires_in")
     if ttl:
-        print(f"renew: refresh token minted, valid {int(ttl)}s ({int(ttl) // 86400} days)")
+        days = int(ttl) // 86400
+        print(f"renew: refresh token minted, valid {int(ttl)}s ({days} days)")
+        if ttl < 14 * 86400:
+            # Observed at ~10 days for this client. Anyone copying this script
+            # should size their schedule off *this* number, not the folklore.
+            print(f"renew: NOTE -- Sony granted only {days} days, so the schedule "
+                  f"running this must be at least weekly (every 5 days here).")
 
     if args.dry_run:
         print("renew: DRY RUN -- would write .env"

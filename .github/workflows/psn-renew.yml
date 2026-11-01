@@ -1,4 +1,4 @@
-# Monthly renewal of the PlayStation reader token (PSN_REFRESH_TOKEN).
+# Scheduled renewal of the PlayStation reader token (PSN_REFRESH_TOKEN).
 #
 # scripts/renew_psn_token.py does the work; this workflow only supplies the two
 # secrets and a machine that is always on. A failing run emails the repository
@@ -15,9 +15,11 @@ name: PSN token renewal
 
 on:
   schedule:
-    # Monthly, 3rd at 06:17 UTC. Monthly on purpose: a ~60-day token then has
-    # two chances to be renewed before anything breaks.
-    - cron: "17 6 3 * *"
+    # Every 5th day at 06:17 UTC. Not monthly, and not folklore: Sony grants
+    # this client's refresh token ~10 days (observed: 863999s on 2026-11-01),
+    # so a 5-day cadence leaves a full failed-run window before anything
+    # expires, and every run prints the TTL it was actually given.
+    - cron: "17 6 */5 * *"
   workflow_dispatch:   # manual: after re-grabbing an NPSSO, or to test
 
 permissions:
