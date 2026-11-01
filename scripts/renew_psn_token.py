@@ -132,6 +132,24 @@ def vercel(args: list, token: str | None = None, stdin: str | None = None):
     )
 
 
+def _why(output: str) -> str:
+    """CLI refusal + the next step, so a log line answers its own question."""
+    text = (output or "").strip()[:300]
+    for needle, hint in (
+        ("not valid",
+         " -- the VERCEL_TOKEN secret is wrong or expired: recreate the token "
+         "at vercel.com/account/tokens, then `gh secret set VERCEL_TOKEN` again"),
+        ("isn't linked",
+         " -- this directory needs `vercel link` before env commands work"),
+        ("already exists",
+         " -- the variable is already set; the removal above should have "
+         "cleared it, so this is worth reading in full"),
+    ):
+        if needle in (output or ""):
+            return f"{text}{hint}"
+    return text
+
+
 def push_to_vercel(refresh: str, token: str | None) -> str:
     """Link the directory, set the production env var, deploy.
 
@@ -151,22 +169,22 @@ def push_to_vercel(refresh: str, token: str | None) -> str:
                  "once with `vercel link --project <name>`, or set VERCEL_PROJECT")
         link = vercel(["link", "--yes", "--project", VERCEL_PROJECT], token=token)
         if link.returncode:
-            fail(f"vercel link failed: {(link.stderr or link.stdout).strip()[:300]}")
+            fail(f"vercel link failed: {_why(link.stderr or link.stdout)}")
 
     # `--environment`, not the positional argument: the CLI has deprecated it.
     rm = vercel(["env", "rm", KEY, "--environment", "production", "--yes"],
                 token=token)
     if rm.returncode and "not found" not in (rm.stderr + rm.stdout).lower():
         # "not found" is the normal first run; anything else is a real refusal.
-        fail(f"vercel env rm failed: {(rm.stderr or rm.stdout).strip()[:300]}")
+        fail(f"vercel env rm failed: {_why(rm.stderr or rm.stdout)}")
     add = vercel(["env", "add", KEY, "--environment", "production"],
                  token=token, stdin=refresh + "\n")
     if add.returncode:
-        fail(f"vercel env add failed: {(add.stderr or add.stdout).strip()[:300]}")
+        fail(f"vercel env add failed: {_why(add.stderr or add.stdout)}")
 
     dep = vercel(["deploy", "--prod", "--yes"], token=token)
     if dep.returncode:
-        fail(f"vercel deploy failed: {(dep.stderr or dep.stdout).strip()[:300]}")
+        fail(f"vercel deploy failed: {_why(dep.stderr or dep.stdout)}")
     urls = re.findall(r"https://[a-z0-9.-]+vercel\.app", dep.stdout or "")
     if urls:
         return urls[-1]
