@@ -152,34 +152,65 @@ test("the view card carries the live filters", () => {
     ["Disco Elysium", "Celeste"], "in the view's own sort order");
 });
 
-test("a share link round-trips and refuses anything else", () => {
+test("a share link round-trips and refuses anything else", async () => {
   const spec = cardSpec(makeState({ steamPersona: "Sir Regrets" }), "wrapped");
   assert.equal(spec.who, "Sir Regrets",
     "the card is signed by the Steam name, not the hostname");
-  const encoded = encodeCard(spec);
-  assert.deepEqual(decodeCard(`#card=${encoded}`), spec, "byte-for-byte after JSON");
-  assert.equal(decodeCard("#card=!!!not-base64!!!"), null);
-  assert.equal(decodeCard("#nothing"), null);
-  assert.equal(decodeCard(""), null);
+  const encoded = await encodeCard(spec);
+  assert.ok(encoded.startsWith("z."), "a new link travels compressed");
+  assert.deepEqual(await decodeCard(`#card=${encoded}`), spec,
+    "byte-for-byte through deflate and JSON");
+  assert.equal(await decodeCard("#card=!!!not-base64!!!"), null);
+  assert.equal(await decodeCard("#nothing"), null);
+  assert.equal(await decodeCard(""), null);
   const foreign = btoa(JSON.stringify({ v: 2, title: "WRAPPED" }));
-  assert.equal(decodeCard(`#card=${foreign}`), null, "a foreign version is not ours");
+  assert.equal(await decodeCard(`#card=${foreign}`), null, "a foreign version is not ours");
   const truncated = btoa("{not json");
-  assert.equal(decodeCard(`#card=${truncated}`), null, "a corrupt payload never throws");
-  assert.ok(shareUrl(spec, "https://x.test").startsWith("https://x.test/#card="));
+  assert.equal(await decodeCard(`#card=${truncated}`), null, "a corrupt payload never throws");
+  const notDeflate = btoa(JSON.stringify({ v: 1 }).slice(0, 16)).replace(/=/g, "");
+  assert.equal(await decodeCard(`#card=z.${notDeflate}`), null,
+    "a corrupt compressed payload never throws either");
+  assert.ok((await shareUrl(spec, "https://x.test")).startsWith("https://x.test/#card=z."));
 });
 
-test("the share payload carries the verdict line and the link back", () => {
+test("compression shrinks the link, and a pre-compression link still opens", async () => {
+  // The complaint a non-technical recipient has: a wall of base64. A card
+  // payload is mostly game titles, which deflate eats; and every link shared
+  // before this format must keep opening forever.
+  const spec = cardSpec(makeState({ steamPersona: "Sir Regrets" }), "wrapped");
+  const plain = Buffer.from(JSON.stringify(spec)).toString("base64url");
+  const encoded = await encodeCard(spec);
+  assert.ok(encoded.length < plain.length * 0.85,
+    `compressed ${encoded.length} chars vs plain ${plain.length}`);
+  assert.deepEqual(await decodeCard(`#card=${plain}`), spec,
+    "a link from before compression still opens this exact card");
+});
+
+test("a browser without CompressionStream encodes plain rather than breaking", async () => {
+  const spec = cardSpec(makeState(), "wrapped");
+  const saved = [globalThis.CompressionStream, globalThis.DecompressionStream];
+  try {
+    globalThis.CompressionStream = undefined;
+    const encoded = await encodeCard(spec);
+    assert.ok(!encoded.startsWith("z."), "no prefix when nothing compressed it");
+    assert.deepEqual(await decodeCard(`#card=${encoded}`), spec);
+  } finally {
+    [globalThis.CompressionStream, globalThis.DecompressionStream] = saved;
+  }
+});
+
+test("the share payload carries the verdict line and the link back", async () => {
   // nav.share itself cannot run in the stub — cardBlob needs a real canvas —
   // so the payload builder is the logic under test, and the call site is one
   // line reading it.
   const spec = cardSpec(makeState(), "wrapped");
-  const payload = sharePayload(spec, "https://x.test");
+  const payload = await sharePayload(spec, "https://x.test");
   assert.equal(payload.title, spec.title);
   assert.ok(payload.text.startsWith("The damage report · my library, judged."),
     payload.text);
   const url = payload.text.slice(payload.text.indexOf("at ") + 3);
   assert.ok(url.startsWith("https://x.test/#card="), url);
-  assert.deepEqual(decodeCard(url.replace("https://x.test", "")), spec,
+  assert.deepEqual(await decodeCard(url.replace("https://x.test", "")), spec,
     "the link in the sentence opens this exact card");
 });
 

@@ -1755,7 +1755,9 @@ export const view = {
     body.appendChild(this.el("p", "export-prompt",
       "Make a card from your library and send it to someone — download the "
       + "PNG, share the image directly, or copy a link that opens this exact "
-      + "card for anyone."));
+      + "card for anyone. The link holds only this card — no account, no "
+      + "library, nothing about you — and it opens in their browser without "
+      + "ever touching a server."));
     const chips = this.el("div", "export-chips");
     const active = state.exportKind || "wrapped";
     for (const kind of exportKinds(state)) {

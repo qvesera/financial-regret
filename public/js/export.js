@@ -305,48 +305,87 @@ export function cardSpec(state, kind = "wrapped") {
 
 /* ---------- share link: recipe + frozen snapshot of its numbers ---------- */
 
-function b64urlEncode(str) {
-  const bytes = new TextEncoder().encode(str);
+function b64urlFromBytes(bytes) {
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function b64urlDecode(s) {
+function b64urlToBytes(s) {
   const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
-  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
-export function encodeCard(spec) {
-  return b64urlEncode(JSON.stringify(spec));
+function b64urlEncode(str) {
+  return b64urlFromBytes(new TextEncoder().encode(str));
 }
 
-/** Accepts a full hash ("#card=…") or just the payload. Anything that is not
- *  one of our own cards comes back null — a link must never crash a boot. */
-export function decodeCard(hash) {
-  const m = /[#&?]card=([A-Za-z0-9_-]+)/.exec(String(hash || ""));
+function b64urlDecode(s) {
+  return new TextDecoder().decode(b64urlToBytes(s));
+}
+
+/* Transport: deflate-raw + base64url behind a literal "z." — the base64url
+ * alphabet has no ".", so the prefix cannot collide with an older link, and
+ * decodeCard keeps reading the plain form those carry. A card payload is
+ * mostly game titles, which deflate halves; the spec version (`v`) is
+ * untouched — this is only how it travels. Browsers without CompressionStream
+ * encode plain rather than break, and the drawer copy tells the truth either
+ * way: the link holds the card and nothing else, and never touches a server. */
+const Z = "z.";
+
+async function pack(bytes) {
+  const stream = new Blob([bytes]).stream()
+    .pipeThrough(new CompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function unpack(bytes) {
+  const stream = new Blob([bytes]).stream()
+    .pipeThrough(new DecompressionStream("deflate-raw"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+export async function encodeCard(spec) {
+  const json = JSON.stringify(spec);
+  if (typeof CompressionStream === "undefined") return b64urlEncode(json);
+  return Z + b64urlFromBytes(await pack(new TextEncoder().encode(json)));
+}
+
+/** Accepts a full hash ("#card=…") or just the payload, compressed or plain.
+ *  Anything that is not one of our own cards comes back null — a link must
+ *  never be able to break a boot. */
+export async function decodeCard(hash) {
+  const m = /[#&?]card=([A-Za-z0-9_.-]+)/.exec(String(hash || ""));
   if (!m) return null;
   try {
-    const spec = JSON.parse(b64urlDecode(m[1]));
+    const raw = m[1];
+    let json;
+    if (raw.startsWith(Z)) {
+      if (typeof DecompressionStream === "undefined") return null;
+      json = new TextDecoder().decode(await unpack(b64urlToBytes(raw.slice(2))));
+    } else {
+      json = b64urlDecode(raw);
+    }
+    const spec = JSON.parse(json);
     return spec && spec.v === 1 && typeof spec.title === "string" ? spec : null;
   } catch { return null; }
 }
 
-export function shareUrl(spec, origin) {
+export async function shareUrl(spec, origin) {
   const o = origin
     || (typeof location !== "undefined" && location.origin)
     || (typeof window !== "undefined" && window.location && window.location.origin)
     || "";
-  return `${o}/#card=${encodeCard(spec)}`;
+  return `${o}/#card=${await encodeCard(spec)}`;
 }
 
 /** What a share sheet should send. The URL rides in `text`, not `url`: most
  *  targets drop `url` when a file is attached, and the sheet is sharing the
  *  PNG — the address has to survive inside the sentence. */
-export function sharePayload(spec, origin) {
+export async function sharePayload(spec, origin) {
   return {
     title: spec.title,
-    text: `The damage report · my library, judged. Get your verdict at ${shareUrl(spec, origin)}`,
+    text: `The damage report · my library, judged. Get your verdict at ${await shareUrl(spec, origin)}`,
   };
 }
 

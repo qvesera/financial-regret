@@ -2381,8 +2381,11 @@ test("a shared card link shows the snapshot, not a signup wall", async () => {
     who: "Sir Regrets",
     eyebrow: "YOUR LIBRARY, JUDGED", badge: "12 GAMES", stats: [], rows: [], footnote: "",
   };
+  // Encoded before boot: seeds are synchronous, and the hash must be in place
+  // before the app reads it.
+  const hash = `#card=${await encodeCard(payload)}`;
   const { env, mod } = await boot({ seed: (e) => {
-    e.window.location.hash = `#card=${encodeCard(payload)}`;
+    e.window.location.hash = hash;
   } });
   await settle();
 
@@ -2421,26 +2424,29 @@ test("a shared card reads its verdict from the score the card carries", async ()
   };
   // The score rides the spec now; links minted before it still read their
   // printed stat, and neither reads as Unknown rather than a guess.
+  const scoredHash = `#card=${await encodeCard({ ...base, regret: 0.7 })}`;
   const scored = await boot({ seed: (e) => {
-    e.window.location.hash = `#card=${encodeCard({ ...base, regret: 0.7 })}`;
+    e.window.location.hash = scoredHash;
   } });
   await settle();
   assert.ok(SHARED_VERDICTS.ruin.includes(
     scored.env.root.querySelector(".shared-verdict").textContent),
     "a scored link reads the Ruin band");
 
+  const legacyHash = `#card=${await encodeCard({
+    ...base, stats: [{ label: "REGRET SCORE", value: "70%" }],
+  })}`;
   const legacy = await boot({ seed: (e) => {
-    e.window.location.hash = `#card=${encodeCard({
-      ...base, stats: [{ label: "REGRET SCORE", value: "70%" }],
-    })}`;
+    e.window.location.hash = legacyHash;
   } });
   await settle();
   assert.ok(SHARED_VERDICTS.ruin.includes(
     legacy.env.root.querySelector(".shared-verdict").textContent),
     "a pre-score link still reads its printed stat");
 
+  const bareHash = `#card=${await encodeCard({ ...base, stats: [] })}`;
   const bare = await boot({ seed: (e) => {
-    e.window.location.hash = `#card=${encodeCard({ ...base, stats: [] })}`;
+    e.window.location.hash = bareHash;
   } });
   await settle();
   assert.ok(SHARED_VERDICTS.unknown.includes(
