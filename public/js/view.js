@@ -1757,7 +1757,9 @@ export const view = {
       + "PNG, share the image directly, or copy a link that opens this exact "
       + "card for anyone. The link holds only this card — no account, no "
       + "library, nothing about you — and it opens in their browser without "
-      + "ever touching a server."));
+      + "ever touching a server. Shortening is opt-in: Copy link asks is.gd "
+      + "for a short link, which does send the card to them — a refusal just "
+      + "gives you this plain one."));
     const chips = this.el("div", "export-chips");
     const active = state.exportKind || "wrapped";
     for (const kind of exportKinds(state)) {

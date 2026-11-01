@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   apiUrl, fetchConfig, fetchSteamGames, fetchGogGames, fetchEpicGames,
-  fetchPsnGames, fetchAmazonGames,
+  fetchPsnGames, fetchAmazonGames, shortenUrl,
 } from "../../public/js/api.js";
 
 // api.js reaches for localStorage; the module has no other global deps.
@@ -104,4 +104,26 @@ test("credentials never ride in the URL", async () => {
   const psn = calls.find((c) => c.url.includes("/api/psn_games"));
   assert.ok(psn, "PlayStation was called");
   assert.ok(psn.url.includes("onlineId=PublicPlayer_91"), psn.url);
+});
+
+test("shortening trusts is.gd's answer and nothing else's", async () => {
+  globalThis.fetch = async () => ({
+    ok: true, status: 200, json: async () => ({ shorturl: "https://is.gd/ab12" }),
+  });
+  assert.equal(await shortenUrl("https://x/#card=y"), "https://is.gd/ab12");
+
+  // The short URL is what gets displayed and copied; it must never be a host
+  // this app did not name, or a redirect becomes an open door.
+  globalThis.fetch = async () => ({
+    ok: true, status: 200, json: async () => ({ shorturl: "https://evil.example/x" }),
+  });
+  assert.equal(await shortenUrl("https://x/#card=y"), null);
+
+  globalThis.fetch = async () => ({ ok: false, status: 403, json: async () => ({}) });
+  assert.equal(await shortenUrl("https://x/#card=y"), null,
+    "a refusal is no short link");
+
+  globalThis.fetch = async () => { throw new Error("blocked by the network"); };
+  assert.equal(await shortenUrl("https://x/#card=y"), null,
+    "a network failure reads as no short link");
 });

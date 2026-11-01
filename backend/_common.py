@@ -10,9 +10,12 @@ import os
 
 from _cors import send_cors
 
+# connect-src names exactly one outbound host beyond 'self': is.gd, used only
+# when a visitor clicks Copy link to fetch a short URL. SECURITY.md records
+# what that host can see and how to remove it again.
 CSP = (
     "default-src 'self'; "
-    "connect-src 'self'; "
+    "connect-src 'self' https://is.gd; "
     "img-src 'self' data: https://cdn2.steamgriddb.com https://cdn.steamgriddb.com; "
     "style-src 'self'; "
     "frame-ancestors 'none'; "
