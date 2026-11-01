@@ -117,5 +117,29 @@ class TestNpssoStorage(unittest.TestCase):
                 renew.load_npsso(Path(self.tmp.name) / "absent")
 
 
+class TestCliRefusalHints(unittest.TestCase):
+    """The two refusals this job has actually hit must name their own fix:
+    run 1 died on an unlinked checkout, run 2 on a bad VERCEL_TOKEN, and both
+    were only legible by hand."""
+
+    def test_an_invalid_token_points_at_the_secret(self):
+        message = renew._why(
+            "Error: The token provided via the `--token` option is not valid.")
+        self.assertIn("VERCEL_TOKEN secret", message)
+        self.assertIn("vercel.com/account/tokens", message)
+
+    def test_an_unlinked_checkout_points_at_vercel_link(self):
+        message = renew._why(
+            "Error: Your codebase isn't linked to a project on Vercel.")
+        self.assertIn("vercel link", message)
+
+    def test_an_unknown_refusal_is_passed_through_untouched(self):
+        # Hints must never mask an error nobody has seen before.
+        self.assertEqual(renew._why("Error: something brand new"), "Error: something brand new")
+
+    def test_output_is_bounded(self):
+        self.assertLessEqual(len(renew._why("x" * 5000 + " not valid")), 500)
+
+
 if __name__ == "__main__":
     unittest.main()
