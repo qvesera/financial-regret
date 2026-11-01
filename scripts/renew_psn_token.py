@@ -150,6 +150,26 @@ def _why(output: str) -> str:
     return text
 
 
+def verify_target(deployment_url: str) -> str:
+    """Which URL to prove production with.
+
+    Always the production alias, never the deployment-specific URL: Vercel
+    serves those behind its own authentication (302 -> HTML), so an
+    unauthenticated curl there reads as "the API answered a web page" and the
+    verification fails while production is in fact perfectly healthy -- which
+    is exactly how run 41300183313 died.
+    """
+    if PROD_URL:
+        return PROD_URL
+    if VERCEL_PROJECT:
+        return f"https://{VERCEL_PROJECT}.vercel.app"
+    if deployment_url:
+        print("renew: NOTE -- no VERCEL_PROD_URL or VERCEL_PROJECT; verifying the "
+              "deployment URL, which Vercel may put behind its auth wall")
+        return deployment_url
+    fail("deploy succeeded but no URL to verify -- set VERCEL_PROD_URL")
+
+
 def push_to_vercel(refresh: str, token: str | None) -> str:
     """Link the directory, set the production env var, deploy.
 
@@ -186,13 +206,7 @@ def push_to_vercel(refresh: str, token: str | None) -> str:
     if dep.returncode:
         fail(f"vercel deploy failed: {_why(dep.stderr or dep.stdout)}")
     urls = re.findall(r"https://[a-z0-9.-]+vercel\.app", dep.stdout or "")
-    if urls:
-        return urls[-1]
-    if PROD_URL:
-        return PROD_URL
-    if VERCEL_PROJECT:
-        return f"https://{VERCEL_PROJECT}.vercel.app"
-    fail("deploy succeeded but no URL to verify -- set VERCEL_PROD_URL")
+    return verify_target(urls[-1] if urls else "")
 
 
 def verify(url: str, tries: int = 18, delay: float = 10.0) -> None:
@@ -298,7 +312,7 @@ def main() -> None:
 
     token = os.environ.get("VERCEL_TOKEN") or None
     url = push_to_vercel(refresh, token)
-    print(f"renew: Vercel env updated, deployment queued ({url})")
+    print(f"renew: Vercel env updated and deployed; verifying at {url}")
     verify(url)
 
 
