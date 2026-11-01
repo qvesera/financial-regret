@@ -125,6 +125,20 @@ The design is now the answer instead of the argument, and
 * **The profile lookup spends no token at all.** `profile2` is asked with no
   `Authorization` header, so even the reader account's quota is reserved for
   the playtime call itself.
+* **Renewal is scheduled, not remembered.** `scripts/renew_psn_token.py`
+  mints a fresh refresh token from a locally stored NPSSO
+  (`~/.config/financial-regret/npsso`, mode 0600 — outside the repository),
+  writes it to `.env`, pushes the Vercel env, redeploys and then verifies
+  production answers with it. It fails loudly when the NPSSO itself has
+  expired, because that one *cannot* be obtained without a browser sign-in:
+  the scheduled job reduces the human step to thirty seconds of browser work
+  every couple of months rather than pretending it away. Scheduled by
+  `.github/workflows/psn-renew.yml`, which puts one more holder in the chain —
+  the NPSSO also lives in a GitHub Actions secret while that job exists. It is
+  the *reader* account's session: a throwaway with no purchases and no payment
+  method, so the blast radius of GitHub holding it is one account whose worst
+  case is a banned reader. Delete the workflow (or the secret) to remove that
+  holder; the local file and the manual path stay.
 
 What remains honest to say: reading profiles through an unofficial endpoint is
 against Sony's wishes if not quite their letter; one reader account's quota is

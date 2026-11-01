@@ -1,0 +1,58 @@
+# Monthly renewal of the PlayStation reader token (PSN_REFRESH_TOKEN).
+#
+# scripts/renew_psn_token.py does the work; this workflow only supplies the two
+# secrets and a machine that is always on. A failing run emails the repository
+# owner, which is the point: the one step that cannot be automated is re-grabbing
+# an NPSSO (browser sign-in, ~two months), so the schedule's job is to notice
+# early and say so, not to pretend that step away.
+#
+# Secrets:
+#   PSN_NPSSO      the reader account's NPSSO, refreshed by hand when this fails
+#                  (locally: scripts/renew_psn_token.py --save-npsso, then
+#                   gh secret set PSN_NPSSO  -- value from the hidden prompt)
+#   VERCEL_TOKEN   a Vercel token with deploy + env access
+name: PSN token renewal
+
+on:
+  schedule:
+    # Monthly, 3rd at 06:17 UTC. Monthly on purpose: a ~60-day token then has
+    # two chances to be renewed before anything breaks.
+    - cron: "17 6 3 * *"
+  workflow_dispatch:   # manual: after re-grabbing an NPSSO, or to test
+
+permissions:
+  contents: read
+
+concurrency:
+  group: psn-renew
+  cancel-in-progress: false
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python dependencies
+        run: pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Vercel CLI
+        run: npm install -g vercel
+
+      - name: Mint, push env, deploy, verify
+        env:
+          PSN_NPSSO: ${{ secrets.PSN_NPSSO }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          # A checkout has no .vercel/ link and no interactive prompt is
+          # available, so both are named outright.
+          VERCEL_PROJECT: financial-regret
+          VERCEL_PROD_URL: https://financial-regret.vercel.app
+        run: python scripts/renew_psn_token.py
