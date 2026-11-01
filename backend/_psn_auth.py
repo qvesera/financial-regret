@@ -36,9 +36,15 @@ SCOPE = "psn:mobile.v2.core psn:clientapp"
 BASIC = "MDk1MTUxNTktNzIzNy00MzcwLTliNDAtMzgwNmU2N2MwODkxOnVjUGprYTV0bnRCMktxc1A="
 
 
-def npsso_to_access_code(npsso: str) -> str:
-    """Cookie in, one-time access code out (read off the 302's Location)."""
-    resp = requests.get(
+def authorize(npsso: str) -> requests.Response:
+    """The authorize hop itself, returned unread.
+
+    The caller usually wants the code off the 302 (see
+    npsso_to_access_code), but scripts/renew_psn_token.py reads the response
+    headers too: if Sony re-issues the NPSSO cookie on this call, that fresh
+    value is what keeps the renewal chain alive without a human.
+    """
+    return requests.get(
         f"{AUTH_BASE}/authorize",
         params={
             "access_type": "offline",
@@ -51,6 +57,10 @@ def npsso_to_access_code(npsso: str) -> str:
         allow_redirects=False,   # the code lives in the Location header
         timeout=20,
     )
+
+
+def code_from_location(resp: requests.Response) -> str:
+    """The one-time access code off a 302, or a ValueError explaining why not."""
     location = resp.headers.get("Location") or resp.headers.get("location") or ""
     if "code=" not in location:
         raise ValueError(
@@ -61,6 +71,11 @@ def npsso_to_access_code(npsso: str) -> str:
     if not code:
         raise ValueError("The redirect carried no code")
     return code
+
+
+def npsso_to_access_code(npsso: str) -> str:
+    """Cookie in, one-time access code out (read off the 302's Location)."""
+    return code_from_location(authorize(npsso))
 
 
 def code_to_tokens(code: str) -> dict:

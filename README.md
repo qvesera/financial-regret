@@ -54,6 +54,45 @@ docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
 | `RATE_LIMIT_PER_MIN` | No | Per-IP requests per minute (default 120), enforced by `server.py` — local, Docker and Render. The Vercel function enforces no app-level limit; the equivalent there is a rate-limiting rule in the Vercel Firewall (one free rule per Hobby project, first 1,000,000 requests a month included). |
 | `PUBLIC_BASE_URL` | No | The URL the app is reached on. OAuth redirect URIs (GOG, Epic) must match what those providers have registered. |
 
+## Keeping the PlayStation reader token fresh
+
+PlayStation playtime is fetched with `PSN_REFRESH_TOKEN`. Two clocks run
+underneath it, and only one is automatic:
+
+- **Access tokens renew themselves.** The server mints one in memory whenever
+  it is missing or expired, per instance. Nothing to do.
+- **The refresh token — and the NPSSO it comes from — last about two months.**
+  `scripts/renew_psn_token.py` handles that on a schedule:
+
+```bash
+python3 scripts/renew_psn_token.py --save-npsso   # once: store an NPSSO (prompted, hidden, mode 0600)
+python3 scripts/renew_psn_token.py                # thereafter: mint → write .env → update Vercel env → deploy → verify
+python3 scripts/renew_psn_token.py --dry-run      # check the stored NPSSO still works; change nothing
+python3 scripts/renew_psn_token.py --local        # mint + write .env only, leave Vercel alone
+```
+
+The NPSSO lives at `~/.config/financial-regret/npsso` and **cannot** be fetched
+without a browser sign-in — psn-api states the ceiling outright: *"after two
+months you will need to remember to manually retrieve another NPSSO token."*
+So run this **monthly**: a month of misses still leaves two chances before the
+token it produced expires, and a failing run is the reminder to re-grab one
+(thirty seconds — sign in at playstation.com, open
+`https://ca.account.sony.com/api/v1/ssocookie`, `--save-npsso`). Every run also
+reports whether Sony re-issued the NPSSO on the exchange; when it ever does,
+the fresh cookie is saved back and the chain needs no human again.
+
+Schedule it wherever something is always running — a monthly cron line:
+
+```cron
+17 6 3 * * cd /path/to/financial-regret && .venv/bin/python scripts/renew_psn_token.py >> $HOME/.cache/psn-renew.log 2>&1
+```
+
+a systemd user timer with `Persistent=true` (missed runs fire when the laptop
+wakes), or a scheduled CI job. The Vercel half needs `VERCEL_TOKEN` in the
+environment (or an authed `vercel login`); secrets reach the CLI on stdin only,
+never on argv, and a run ends by verifying production really is serving with
+the new token.
+
 ## Going public
 
 One deployment serves everything: Vercel runs the static site and the API
