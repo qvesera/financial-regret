@@ -117,6 +117,37 @@ class TestNpssoStorage(unittest.TestCase):
                 renew.load_npsso(Path(self.tmp.name) / "absent")
 
 
+class TestVerifyTarget(unittest.TestCase):
+    """Where verification points decides whether a healthy deployment reads as
+    a failure. Run 41300183313 proved production correct by hand while its own
+    verify step was 302-redirected into Vercel Authentication's HTML."""
+
+    def test_the_production_alias_wins_over_the_deployment_url(self):
+        with mock.patch.object(renew, "PROD_URL", "https://prod.example"), \
+                mock.patch.object(renew, "VERCEL_PROJECT", "proj"):
+            self.assertEqual(
+                renew.verify_target("https://x-abc123-qvesera.vercel.app"),
+                "https://prod.example")
+
+    def test_the_project_name_builds_the_alias_when_no_url_is_given(self):
+        with mock.patch.object(renew, "PROD_URL", ""), \
+                mock.patch.object(renew, "VERCEL_PROJECT", "financial-regret"):
+            self.assertEqual(renew.verify_target(""),
+                             "https://financial-regret.vercel.app")
+
+    def test_the_deployment_url_is_a_last_resort_only(self):
+        with mock.patch.object(renew, "PROD_URL", ""), \
+                mock.patch.object(renew, "VERCEL_PROJECT", ""):
+            self.assertEqual(renew.verify_target("https://dpl.example"),
+                             "https://dpl.example")
+
+    def test_nothing_to_verify_against_fails(self):
+        with mock.patch.object(renew, "PROD_URL", ""), \
+                mock.patch.object(renew, "VERCEL_PROJECT", ""):
+            with self.assertRaises(SystemExit):
+                renew.verify_target("")
+
+
 class TestCliRefusalHints(unittest.TestCase):
     """The two refusals this job has actually hit must name their own fix:
     run 1 died on an unlinked checkout, run 2 on a bad VERCEL_TOKEN, and both
