@@ -70,7 +70,9 @@ rule, and `tests/test_logging.py` pins the consequence.
   `tests/test_cors.py`, so the two cannot drift.
 * **A strict CSP ships.** `default-src 'self'`, no webfonts, no inline scripts —
   from `server.py` when self-hosted, and from the `headers` block in
-  `vercel.json` on Vercel.
+  `vercel.json` on Vercel. `connect-src` names one outbound host beyond
+  `'self'` — `https://is.gd` — reachable only through the Copy-link action that
+  asks for a short URL; nothing else on the page can open a connection at all.
 * **Paths cannot escape `public/`.** Every dot segment is rejected up front and
   the resolved path is checked against the resolved root.
 * **Per-IP rate limiting** on every endpoint, including `OPTIONS` — enforced by
@@ -169,6 +171,14 @@ switch. Those are reliability limits, not credential risks.
    thing paid tiers exist to prevent. `REQUIRE_USER_KEYS=1` restores the
    defensible posture at the cost of pricing nothing for anyone who has not
    brought a key. It is not a legal opinion.
+5. **The shortener sees the cards that get shortened.** Copying a short link
+   sends that card's payload to is.gd — their API takes the whole URL as a
+   parameter. It is opt-in per click: opening the share drawer sends nothing,
+   and a refused shortener leaves the plain link, which never depended on
+   anyone. This is the deliberate trade for readable links; removing it is
+   two small edits (drop `https://is.gd` from `connect-src` in `vercel.json`
+   and `backend/_common.py`, delete `shortenUrl()`), and every link ever
+   shared in the plain form keeps working.
 
 ## Operator checklist for a public deployment
 

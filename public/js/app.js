@@ -1204,13 +1204,18 @@ async function shareExport() {
 async function copyExportLink() {
   const spec = currentExportSpec();
   if (!spec) return view.exportStatus("Nothing to export in this view.");
-  const url = await shareUrl(spec);
+  const long = await shareUrl(spec);
+  // Shortening is this click's opt-in: is.gd receives the card only when the
+  // visitor asks for a short link, and any refusal keeps the plain one —
+  // which the drawer already shows, and which never depended on anyone.
+  const short = await api.shortenUrl(long);
+  const url = short || long;
   try {
     if (typeof navigator !== "undefined" && navigator.clipboard
         && typeof navigator.clipboard.writeText === "function") {
       await navigator.clipboard.writeText(url);
-      // The caption under the link field already says what it opens.
-      view.exportStatus("Copied.");
+      view.exportStatus(short ? "Copied — short link."
+        : "Copied — full link (no shortener).");
       return;
     }
   } catch { /* clipboard refused: show the link so it can be copied by hand */ }

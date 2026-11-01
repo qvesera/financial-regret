@@ -2367,6 +2367,36 @@ test("the Share button ships with the dashboard and opens the deck", async () =>
     "Copy link surfaces a URL that opens this exact card");
 });
 
+test("Copy link asks is.gd once, only on the click, and a refusal keeps the plain link", async () => {
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+  env.fetchRoutes.push((url) => (url.includes("is.gd/create.php")
+    ? { json: { shorturl: "https://is.gd/ab12cd" } } : null));
+
+  const shareBtn = env.root.querySelectorAll("button")
+    .find((b) => b.dataset.action === "share");
+  shareBtn.dispatch("click");
+  await settle();
+  assert.ok(!env.fetchCalls.some((c) => c.url.includes("is.gd")),
+    "opening the drawer sends nothing: the card travels only on the click");
+
+  const copy = env.root.querySelectorAll("button")
+    .find((b) => b.dataset.action === "export-copy");
+  copy.dispatch("click");
+  await settle();
+  assert.equal(env.fetchCalls.filter((c) => c.url.includes("is.gd")).length, 1,
+    "exactly one shortening request per copy");
+  assert.match(env.root.querySelector(".export-status").textContent, /is\.gd\/ab12cd/,
+    "the short link is what gets surfaced (no clipboard in the stub, so it shows)");
+
+  // The shortener is optional: with it gone, the plain link still arrives.
+  env.fetchRoutes.pop();
+  copy.dispatch("click");
+  await settle();
+  assert.match(env.root.querySelector(".export-status").textContent, /#card=/,
+    "a refused shortener falls back to the full link");
+});
+
 test("the Share button waits for a library", async () => {
   const { env } = await boot();
   await settle();
