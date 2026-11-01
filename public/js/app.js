@@ -1136,7 +1136,7 @@ async function repaintExportPreview() {
   const spec = currentExportSpec();
   if (!spec) { view.exportStatus("Nothing to export in this view."); return; }
   const link = document.querySelector(".export-link");
-  if (link) link.textContent = shareUrl(spec);
+  if (link) link.textContent = await shareUrl(spec);
   const caption = document.querySelector(".export-caption");
   if (caption) caption.textContent = shareNudge(spec.regret);
   await renderCardTo(cv, spec);
@@ -1191,7 +1191,7 @@ async function shareExport() {
     ? new File([blob], exportFileName(spec), { type: "image/png" }) : null;
   if (file && typeof nav.canShare === "function" && nav.canShare({ files: [file] })) {
     try {
-      const payload = sharePayload(spec);
+      const payload = await sharePayload(spec);
       await nav.share({ files: [file], title: payload.title, text: payload.text });
       view.exportStatus("Shared.");
       return;
@@ -1204,7 +1204,7 @@ async function shareExport() {
 async function copyExportLink() {
   const spec = currentExportSpec();
   if (!spec) return view.exportStatus("Nothing to export in this view.");
-  const url = shareUrl(spec);
+  const url = await shareUrl(spec);
   try {
     if (typeof navigator !== "undefined" && navigator.clipboard
         && typeof navigator.clipboard.writeText === "function") {
@@ -1554,7 +1554,7 @@ export async function boot() {
   // visitor is asked for anything. A malformed payload boots normally — a
   // link must never be able to break the app.
   const hash = (window.location && window.location.hash) || "";
-  const shared = hash.includes("card=") ? decodeCard(hash) : null;
+  const shared = hash.includes("card=") ? await decodeCard(hash) : null;
   if (shared) {
     state.sharedSpec = shared;
     state.phase = "shared";
