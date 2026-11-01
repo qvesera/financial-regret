@@ -45,7 +45,7 @@ docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
 | `SGDB_API_KEY` | No | SteamGridDB key used as the fallback for cover art. A browser-supplied key (dashboard → API keys → SteamGridDB) takes precedence and is sent per-request as `X-SGDB-Key`; without either, the covers endpoint returns no art. |
 | `GOG_CLIENT_ID` | No | GOG OAuth client ID. Defaults to public PKCE client. |
 | `EPIC_CLIENT_ID` | No | Epic OAuth client ID. Defaults to public PKCE client. |
-| `PSN_REFRESH_TOKEN` | For the PlayStation store | The reader token that lets this server fetch PlayStation playtime from **public** profiles. Mint it once on your own machine — `python3 scripts/psn_login.py` prompts for an NPSSO (hidden, never stored), exchanges it locally and prints a refresh token to paste here. It is an API credential, not a web session: it cannot sign in to the PlayStation website, and no visitor ever supplies one — linking PlayStation is just typing a public online ID. Without it, the PlayStation step reports it is unconfigured and nothing else is affected. Regenerate roughly every two months, or when `/api/psn_games` answers `refresh_failed`. |
+| `PSN_REFRESH_TOKEN` | For the PlayStation store | The reader token that lets this server fetch PlayStation playtime from **public** profiles. Mint it once on your own machine — `python3 scripts/psn_login.py` prompts for an NPSSO (hidden, never stored), exchanges it locally and prints a refresh token to paste here. It is an API credential, not a web session: it cannot sign in to the PlayStation website, and no visitor ever supplies one — linking PlayStation is just typing a public online ID. Without it, the PlayStation step reports it is unconfigured and nothing else is affected. It is good for only about **ten days** (Sony's grant for this client), so keep it on the schedule in *Keeping the PlayStation reader token fresh* rather than hand-renewing once and forgetting; `/api/psn_games` answers `refresh_failed` when it stops working. |
 | `PORT` | No | Port to listen on (default 3000; `run.sh` passes 8089). |
 | `HOST` | No | Host to bind (default 0.0.0.0). |
 | `CORS_ALLOWED_ORIGINS` | No | Comma-separated origins allowed to call this API cross-origin, e.g. `https://your-app.vercel.app`. Empty — the default — means same-origin only. Wildcards are discarded rather than honoured. |
@@ -61,8 +61,11 @@ underneath it, and only one is automatic:
 
 - **Access tokens renew themselves.** The server mints one in memory whenever
   it is missing or expired, per instance. Nothing to do.
-- **The refresh token — and the NPSSO it comes from — last about two months.**
-  `scripts/renew_psn_token.py` handles that on a schedule:
+- **The refresh token** is short-lived: Sony grants this client **about ten
+  days** (observed: 863999 seconds on 2026-11-01 — every run prints the TTL it
+  was actually given, so trust the log over any number in prose). **The NPSSO
+  it is minted from** lasts about two months. `scripts/renew_psn_token.py`
+  handles both on a schedule:
 
 ```bash
 python3 scripts/renew_psn_token.py --save-npsso   # once: store an NPSSO (prompted, hidden, mode 0600)
@@ -74,17 +77,17 @@ python3 scripts/renew_psn_token.py --local        # mint + write .env only, leav
 The NPSSO lives at `~/.config/financial-regret/npsso` and **cannot** be fetched
 without a browser sign-in — psn-api states the ceiling outright: *"after two
 months you will need to remember to manually retrieve another NPSSO token."*
-So run this **monthly**: a month of misses still leaves two chances before the
-token it produced expires, and a failing run is the reminder to re-grab one
-(thirty seconds — sign in at playstation.com, open
+So schedule it **every five days**: the token it produces is good for about
+ten, so a failed run still leaves days of slack, and a failing run is the
+reminder to re-grab an NPSSO (thirty seconds — sign in at playstation.com, open
 `https://ca.account.sony.com/api/v1/ssocookie`, `--save-npsso`). Every run also
 reports whether Sony re-issued the NPSSO on the exchange; when it ever does,
 the fresh cookie is saved back and the chain needs no human again.
 
-Schedule it wherever something is always running — a monthly cron line:
+Schedule it wherever something is always running — a cron line every five days:
 
 ```cron
-17 6 3 * * cd /path/to/financial-regret && .venv/bin/python scripts/renew_psn_token.py >> $HOME/.cache/psn-renew.log 2>&1
+17 6 */5 * * cd /path/to/financial-regret && .venv/bin/python scripts/renew_psn_token.py >> $HOME/.cache/psn-renew.log 2>&1
 ```
 
 a systemd user timer with `Persistent=true` (missed runs fire when the laptop
