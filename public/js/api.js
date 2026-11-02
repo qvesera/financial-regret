@@ -430,10 +430,10 @@ export async function fetchPsnGames() {
  * Shorten a link through is.gd's keyless API.
  *
  * The payload rides in the URL, so the card travels to is.gd at this moment
- * and nowhere else — opening the share drawer sends nothing, and this is only
- * ever called from an explicit Copy. Every refusal (blocked region, rate
- * limit, a localhost target, an answer on any other host) reads as null so
- * the caller keeps the plain link, which never depended on anyone.
+ * and nowhere else — the share drawer is the only caller, when it paints the
+ * link. Every refusal (blocked region, rate limit, a localhost target, an
+ * answer on any other host) reads as null so the caller falls back to the
+ * plain link, which never depended on anyone.
  */
 export async function shortenUrl(url) {
   try {

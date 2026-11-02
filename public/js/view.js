@@ -215,8 +215,14 @@ const PLATFORMS = [
     name: "Xbox",
     platform: "Xbox",
     planned: true,
-    blurb: "Owned games via Microsoft's official API.",
-    why: "Official and durable — but Microsoft's API exposes last-played, not hours played. Xbox titles would price where IsThereAnyDeal covers the Microsoft Store and land in “Unknown hours” otherwise, priced-only like Amazon. Needs a one-time Azure app registration (a client ID) to build.",
+    tag: "not planned",
+    blurb: "Owned games via Microsoft's API — unsupported today.",
+    why: "Xbox has no open library API. Reading one means registering an "
+      + "application with Microsoft first — an Azure app registration and a "
+      + "client ID — which no visitor can do from a browser, and even "
+      + "Microsoft's own API reports last-played rather than hours played, "
+      + "too little for the per-hour verdicts. That is why this card reads "
+      + "not planned rather than coming soon.",
   },
   {
     key: "psn",
@@ -777,13 +783,14 @@ export const view = {
       head.appendChild(pmark);
       head.appendChild(this.el("h2", null, p.name));
       if (p.key === "steam") head.appendChild(this.el("span", "pc-tag", "best data"));
-      if (p.planned) head.appendChild(this.el("span", "pc-tag", "coming soon"));
+      if (p.planned) head.appendChild(this.el("span", "pc-tag", p.tag || "coming soon"));
       card.appendChild(head);
       card.appendChild(this.el("p", "pc-blurb", p.blurb));
 
       if (p.planned) {
-        // Say what actually blocks it — not "coming soon". No button: there
-        // is nothing behind one to press.
+        // Say what actually blocks it — not a vague "coming soon". No button:
+        // there is nothing behind one to press. Xbox overrides the tag with
+        // the blunter truth: not planned, because no open API exists.
         card.appendChild(this.el("p", "pc-planned", p.why));
         cards.appendChild(card);
         continue;
@@ -1756,10 +1763,10 @@ export const view = {
       "Make a card from your library and send it to someone — download the "
       + "PNG, share the image directly, or copy a link that opens this exact "
       + "card for anyone. The link holds only this card — no account, no "
-      + "library, nothing about you — and it opens in their browser without "
-      + "ever touching a server. Shortening is opt-in: Copy link asks is.gd "
-      + "for a short link, which does send the card to them — a refusal just "
-      + "gives you this plain one."));
+      + "library, nothing about you. The short link shown is fetched from "
+      + "is.gd, which does receive the card to shorten it; if they refuse, "
+      + "you get the plain link instead. Opening either one reveals nothing "
+      + "to us — the card renders from the link itself, in their browser."));
     const chips = this.el("div", "export-chips");
     const active = state.exportKind || "wrapped";
     for (const kind of exportKinds(state)) {

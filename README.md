@@ -13,7 +13,7 @@ A browser-based dashboard that shows how much you have spent on games versus how
 - **What-if slider** — replay any regrettable purchase at 1–60 hours and watch its rate and verdict change
 - **Faceted browsing** — filter by play status, platform or verdict, sort, and switch between the list and the cover-art grid; your filters survive a reload
 - **Selectable currency** — one display-currency picker in the header (INR, USD, EUR, …), defaulted from your region when the edge reports it; prices are re-fetched from IsThereAnyDeal in that currency's store region and re-labelled
-- **Card sharing** — Wrapped-style PNG cards in the arcade skin: a summary deck, the ranked lists, one card per verdict, or whatever your current filters show. Download them, share the image directly, or copy a link that opens the exact card for whoever receives it — the card carries the wordmark and the project's home, nothing more. The link holds only that card (no account, no library, nothing about you), travels deflated behind a `z.` marker — roughly half its former length — and never touches a server, because the fragment never leaves the browser. Copy link can additionally fetch a short URL from is.gd: one opt-in click that does send the card to them to shorten it, with any refusal falling back to the plain link
+- **Card sharing** — Wrapped-style PNG cards in the arcade skin: a summary deck, the ranked lists, one card per verdict, or whatever your current filters show. Download them, share the image directly, or copy a link that opens the exact card for whoever receives it — the card carries the wordmark and the project's home, nothing more. The link holds only that card (no account, no library, nothing about you), travels deflated behind a `z.` marker — roughly half its former length — and never touches a server, because the fragment never leaves the browser. The share drawer fetches a short URL from is.gd and shows that instead of the long one — the card travels to them for the fetch, a refusal (localhost targets, say) falls back to the plain link, and Copy and Share always send exactly what the field shows
 - **Big libraries** — Epic's catalog is fetched page by page with live progress, so huge accounts never hang a single request
 - **Non-game filtering** — soundtracks, Unreal Engine builds, and Epic store content for UE (Fab/marketplace plugins, Megascans, projects) are excluded — only real games are listed
 - **Add-on (DLC) tracking** — add-ons and expansions are kept and badged, then tallied in their own **Add-on value** figure rather than mixed into library value or the regret score (DLC has no playtime of its own — you play it inside its base game — so counting it would make unopened base games look like the problem). Reachable today on **Epic** (base-game pointer) and **Amazon** (title match), best-effort on **GOG**. **Steam**'s public API exposes no owned-DLC list and **PlayStation** has no DLC price source, so those stores contribute no add-on rows
@@ -188,7 +188,8 @@ npm run shots                               # phone-width layout gate (needs Pla
 
 ## Not planned
 
-Xbox support (no public API), refund or price-history tracking, multi-user
+Xbox support (no open library API — reading one needs a Microsoft application
+registration first), refund or price-history tracking, multi-user
 accounts, and any server-side storage of library data — the browser holds
 everything, on purpose.
 
