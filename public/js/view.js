@@ -1,6 +1,6 @@
 /** DOM builders. textContent only — never innerHTML with user data. */
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
-import { TIER_LABEL, coverHue, headline as buildHeadline, sharedVerdict, whatIf, contentPct } from "./verdict.js";
+import { TIER_LABEL, coverHue, headline as buildHeadline, sharedVerdict, whatIf, contentPct, lensOf } from "./verdict.js";
 import { renderVerdictToy, repaintVerdictToy } from "./arcade.js";
 import { CARD_W, CARD_H, exportKinds, kindLabel, rupeeSvg, pixelCapRatio } from "./export.js";
 
@@ -57,20 +57,42 @@ function icon(name, size = 16) {
   return svg;
 }
 
+/** Which lens judged this row, for display — null until the library holds
+ *  enough lengths to compare against. That is deliberate: in a rate-only
+ *  library (and every test fixture) badges and markers stay exactly as bare
+ *  as they have always been, and the marker only appears once the ambiguity
+ *  it disambiguates actually exists. */
+function lensFor(contentBench, game) {
+  if (!contentBench || (contentBench.samples || 0) < 3) return null;
+  return lensOf(game, contentBench);
+}
+
 /** Verdict pill. Colour comes from the tier class, never an inline style, so
- *  the light theme can override every one of them in CSS. */
-function tierBadge(tier) {
+ *  the light theme can override every one of them in CSS. When a content
+ *  benchmark exists, a graded badge also names the axis that judged it —
+ *  "Regret · content" and "Regret · ₹/h" are not the same claim. */
+function tierBadge(tier, lens) {
   const t = tier || "nodata";
   const b = document.createElement("span");
   b.className = `badge badge-${t}`;
   b.setAttribute("data-tier", t);
-  b.textContent = TIER_LABEL[t] || t;
+  const graded = t === "worth" || t === "fair" || t === "regret";
+  const suffix = lens && graded
+    ? (lens === "content" ? " · content" : " · ₹/h")
+    : "";
+  b.textContent = (TIER_LABEL[t] || t) + suffix;
   return b;
 }
 
 /** Plain-language explanation of what a tier actually means — the drawer is
- *  where the maths gets said out loud. */
-function tierNote(tier) {
+ *  where the maths gets said out loud. The content lens explains itself in
+ *  content words; the rate lens keeps the quartile wording it always had. */
+function tierNote(tier, lens) {
+  if (lens === "content") {
+    if (tier === "worth") return "Finished — at or above your library's top quartile of content consumed.";
+    if (tier === "fair") return "More than a quarter of a typical game played — in line with how you usually finish.";
+    if (tier === "regret") return "Less of it consumed than your library's first quartile — a length you barely touched.";
+  }
   if (tier === "worth") return "Cheaper per hour than your library's first quartile.";
   if (tier === "fair") return "In line with what you usually pay per hour.";
   if (tier === "regret") return "Above your library's median cost per hour.";
@@ -117,8 +139,9 @@ const METRIC_TIPS = {
     + "paid: no connected store reports purchase history. Games with no price "
     + "found count as zero, so a library of unpriced titles reads low.",
   "hero-line": "The percentage is how much of your library you've actually "
-    + "touched. 'Worst buy' is the most expensive hour in it: highest price per "
-    + "hour among games with at least an hour of play.",
+    + "touched. 'Worst buy' is your least-consumed game where a typical length "
+    + "is known, otherwise the most expensive hour: highest price per hour "
+    + "among games with at least an hour of play.",
   "kpi-high": "The same library priced at each game's all-time high. Where "
     + "there is no price history, today's price stands in rather than leaving a gap.",
   "kpi-low": "The same library priced at each game's all-time low — the "
@@ -139,10 +162,14 @@ const METRIC_TIPS = {
     + "cheapest price. Kept out of the other figures on purpose: DLC has no "
     + "playtime of its own (you play it inside its base game), so counting it "
     + "would make unopened base games look like the problem.",
-  "rank-worst": "Your most expensive hour, ranked by price ÷ hours, highest "
-    + "first. Only games with an hour or more of play qualify: a ten-minute "
-    + "session proves nothing.",
-  "rank-best": "The same ranking cheapest per hour first — the most play for "
+  "rank-worst": "The games you got least out of, on whichever axis judged "
+    + "them: least of a typical length consumed where you have entered one "
+    + "(playtime ÷ length, lowest first), most expensive hour where you have "
+    + "not (price ÷ hours, highest first). Every row shows its own number. "
+    + "Only games with an hour or more of play qualify: a ten-minute session "
+    + "proves nothing.",
+  "rank-best": "The mirror list: most of a typical length consumed first "
+    + "where you have entered one, then cheapest per hour — the most play for "
     + "the least money. Games need an hour or more of play to qualify.",
   "rank-untouched": "Unopened games ranked by what they cost, dearest first — "
     + "the biggest purchases sitting idle. Per-hour maths cannot rank them "
@@ -1032,9 +1059,12 @@ export const view = {
 
     // ---- ranked lists: what can rank depends on the verdict facet ----
     const insights = this.el("div", "insights");
-    const worstCard = this.rankCard("Hall of shame", "worst");
-    const bestCard = this.rankCard("Best value", "best");
-    const untouchedCard = this.rankCard("Untouched", "untouched");
+    // The worst list's title is not fixed: it says "Most per hour" while only
+    // rates have judged anything, and "Left on the table" the moment content
+    // does. updateInsights() rewrites it whenever the lens changes.
+    const worstCard = this.rankCard(kindLabel("worst"), "worst");
+    const bestCard = this.rankCard(kindLabel("best"), "best");
+    const untouchedCard = this.rankCard(kindLabel("untouched"), "untouched");
     insights.appendChild(worstCard.card);
     insights.appendChild(bestCard.card);
     insights.appendChild(untouchedCard.card);
@@ -1042,6 +1072,7 @@ export const view = {
     this.insightsBox = insights;
     this.rankLists = { worst: worstCard.list, best: bestCard.list, untouched: untouchedCard.list };
     this.rankCards = { worst: worstCard.card, best: bestCard.card, untouched: untouchedCard.card };
+    this.rankLabels = { worst: worstCard.label, best: bestCard.label, untouched: untouchedCard.label };
 
 
     const bodyEl = this.el("div", "dashboard-body");
@@ -1301,6 +1332,10 @@ export const view = {
     // Which titles are held on another store — read once per render so the row
     // and card builders take it from here instead of each growing an argument.
     this.dupes = state.dupes || new Map();
+    // The content benchmark rides the same way: badges and markers read the
+    // lens from here rather than threading a fourth argument through every
+    // row builder.
+    this.contentBench = state.contentBench || null;
     // Prices with the visitor's own figures layered in: the table, the pies and
     // the cards must show the same numbers the metrics were computed from.
     const prices = state.pricesEff || state.prices;
@@ -1429,6 +1464,11 @@ export const view = {
       played,
       worstName: worst ? worst.name : null,
       worstRate: worst ? money(worst.rate, cur) : null,
+      // A content-graded worst buy is not a rate: describe it in its own
+      // units rather than inventing a rupee figure for it.
+      worstNote: worst && worst.lens === "content" && worst.expectedHours
+        ? `${Math.round(worst.contentPct * 100)}% of ${hours(worst.expectedHours)}`
+        : null,
     }) + "\u00A0";
   },
 
@@ -1439,6 +1479,11 @@ export const view = {
     const box = this.distBox;
     if (!box) return;
     box.textContent = "";
+    // The content panel leads when the library can support one — the fairer
+    // lens first. Below three known lengths nothing here changes: the rate
+    // panel is the whole chart, exactly as it has always been.
+    const cb = state.contentBench;
+    if (cb && cb.samples >= 3) this.distContentPanel(box, state, cb);
     const b = state.bench;
     if (!b || b.p25 == null) {
       box.appendChild(this.el("p", "dist-note", "Price a few more games to draw a benchmark."));
@@ -1545,6 +1590,98 @@ export const view = {
     }
   },
 
+  /** The content twin of the rate panel below: quartiles of how much of their
+   *  typical lengths your library has consumed, drawn with the same four
+   *  shapes. Its axis points the other way — higher is better — so the copy
+   *  says so instead of borrowing the rate panel's wording, and a degenerate
+   *  spread (everyone at the same point) is named as fixed marks rather than
+   *  pretending quartiles mean something they do not. */
+  distContentPanel(box, state, cb) {
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    const W = 300, H = 40, pad = 14;
+    const top = Math.max(cb.p90 || cb.p75, cb.p75) * 1.08 || 1;
+    const x = (v) => pad + (Math.min(v, top) / top) * (W - pad * 2);
+
+    box.appendChild(this.el("p", "dist-title", "Content consumed across your library"));
+
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("class", "dist-plot");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label",
+      `Content consumed across ${cb.samples} played games with a known length: `
+      + `p25 ${pct(cb.p25)}, median ${pct(cb.p50)}, p75 ${pct(cb.p75)}.`);
+    const mk = (tag, attrs) => {
+      const n = document.createElementNS(SVG_NS, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+      return n;
+    };
+    svg.appendChild(mk("line", { class: "dist-axis", x1: pad, y1: 26, x2: W - pad, y2: 26 }));
+    const iqr = mk("rect", {
+      class: "dist-box", x: x(cb.p25), y: 12,
+      width: Math.max(2, x(cb.p75) - x(cb.p25)), height: 14,
+    });
+    svg.appendChild(iqr);
+    const med = mk("line", { class: "dist-median", x1: x(cb.p50), y1: 8, x2: x(cb.p50), y2: 30 });
+    svg.appendChild(med);
+    const p90 = cb.p90 ?? cb.p75;
+    const whisk = mk("line", { class: "dist-whisk", x1: x(p90), y1: 16, x2: x(p90), y2: 22 });
+    svg.appendChild(whisk);
+    const worst = state.comparators && state.comparators.worst[0];
+    let marker = null;
+    if (worst && worst.lens === "content" && worst.contentPct != null) {
+      marker = mk("circle", { class: "dist-marker", cx: x(worst.contentPct), cy: 19, r: 4 });
+      svg.appendChild(marker);
+    }
+    box.appendChild(svg);
+
+    const ends = this.el("div", "dist-ends");
+    ends.appendChild(this.el("span", null, "0%"));
+    ends.appendChild(this.el("span", null, `p90 ${pct(p90)}`));
+    box.appendChild(ends);
+
+    box.appendChild(this.el("p", "dist-summary",
+      `p25 ${pct(cb.p25)} · median ${pct(cb.p50)} · p75 ${pct(cb.p75)} · higher is better`));
+
+    // The same instruction line as the rate panel: hover-only explanations are
+    // undiscoverable without one, and one sentence serves both charts.
+    const hint = "Hover the box, the white line, the tick or the red dot"
+      + " to see what each one means.";
+    const out = this.el("p", "dist-say", hint);
+    box.appendChild(out);
+
+    const say = {
+      box: cb.degenerate
+        ? `Nearly every game sits at the same point (${pct(cb.p25)} to ${pct(cb.p75)}), `
+          + "so verdicts use fixed marks: Worth it at 90% or more, Fair at 50% or more, Regret below."
+        : `Middle half of your library: ${pct(cb.p25)} to ${pct(cb.p75)} of a typical game `
+          + "consumed. Verdicts grade off this spread — Worth it at or above p75, "
+          + "Fair down to p25, Regret below.",
+      median: `Median: ${pct(cb.p50)} of a typical game consumed. Half your finished `
+        + "play is at or above this.",
+      p90: `p90: ${pct(p90)} — where the most-consumed 10% of your games begin.`,
+      worst: worst && worst.lens === "content"
+        ? `Least consumed: ${worst.name} at ${pct(worst.contentPct)}`
+          + (worst.expectedHours ? ` of its ${hours(worst.expectedHours)} length.` : ".")
+        : "",
+    };
+    // Paired nodes rather than class sniffing: the rate panel's shapes and its
+    // tests both work off this exact pairing, and data-stat is how a test (and
+    // a reader inspecting the chart) knows which dot is which.
+    for (const [node, key] of [[iqr, "box"], [med, "median"], [whisk, "p90"], [marker, "worst"]]) {
+      if (!node) continue;
+      node.setAttribute("data-stat", key);
+      node.addEventListener("mouseover", () => {
+        out.textContent = say[key];
+        out.classList.add("on");
+      });
+      node.addEventListener("mouseout", () => {
+        out.textContent = hint;
+        out.classList.remove("on");
+      });
+    }
+  },
+
   /** Built once so dragging the slider never rebuilds (and blurs) the input. */
   buildSim() {
     const sim = this.el("div", "sim");
@@ -1602,7 +1739,19 @@ export const view = {
 
     const game = (state.games || []).find((g) => g.id === id);
     if (!game) { this.simOut.textContent = ""; return; }
-    const r = whatIf(game, state.bench, this.simRange.value);
+    const r = whatIf(game, state.bench, this.simRange.value, state.contentBench);
+    if (r.lens === "content") {
+      // The content replay speaks in consumption, not rupees per hour: the
+      // slider drags the numerator of "played ÷ length", which is exactly the
+      // story a short game needs ("play it to 8 h and you've finished it").
+      const nowPct = r.nowContentPct == null ? null : Math.round(r.nowContentPct * 100);
+      const thenPct = r.contentPct == null ? null : Math.round(r.contentPct * 100);
+      this.simOut.textContent = thenPct == null || nowPct == null
+        ? `${nowPct == null ? "—" : nowPct}% today — drag to see what it would consume.`
+        : `${nowPct}% today → ${thenPct}% at ${this.simRange.value} h · ${TIER_LABEL[r.tier]}`
+          + (r.changed ? ` (was ${TIER_LABEL[r.nowTier]})` : " (unchanged)");
+      return;
+    }
     const now = r.nowRate == null ? "∞/h" : perHour(r.nowRate, this.currency);
     const then = r.rate == null ? "∞/h" : perHour(r.rate, this.currency);
     this.simOut.textContent = r.rate == null
@@ -1611,15 +1760,19 @@ export const view = {
         (r.changed ? ` (was ${TIER_LABEL[r.nowTier]})` : " (unchanged)");
   },
 
-  /** Shell for one ranked list; the rows are refilled on every update. */
+  /** Shell for one ranked list; the rows are refilled on every update. The
+   *  title lives in its own span so an update can swap the words without
+   *  wiping the info tip beside them. */
   rankCard(title, kind) {
     const card = this.el("section", "chart-card rank-card");
-    const head = this.el("h3", null, title);
+    const head = this.el("h3", null);
+    const label = this.el("span", null, title);
+    head.appendChild(label);
     head.appendChild(this.infoTip(`rank-${kind}`, title));
     card.appendChild(head);
     const list = this.el("ol", `rank rank-${kind}`);
     card.appendChild(list);
-    return { card, list };
+    return { card, list, label };
   },
 
   updateInsights(state) {
@@ -1644,6 +1797,12 @@ export const view = {
     // one it would promise spend the library never made.
     const noIdle = !lib.some((r) => (r.hours == null || r.hours < 1) && r.price != null && r.price > 0);
     for (const kind of ["worst", "best", "untouched"]) {
+      // The worst title follows the axis that filled its list — "Left on the
+      // table" once content rows lead, "Most per hour" while only rates do.
+      if (kind === "worst" && this.rankLabels) {
+        this.rankLabels.worst.textContent = kindLabel("worst",
+          state.comparators && state.comparators.worstLens);
+      }
       const card = this.rankCards && this.rankCards[kind];
       if (card) {
         card.hidden = kind === "worst"
@@ -1680,10 +1839,18 @@ export const view = {
         // slot, because price is what the list is ranked by. It has no
         // playtime to show either: "0.0 h" or "—" beside an unopened game
         // only invites the reader to wonder which opening it means.
+        // A content-graded row shows its own axis: a percentage, with the
+        // length it is a percentage of — never a rupee rate it was not judged on.
+        const content = kind !== "untouched" && item.lens === "content";
         li.appendChild(this.el("span", "rank-rate",
-          kind === "untouched" ? money(item.price, cur) : perHour(item.rate, cur)));
+          kind === "untouched" ? money(item.price, cur)
+            : content ? `${Math.round(item.contentPct * 100)}%`
+              : perHour(item.rate, cur)));
         if (kind !== "untouched") {
-          li.appendChild(this.el("span", "rank-hours", hours(item.hours)));
+          li.appendChild(this.el("span", "rank-hours",
+            content && item.expectedHours
+              ? `of ${hours(item.expectedHours)}`
+              : hours(item.hours)));
         }
         list.appendChild(li);
       }
@@ -1769,7 +1936,8 @@ export const view = {
     const chips = this.el("div", "export-chips");
     const active = state.exportKind || "wrapped";
     for (const kind of exportKinds(state)) {
-      const b = this.el("button", "tab", kindLabel(kind));
+      const b = this.el("button", "tab", kindLabel(kind,
+        state.comparators && state.comparators.worstLens));
       b.type = "button";
       b.dataset.action = "export-kind";
       b.dataset.kind = kind;
@@ -1966,7 +2134,7 @@ export const view = {
       });
       // Verdict is the last column: the money columns keep their positions.
       const vcell = this.el("td", "verdict-cell");
-      vcell.appendChild(tierBadge(verdict));
+      vcell.appendChild(tierBadge(verdict, lensFor(this.contentBench, game)));
       tr.appendChild(vcell);
       tbody.appendChild(tr);
     }
@@ -2013,7 +2181,7 @@ export const view = {
       img.addEventListener("error", () => { img.style.opacity = "0"; });
       art.appendChild(img);
 
-      const badge = tierBadge(verdict);
+      const badge = tierBadge(verdict, lensFor(this.contentBench, game));
       badge.classList.add("card-badge");
       art.appendChild(badge);
 
@@ -2128,7 +2296,8 @@ export const view = {
     // Verdict first: it is the answer to the question the drawer exists for.
     const verdictRow = this.el("div", "drawer-row verdict-row");
     verdictRow.appendChild(this.el("span", null, "Verdict"));
-    verdictRow.appendChild(tierBadge(tier));
+    const drawerLens = lensFor(state && state.contentBench, game);
+    verdictRow.appendChild(tierBadge(tier, drawerLens));
     drawerBody.appendChild(verdictRow);
 
     const priceRow = this.el("div", "drawer-row");
@@ -2260,7 +2429,8 @@ export const view = {
       drawerBody.appendChild(pos);
     }
 
-    drawerBody.appendChild(this.el("p", "muted drawer-note", tierNote(tier)));
+    drawerBody.appendChild(this.el("p", "muted drawer-note",
+      tierNote(tier, drawerLens)));
   },
 
 

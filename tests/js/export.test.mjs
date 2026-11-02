@@ -257,7 +257,8 @@ test("the painter draws the arcade card, scanlines and watermark and all", () =>
   const ctx = fakeCtx();
   drawCard(ctx, spec, CARD_TOKENS);
 
-  assert.ok(ctx.texts.includes("HALL OF SHAME"));
+  assert.ok(ctx.texts.includes("MOST PER HOUR"),
+    "the rate-lens worst card renames itself — Hall of shame is gone");
   assert.ok(ctx.texts.some((t) => t.includes("Hades")), "the rows are drawn");
   assert.ok(!ctx.texts.includes("₹"),
     "the rupee is drawn, never typed — no font fallback anywhere");
@@ -305,3 +306,39 @@ test("the DOM rupee is sized from the font's measured cap height", async () => {
   // the cap-height guess rather than throwing.
   assert.equal(await pixelCapRatio(), 0.625);
 });
+
+test("the worst list renames itself to the axis that filled it", () => {
+  assert.equal(kindLabel("worst"), "Most per hour", "rate lens default");
+  assert.equal(kindLabel("worst", "rate"), "Most per hour");
+  assert.equal(kindLabel("worst", "content"), "Left on the table");
+  assert.equal(kindLabel("best", "content"), "Best value", "best reads as either");
+  assert.equal(kindLabel("untouched"), "Untouched");
+  assert.equal(kindLabel("wrapped"), "Wrapped");
+});
+
+test("a content-graded worst card says consumption, not ₹/h", () => {
+  const state = makeState({
+    comparators: {
+      worst: [{ id: "x", name: "Barely", hours: 2, price: 900, rate: 450,
+        lens: "content", contentPct: 0.05, expectedHours: 40 }],
+      best: [], untouched: [],
+      worstLens: "content", bestLens: null,
+    },
+  });
+  const spec = cardSpec(state, "worst");
+  assert.equal(spec.title, "LEFT ON THE TABLE");
+  assert.equal(spec.badge, "Regret");
+  assert.equal(spec.stats[1].label, "CONSUMED");
+  assert.equal(spec.stats[1].value, "5%");
+  assert.equal(spec.rows[0].value, "5%", "the row shows its own axis");
+  assert.equal(spec.rows[0].meta, "of 40.0 h", "…and the length it is a share of");
+});
+
+test("a rate-lens worst card keeps the per-hour face", () => {
+  const state = makeState(); // GAMES have no lengths → comparators are rate rows
+  const spec = cardSpec(state, "worst");
+  assert.equal(spec.title, "MOST PER HOUR");
+  assert.equal(spec.stats[1].label, "PER HOUR");
+  assert.ok(spec.rows[0].meta.endsWith(" h"), "played hours, as always");
+});
+

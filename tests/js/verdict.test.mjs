@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   benchmark, rateSamples, verdictOf, verdictMap, whatIf, coverHue, headline, comparators,
-  contentPct,
+  contentPct, contentBench, lensOf,
   TIER_LABEL, SHARED_VERDICTS, sharedVerdict, verdictBand, SHARE_NUDGE_SETS, shareNudge,
 } from "../../public/js/verdict.js";
 
@@ -266,5 +266,117 @@ test("the drawer nudge rides the same bands the page verdict judges with", () =>
   }
   assert.ok(SHARE_NUDGE_SETS.pride.includes(shareNudge(-1)), "clamped low");
   assert.ok(SHARE_NUDGE_SETS.shame.includes(shareNudge(4)), "clamped high");
+});
+
+
+// ---------- the content lens: playtime ÷ typical length ----------
+
+// A shelf where rate and content disagree: the finished short game is the
+// most expensive hour *and* the most consumed purchase.
+const MIX = [
+  { id: "m1", name: "Short", hours: 6, expectedHours: 6, price: 1000 },   // 167/h · 100%
+  { id: "m2", name: "Grinder1", hours: 40, expectedHours: 50, price: 400 }, // 10/h · 80%
+  { id: "m3", name: "Grinder2", hours: 60, expectedHours: 80, price: 600 }, // 10/h · 75%
+  { id: "m4", name: "Dabbler", hours: 10, expectedHours: 50, price: 500 },  // 50/h · 20%
+];
+
+test("contentBench counts consumption, not unopened boxes", () => {
+  const rows = [...MIX,
+    { id: "m5", name: "Sealed", hours: 0, expectedHours: 10, price: 300 },
+    { id: "m6", name: "NoLength", hours: 8, price: 100 },
+  ];
+  const cb = contentBench(rows);
+  assert.equal(cb.samples, 4, "played + length known only; unplayed and length-less are not evidence");
+  assert.ok(cb.p25 < cb.p50 && cb.p50 < cb.p75);
+  assert.equal(cb.degenerate, false);
+  assert.equal(contentBench(rows.slice(0, 2)).p75, null,
+    "two observations is not a benchmark — same floor as the rate bench");
+});
+
+test("the content lens judges a finished game as finished", () => {
+  const rb = benchmark(MIX);
+  const cb = contentBench(MIX);
+  assert.equal(verdictOf(MIX[0], rb), "regret",
+    "on rates alone the 6-hour game at ₹167/h is the villain of the shelf");
+  assert.equal(verdictOf(MIX[0], rb, cb), "worth",
+    "on content it is the model — 100% of its length, consumed");
+  assert.equal(verdictOf(MIX[3], rb, cb), "regret",
+    "a fifth of its length is a miss on this shelf, however cheap its hours");
+});
+
+test("lensOf stays on rates until three lengths exist", () => {
+  assert.equal(lensOf(MIX[0], null), "rate", "no bench, no lens change");
+  assert.equal(lensOf(MIX[0], contentBench(MIX.slice(0, 2))), "rate",
+    "one known length changes nothing for any row");
+  const cb = contentBench(MIX);
+  assert.equal(lensOf(MIX[0], cb), "content");
+  assert.equal(lensOf({ id: "x", hours: 5, price: 10 }, cb), "rate",
+    "no length, no lens — the rate path keeps judging it");
+});
+
+test("a degenerate content spread falls back to fixed marks", () => {
+  // Everyone finished everything: quartiles would grade every row "Worth it"
+  // for being equal to itself, so fixed marks decide instead.
+  const high = [
+    { id: "h1", name: "H1", hours: 9, expectedHours: 10, price: 100 },
+    { id: "h2", name: "H2", hours: 19, expectedHours: 20, price: 100 },
+    { id: "h3", name: "H3", hours: 39, expectedHours: 40, price: 100 },
+  ];
+  const hb = contentBench(high);
+  assert.equal(hb.degenerate, true);
+  assert.equal(verdictOf(high[0], benchmark(high), hb), "worth", "0.9 clears the 90% mark");
+
+  // A shelf all stuck near 40%: quartiles-by-equality would call it Worth it;
+  // the fixed marks call it what it is.
+  const low = [
+    { id: "l1", name: "L1", hours: 4, expectedHours: 10, price: 100 },
+    { id: "l2", name: "L2", hours: 8.4, expectedHours: 20, price: 100 },
+    { id: "l3", name: "L3", hours: 13.2, expectedHours: 30, price: 100 },
+  ];
+  const lb = contentBench(low);
+  assert.equal(lb.degenerate, true);
+  assert.equal(verdictOf(low[0], benchmark(low), lb), "regret", "under half consumed, whatever the neighbours say");
+});
+
+test("comparators rank content first and label every row's axis", () => {
+  const rows = [...MIX, { id: "m7", name: "RateOnly", hours: 100, price: 10000 }];
+  const cb = contentBench(rows);
+  const c = comparators(rows, 5, cb);
+  assert.equal(c.worstLens, "content", "content rows lead the worst list");
+  assert.equal(c.worst[0].name, "Dabbler", "least consumed first — 20% of a 50-hour game");
+  assert.equal(Math.round(c.worst[0].contentPct * 100), 20);
+  const firstRate = c.worst.findIndex((x) => x.lens === "rate");
+  assert.ok(firstRate > 0, "the rate row fills a later slot, never ahead of content");
+  assert.ok(c.worst.slice(0, firstRate).every((x) => x.lens === "content"),
+    "the two axes are never sorted against each other");
+  assert.equal(c.worst[firstRate].name, "RateOnly");
+  assert.equal(c.best[0].lens, "content", "most consumed leads the best list");
+  assert.equal(c.best[0].name, "Short");
+  // Without a bench the same library reads exactly as it always did.
+  const plain = comparators(rows, 5);
+  assert.equal(plain.worstLens, "rate", "no content bench → the rate lens claims the list");
+  assert.equal(plain.worst[0].name, "Short", "rate desc: 167/h leads");
+});
+
+test("whatIf replays consumption, not just rates", () => {
+  const rb = benchmark(MIX);
+  const cb = contentBench(MIX);
+  const r = whatIf(MIX[3], rb, 40, cb);
+  assert.equal(r.lens, "content");
+  assert.equal(r.contentPct, 0.8, "40 of its 50 hours");
+  assert.equal(r.nowTier, "regret", "10 of 50 today");
+  assert.equal(r.tier, "fair", "80% lands mid-shelf against these quartiles");
+  assert.equal(r.changed, true);
+  // Without the bench nothing about the old replay changes.
+  const plain = whatIf(MIX[3], rb, 40);
+  assert.equal(plain.lens, "rate");
+  assert.equal(plain.contentPct, 0.8, "the fraction is still reported, just not graded on it");
+});
+
+test("headline can describe the worst buy in content terms", () => {
+  assert.equal(headline({ total: 10, played: 5, worstName: "Short", worstNote: "100% of 6 h" }),
+    "50% of 10 games played. Worst buy: Short — 100% of 6 h.");
+  assert.equal(headline({ total: 10, played: 5, worstName: "Anthem", worstRate: "₹2,100" }),
+    "50% of 10 games played. Worst buy: Anthem at ₹2,100/h.", "rate wording untouched");
 });
 

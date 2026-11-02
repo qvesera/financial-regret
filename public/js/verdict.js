@@ -1,9 +1,17 @@
 /** Verdict engine — pure, no DOM, no I/O.
  *
- *  A game's worth is judged against this library's own distribution of
- *  price-per-hour, not a hardcoded rupee threshold: what counts as a rip-off
- *  depends on what you normally pay. Quartiles (p25/p50/p75) are the whole
- *  model, which is why the UI can draw them as a box plot.
+ *  Two lenses judge a library, and every row is judged by exactly one of them:
+ *
+ *  - **content** — playtime ÷ typical length, for games whose length is known.
+ *    Finished is finished: a 6-hour indie you completed is 100% consumed, not
+ *    a ₹166/h failure. Graded against your own library's quartiles of
+ *    consumption, inverted so that higher is better.
+ *  - **rate** — price ÷ hours, the original model, for everything else.
+ *
+ *  Both read your library's own distribution, never a hardcoded threshold:
+ *  what counts as a rip-off depends on what you normally pay and how you
+ *  normally finish. Quartiles (p25/p50/p75) are the whole model, which is why
+ *  the UI can draw them as box plots.
  */
 import { pricePerHour } from "./format.js";
 
@@ -60,6 +68,50 @@ export function contentPct(game) {
   return Number.isFinite(pct) ? Math.min(1, pct) : null;
 }
 
+/** Consumption observations for the content bench: played games (an hour or
+ *  more — an unopened game is not an observation of consumption) whose length
+ *  is known, ascending. Mirrors rateSamples' rule that only evidence counts. */
+export function contentSamples(rows) {
+  const out = [];
+  for (const g of rows || []) {
+    if (!g || g.hours == null || g.hours < 1) continue;
+    const pct = contentPct(g);
+    if (pct != null) out.push(pct);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+/** The content benchmark: quartiles of how much of their lengths your library
+ *  has actually consumed. Below three observations there is no meaningful
+ *  quartile (bounds stay null); and when the spread is degenerate — everyone
+ *  sits at (nearly) the same point — quartiles would grade every row by mere
+ *  equality, so `degenerate` tells the caller to use fixed marks instead. */
+export function contentBench(rows) {
+  const s = contentSamples(rows);
+  const enough = s.length >= 3;
+  const p25 = enough ? quantile(s, 0.25) : null;
+  const p75 = enough ? quantile(s, 0.75) : null;
+  return {
+    samples: s.length,
+    p25,
+    p50: enough ? quantile(s, 0.5) : null,
+    p75,
+    p90: enough ? quantile(s, 0.9) : null,
+    max: s.length ? s[s.length - 1] : null,
+    degenerate: enough && p75 - p25 < 0.05,
+  };
+}
+
+/** Which lens judged this row: content when a length exists *and* the library
+ *  holds enough lengths to compare against (three, same floor as the rate
+ *  bench), rate otherwise. The lens travels with verdicts, rankings and
+ *  badges so no display has to re-derive it. */
+export function lensOf(game, contentBench) {
+  if (!game || contentPct(game) == null) return "rate";
+  if (!contentBench || (contentBench.samples || 0) < 3) return "rate";
+  return "content";
+}
+
 /** Tier order, cheapest verdict first. */
 export const TIERS = ["worth", "fair", "regret", "untouched", "free", "nodata"];
 
@@ -85,38 +137,65 @@ export const TIER_LABEL = {
  *              every other rate by construction — grading it against p25 would
  *              make Worth it mean "is it free"
  *  unknown   — fewer than 3 priced games in the library to compare against   */
-export function verdictOf(game, bench) {
+export function verdictOf(game, rateBench, contentBench) {
   if (!game || game.price == null) return "nodata";
   if (game.hours == null || game.hours < 1) return "untouched";
   // Playtime is checked first on purpose: a free game never opened is still
   // Untouched — the play truth comes before the money truth.
   if (game.price === 0) return "free";
+  // Content lens first: a game with a known length is judged on how much of it
+  // you consumed, not on how expensive its hours were — which is the entire
+  // criticism this lens exists to answer.
+  if (lensOf(game, contentBench) === "content") {
+    const pct = contentPct(game);
+    if (contentBench.degenerate) {
+      // Everyone at (nearly) the same point: quartiles would call every row
+      // Worth it for being equal to itself. Fixed marks instead.
+      if (pct >= 0.9) return "worth";
+      if (pct >= 0.5) return "fair";
+      return "regret";
+    }
+    if (pct >= contentBench.p75) return "worth";
+    if (pct >= contentBench.p25) return "fair";
+    return "regret";
+  }
   const rate = pricePerHour(game.price, game.hours);
   if (rate == null || !Number.isFinite(rate)) return "untouched";
-  if (!bench || bench.p25 == null) return "unknown";
-  if (rate <= bench.p25) return "worth";
-  if (rate <= bench.p50) return "fair";
+  if (!rateBench || rateBench.p25 == null) return "unknown";
+  if (rate <= rateBench.p25) return "worth";
+  if (rate <= rateBench.p50) return "fair";
   return "regret";
 }
 
 /** Every verdict for a library, keyed by game id. */
-export function verdictMap(rows, bench) {
+export function verdictMap(rows, rateBench, contentBench) {
   const out = new Map();
-  for (const g of rows || []) out.set(g.id, verdictOf(g, bench));
+  for (const g of rows || []) out.set(g.id, verdictOf(g, rateBench, contentBench));
   return out;
 }
 
-/** Replay a game at a hypothetical playtime: what the per-hour rate would be
- *  and whether that flips the verdict. Used by the what-if slider. */
-export function whatIf(game, bench, hours) {
+/** Replay a game at a hypothetical playtime: what the per-hour rate would be,
+ *  what fraction of its length that would consume, and whether either flips
+ *  the verdict. Used by the what-if slider. `contentBench` is optional —
+ *  without it (or without a length on the game) the replay is judged on the
+ *  rate lens, exactly as before. */
+export function whatIf(game, rateBench, hours, contentBench) {
   const h = Number(hours);
   const rate = pricePerHour(game ? game.price : null, h);
   const nowRate = game ? pricePerHour(game.price, game.hours) : null;
   const playable = game && game.price != null && Number.isFinite(h) && h >= 1;
+  // The replay keeps the game's own length: dragging hours changes the
+  // numerator, never what the game is meant to be.
+  const replay = playable && game
+    ? { price: game.price, hours: h, expectedHours: game.expectedHours }
+    : game;
   const tier = playable
-    ? verdictOf({ price: game.price, hours: h }, bench)
-    : verdictOf(game, bench);
-  const nowTier = game ? verdictOf(game, bench) : "nodata";
+    ? verdictOf(replay, rateBench, contentBench)
+    : verdictOf(game, rateBench, contentBench);
+  const nowTier = game ? verdictOf(game, rateBench, contentBench) : "nodata";
+  const replayPct = playable && game && game.expectedHours > 0
+    ? contentPct({ hours: h, expectedHours: game.expectedHours })
+    : null;
   return {
     rate: rate != null && Number.isFinite(rate) ? rate : null,
     tier,
@@ -126,6 +205,9 @@ export function whatIf(game, bench, hours) {
       ? rate - nowRate
       : null,
     changed: tier !== nowTier,
+    lens: lensOf(game, contentBench),
+    contentPct: replayPct,
+    nowContentPct: game ? contentPct(game) : null,
   };
 }
 
@@ -139,44 +221,79 @@ export function coverHue(id) {
 }
 
 /** One plain-language line for the hero. Money is passed in already
- *  formatted — this module never touches a currency formatter. */
-export function headline({ total = 0, played = 0, worstName = null, worstRate = null } = {}) {
+ *  formatted — this module never touches a currency formatter. `worstNote`
+ *  lets the caller describe the worst buy in its own lens ("50% of 12 h"),
+ *  instead of forcing a rupee rate onto a content-graded row. */
+export function headline({ total = 0, played = 0, worstName = null, worstRate = null, worstNote = null } = {}) {
   if (!total) return "";
   const pct = Math.round((played / total) * 100);
   if (!played) return `${total} games, none played yet — the shelf is the story.`;
   if (!worstName) return `${played} of ${total} games played — ${pct}% of the library.`;
+  if (worstNote) return `${pct}% of ${total} games played. Worst buy: ${worstName} — ${worstNote}.`;
   return `${pct}% of ${total} games played. Worst buy: ${worstName} at ${worstRate}/h.`;
 }
 
-/** Ranked extremes for the insight cards. Games need at least an hour of play
- *  to be evidence about value — a 10-minute session proves nothing — and a
- *  price above zero, because a free game tops Best value by definition and
- *  would colonise the list while proving nothing about what a purchase was
- *  worth. */
-export function comparators(rows, limit = 5) {
-  const scored = (rows || [])
+/** Ranked extremes for the insight cards, on two axes.
+ *
+ *  Every row keeps the axis that judged it: rows with a known length rank by
+ *  content consumed (least first for worst, most first for best), rows
+ *  without one rank by price ÷ hours as before. The populations never mix
+ *  inside a sort — content rows lead, rate rows fill the remaining slots —
+ *  and each entry carries `lens`, `contentPct` and `expectedHours` so every
+ *  display can say which number it is showing.
+ *
+ *  Games need at least an hour of play to be evidence about value — a
+ *  10-minute session proves nothing — and a price above zero, because a free
+ *  game tops Best value by definition and would colonise the list while
+ *  proving nothing about what a purchase was worth.
+ */
+export function comparators(rows, limit = 5, contentBench) {
+  const base = (rows || [])
     .filter((x) => x.price != null && x.price > 0 && x.hours != null && x.hours >= 1)
-    .map((x) => ({
-      id: x.id,
-      name: x.name,
-      hours: x.hours,
-      price: x.price,
-      rate: pricePerHour(x.price, x.hours),
-    }))
+    .map((x) => ({ row: x, rate: pricePerHour(x.price, x.hours) }))
     .filter((x) => Number.isFinite(x.rate));
-  const desc = [...scored].sort((a, b) => b.rate - a.rate || (b.hours || 0) - (a.hours || 0));
-  const paidBest = [...desc].reverse().slice(0, limit);
+  const rated = base.filter((x) => lensOf(x.row, contentBench) !== "content")
+    .map((x) => ({
+      id: x.row.id, name: x.row.name, hours: x.row.hours, price: x.row.price,
+      rate: x.rate, lens: "rate",
+    }));
+  const contented = base.filter((x) => lensOf(x.row, contentBench) === "content")
+    .map((x) => ({
+      id: x.row.id, name: x.row.name, hours: x.row.hours, price: x.row.price,
+      rate: x.rate, lens: "content",
+      contentPct: contentPct(x.row), expectedHours: x.row.expectedHours,
+    }));
+
+  const desc = [...rated].sort((a, b) => b.rate - a.rate || (b.hours || 0) - (a.hours || 0));
+  // Worst: the least-consumed games first (that is the criticism this lens
+  // answers), then the dearest hours filling whatever slots are left. The two
+  // axes are never sorted against each other — each row shows its own number.
+  const contentWorst = [...contented]
+    .sort((a, b) => (a.contentPct ?? 1) - (b.contentPct ?? 1) || b.rate - a.rate)
+    .slice(0, limit);
+  const worst = [
+    ...contentWorst,
+    ...desc.slice(0, Math.max(0, limit - contentWorst.length)),
+  ];
+  // Best: the most-consumed first, then the cheapest hours.
+  const contentBest = [...contented]
+    .sort((a, b) => (b.contentPct ?? 0) - (a.contentPct ?? 0) || a.rate - b.rate)
+    .slice(0, limit);
+  const paidBest = [
+    ...contentBest,
+    ...[...desc].reverse().slice(0, Math.max(0, limit - contentBest.length)),
+  ];
   // Best value falls back to free games when nothing paid qualifies — in an
   // all-free view the only value on offer is play itself, so the most hours
   // wins. Rate stays 0 because free is 0/h: honest, and uniform across rows.
-  // Hall of shame gains nothing from this fallback: worst stays empty for
+  // The worst list gains nothing from this fallback: worst stays empty for
   // free rows (nothing was paid), and the view hides that card outright
   // rather than implying a free game could ever be a bad buy.
   const freeBest = (rows || [])
     .filter((x) => x.price === 0 && x.hours != null && x.hours >= 1)
     .sort((a, b) => b.hours - a.hours)
     .slice(0, limit)
-    .map((x) => ({ id: x.id, name: x.name, hours: x.hours, price: 0, rate: 0 }));
+    .map((x) => ({ id: x.id, name: x.name, hours: x.hours, price: 0, rate: 0, lens: "rate" }));
   // Untouched ranked by what it cost: an unopened game has no rate to rank on
   // (₹/hour over ~zero hours is unbounded), and the honest measure of a
   // wasted purchase is the purchase. Mirrors the Untouched verdict — hours
@@ -188,9 +305,13 @@ export function comparators(rows, limit = 5) {
     .slice(0, limit)
     .map((x) => ({ id: x.id, name: x.name, hours: x.hours, price: x.price }));
   return {
-    worst: desc.slice(0, limit),
+    worst,
     best: paidBest.length ? paidBest : freeBest,
     untouched,
+    // Which axis filled each list — the titles, chips and card faces follow
+    // this rather than guessing from the rows.
+    worstLens: worst.length ? worst[0].lens : null,
+    bestLens: paidBest.length ? paidBest[0].lens : null,
   };
 }
 

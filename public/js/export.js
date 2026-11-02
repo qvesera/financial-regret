@@ -5,7 +5,7 @@
  *  and it takes one as an argument. No dependencies: the arcade skin is drawn
  *  by hand so the repo keeps its zero-frontend-dep footing.
  */
-import { money, perHour, pricePerHour } from "./format.js";
+import { money, perHour, pricePerHour, hours } from "./format.js";
 import { TIER_LABEL, TIERS, comparators as rankGames } from "./verdict.js";
 import { computeRegret } from "./regret.js";
 
@@ -81,10 +81,16 @@ export function exportKinds(state) {
   return out;
 }
 
-export function kindLabel(kind) {
+/** The label a kind wears on a chip, a card face and a share sheet. `lens`
+ *  only matters for the worst list, whose title follows the axis that filled
+ *  it: content rows call it "Left on the table", rate rows "Most per hour" —
+ *  the old "Hall of shame" name is gone, because a short finished game was
+ *  never a shame. */
+export function kindLabel(kind, lens) {
   if (kind === "wrapped") return "Wrapped";
-  if (kind === "worst") return "Hall of shame";
+  if (kind === "worst") return lens === "content" ? "Left on the table" : "Most per hour";
   if (kind === "best") return "Best value";
+  if (kind === "untouched") return "Untouched";
   if (kind === "view") return "This view";
   if (kind && kind.startsWith("verdict:")) return TIER_LABEL[kind.slice(8)] || kind.slice(8);
   return String(kind || "");
@@ -160,7 +166,7 @@ export function cardSpec(state, kind = "wrapped") {
     // screenshots — it has to be the full story, so both come from the
     // library itself (libMetrics above), never from the view.
     const m = libMetrics;
-    const c = rankGames(games);
+    const c = rankGames(games, 5, state.contentBench);
     const worst = (c.worst || [])[0];
     const best = (c.best || [])[0];
     const idle = (c.untouched || [])[0];
@@ -180,8 +186,16 @@ export function cardSpec(state, kind = "wrapped") {
         { label: "PLAYED", value: `${pct}%` },
       ],
       rows: [
-        worst && { name: `Worst buy · ${worst.name}`, value: perHour(worst.rate, cur), meta: "per hour" },
-        best && { name: `Best value · ${best.name}`, value: perHour(best.rate, cur), meta: "per hour" },
+        // A content-graded row is described in content: a percentage with the
+        // length it is a percentage of. Never a rupee rate it was not judged on.
+        worst && (worst.lens === "content"
+          ? { name: `Worst buy · ${worst.name}`, value: `${Math.round(worst.contentPct * 100)}%`,
+            meta: worst.expectedHours == null ? "" : `of ${hours(worst.expectedHours)}` }
+          : { name: `Worst buy · ${worst.name}`, value: perHour(worst.rate, cur), meta: "per hour" }),
+        best && (best.lens === "content"
+          ? { name: `Best value · ${best.name}`, value: `${Math.round(best.contentPct * 100)}%`,
+            meta: best.expectedHours == null ? "" : `of ${hours(best.expectedHours)}` }
+          : { name: `Best value · ${best.name}`, value: perHour(best.rate, cur), meta: "per hour" }),
         idle && { name: `Biggest idle buy · ${idle.name}`, value: money(idle.price, cur), meta: "never opened" },
         // The add-on figure gets no stat slot: drawCard paints a fixed 2x2 grid
         // and slices at MAX_STATS, so a fifth stat would vanish from the canvas.
@@ -203,20 +217,29 @@ export function cardSpec(state, kind = "wrapped") {
     const list = (state.comparators || {})[kind] || [];
     if (!list.length) return null;
     const tier = kind === "worst" ? "regret" : "worth";
+    // The face follows the axis that filled the list — a screenshot must not
+    // claim "per hour" over rows that were judged on consumption, or the
+    // reverse. Best value reads as either; the worst list renames itself.
+    const leadContent = list[0] && list[0].lens === "content";
+    const rowOf = (x) => (x.lens === "content"
+      ? { name: x.name, value: `${Math.round(x.contentPct * 100)}%`,
+        meta: x.expectedHours == null ? "" : `of ${hours(x.expectedHours)}` }
+      : { name: x.name, value: perHour(x.rate, cur),
+        meta: x.hours == null ? "" : `${x.hours} h` });
     return {
       ...base,
       tier,
-      title: kind === "worst" ? "HALL OF SHAME" : "BEST VALUE",
+      title: kind === "worst"
+        ? (leadContent ? "LEFT ON THE TABLE" : "MOST PER HOUR")
+        : "BEST VALUE",
       badge: TIER_LABEL[tier],
       stats: [
         { label: "ON THE LIST", value: `${list.length}` },
-        { label: "PER HOUR", value: perHour(list[0].rate, cur) },
+        leadContent
+          ? { label: "CONSUMED", value: `${Math.round(list[0].contentPct * 100)}%` }
+          : { label: "PER HOUR", value: perHour(list[0].rate, cur) },
       ],
-      rows: list.slice(0, MAX_ROWS).map((x) => ({
-        name: x.name,
-        value: perHour(x.rate, cur),
-        meta: x.hours == null ? "" : `${x.hours} h`,
-      })),
+      rows: list.slice(0, MAX_ROWS).map(rowOf),
       footnote: `Ranked from your current view · ${iso(Date.now())}${credit}`,
     };
   }

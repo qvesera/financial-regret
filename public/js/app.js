@@ -12,7 +12,7 @@ import { computeRegret } from "./regret.js";
 import { currencyForCountry } from "./format.js";
 import { paintVerdictToy, repaintVerdictToy, setToyAnchor, TOY_GAME } from "./arcade.js";
 import { cardSpec, cardBlob, renderCardTo, shareUrl, sharePayload, decodeCard, exportKinds } from "./export.js";
-import { benchmark, verdictMap, comparators as rankGames, shareNudge } from "./verdict.js";
+import { benchmark, contentBench, verdictMap, comparators as rankGames, shareNudge } from "./verdict.js";
 import { applyEdits, parseEdit } from "./edits.js";
 
 /** UI state worth keeping across reloads — filters and the what-if setting.
@@ -405,7 +405,10 @@ function renderAll() {
   // spend is read from the Add-on value KPI instead (see computeRegret).
   const scored = state.games.filter((g) => g.kind !== "dlc");
   state.bench = benchmark(scored);
-  state.verdicts = verdictMap(scored, state.bench);
+  // The content lens exists only once three lengths are known; below that
+  // lensOf() keeps every row on the rate bench and nothing changes visually.
+  state.contentBench = contentBench(scored);
+  state.verdicts = verdictMap(scored, state.bench, state.contentBench);
   state.rows = computeRows();
   // Claims about the library are made from the library, never from the browsing
   // subset: a search for one title must not make it "the worst buy", restate the
@@ -413,7 +416,7 @@ function renderAll() {
   // A filter is a question about what to look at, not a question about the
   // library's worth. Add-ons stay out: they carry no independent playtime, so
   // their spend is read from the Add-on value KPI instead (see computeRegret).
-  state.comparators = rankGames(scored);
+  state.comparators = rankGames(scored, 5, state.contentBench);
   if (!state.comparators.worst.some((t) => t.id === state.simTarget)) {
     state.simTarget = state.comparators.worst.length ? state.comparators.worst[0].id : null;
   }

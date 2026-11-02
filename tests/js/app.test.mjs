@@ -2389,7 +2389,7 @@ test("the Share button ships with the dashboard and opens the deck", async () =>
     "the drawer opens by prompting a share, not by naming a file format");
   const chips = env.root.querySelector(".export-chips").children.map((c) => c.textContent);
   assert.deepEqual(chips,
-    ["Wrapped", "Hall of shame", "Best value", "Untouched", "No benchmark", "This view"],
+    ["Wrapped", "Most per hour", "Best value", "Untouched", "No benchmark", "This view"],
     "one chip per card this library can fill — Untouched appears once, library-wide");
   const canvas = env.document.getElementById("export-canvas");
   assert.ok(canvas, "a live preview sits in the drawer");
@@ -2882,3 +2882,44 @@ test("a repaint does not blank the cover art", async () => {
   assert.equal(src(), "https://cdn.example/hades.png",
     "and stamped again after the rebuild — renderDrawer paints a fresh img at opacity 0");
 });
+
+test("three typed lengths move the shelf onto the content lens", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+  await openTitle(env, "Hades"); await saveFigure(env, "length", 40);    // 20/40 = 50%
+  await openTitle(env, "Bargain"); await saveFigure(env, "length", 100); // 10/100 = 10%
+  await openTitle(env, "Pricy"); await saveFigure(env, "length", 10);    // 5/10 = 50%
+
+  const st = mod.getState();
+  assert.ok(st.contentBench && st.contentBench.samples >= 3,
+    `three lengths form a content bench (got ${st.contentBench && st.contentBench.samples})`);
+  assert.equal(st.contentBench.degenerate, false, "a real spread, so quartiles grade");
+
+  assert.equal(st.comparators.worstLens, "content");
+  assert.equal(st.comparators.worst[0].name, "Bargain",
+    "least consumed leads the list — a finished game can no longer be the villain by rate alone");
+  assert.equal(Math.round(st.comparators.worst[0].contentPct * 100), 10);
+
+  // The badge names the axis that judged it — the ambiguity now exists.
+  const bargainRow = [...env.root.querySelectorAll(".game-row")]
+    .find((r) => r.querySelector(".cell-name").textContent.startsWith("Bargain"));
+  const badge = bargainRow.querySelector(".badge");
+  assert.ok(badge.textContent.includes("· content"), `badge text: ${badge.textContent}`);
+
+  // Two panels: the content lens leads, the rate panel stays.
+  const dist = env.document.getElementById("dist");
+  const titles = [...dist.querySelectorAll(".dist-title")].map((t) => t.textContent);
+  assert.equal(titles[0], "Content consumed across your library", "the fairer lens leads");
+  assert.ok(titles.some((t) => t.includes("Cost per hour")), "the rate panel is still there");
+
+  // The list card wears the new name and each row shows its own number.
+  const worstCard = [...env.root.querySelectorAll(".rank-card")]
+    .find((c) => c.querySelector(".rank-worst"));
+  assert.ok(worstCard.querySelector("h3").textContent.includes("Left on the table"),
+    `worst card title: ${worstCard.querySelector("h3").textContent}`);
+  const first = worstCard.querySelector("li");
+  assert.equal(first.querySelector(".rank-rate").textContent, "10%");
+  assert.equal(first.querySelector(".rank-hours").textContent, "of 100.0 h",
+    "the length it is a percentage of, not hours played");
+});
+
