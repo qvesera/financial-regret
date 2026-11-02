@@ -17,6 +17,7 @@ A browser-based dashboard that shows how much you have spent on games versus how
 - **Big libraries** — Epic's catalog is fetched page by page with live progress, so huge accounts never hang a single request
 - **Non-game filtering** — soundtracks, Unreal Engine builds, and Epic store content for UE (Fab/marketplace plugins, Megascans, projects) are excluded — only real games are listed
 - **Add-on (DLC) tracking** — add-ons and expansions are kept and badged, then tallied in their own **Add-on value** figure rather than mixed into library value or the regret score (DLC has no playtime of its own — you play it inside its base game — so counting it would make unopened base games look like the problem). Reachable today on **Epic** (base-game pointer) and **Amazon** (title match), best-effort on **GOG**. **Steam**'s public API exposes no owned-DLC list and **PlayStation** has no DLC price source, so those stores contribute no add-on rows
+- **Manual figures** — price, playtime and a typical length can be typed over per game in the inspector; a length turns playtime into content consumed (you played 50% of a 12-hour game), local to your browser and taken away by "Forget my data"
 - **In-browser only** — tokens stay in your browser localStorage; no server-side user data
 - **Privacy** — "Forget my data" clears everything instantly
 

@@ -1,4 +1,5 @@
-/** Manual edits: what the visitor says they paid, and how long they played.
+/** Manual edits: what the visitor says they paid, how long they played, and
+ *  how long the game is meant to last.
  *
  *  Pure — no DOM, no I/O — so the pipeline that consumes them is testable
  *  without a browser and the dashboard and the export cannot disagree. An edit
@@ -22,6 +23,18 @@ export function parseEdit(field, raw) {
   const text = String(raw == null ? "" : raw).trim();
   if (text === "") return { ok: true, value: null };
   const value = Number(text);
+  // A typical length must be strictly positive: 0 would divide every content
+  // percentage downstream, so it is refused with its own words here rather
+  // than stored and discovered later as a crash or an infinity.
+  if (field === "length") {
+    if (!Number.isFinite(value) || value <= 0) {
+      return { ok: false, why: "Enter a length of more than 0 hours." };
+    }
+    if (value > MAX_HOURS) {
+      return { ok: false, why: "That length is not believable." };
+    }
+    return { ok: true, value };
+  }
   if (!Number.isFinite(value) || value < 0) {
     return { ok: false, why: field === "price" ? "Enter a price of 0 or more." : "Enter hours of 0 or more." };
   }
@@ -73,6 +86,11 @@ export function applyEdits(rows, prices, edits, currency) {
     delete next.edited;
     delete next.priceCurrency;
     delete next.priceStaleCurrency;
+    // Derived fields never inherit: an effective row fed back into applyEdits
+    // (every render does this) must be rebuilt from the store's figures and
+    // the visitor's edits, not carry last pass's answer forward.
+    delete next.expectedHours;
+    delete next.expectedSource;
     if (!e) return next;
     if ("price" in e) {
       next.price = e.price;
@@ -84,6 +102,13 @@ export function applyEdits(rows, prices, edits, currency) {
       if (e.price !== null) out[g.id] = e.price;
     }
     if ("hours" in e) next.hours = e.hours;
+    if ("length" in e) {
+      // The visitor's typical length: what turns playtime into content
+      // consumed. Manual outranks anything a vendor may supply later — this
+      // is the only source Phase 1 ships, and the precedence stays.
+      next.expectedHours = e.length;
+      next.expectedSource = e.length == null ? null : "manual";
+    }
     next.edited = true;
     return next;
   });

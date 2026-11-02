@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { installEnv } from "./dom-stub.mjs";
 import { encodeCard } from "../../public/js/export.js";
-import { SHARED_VERDICTS, SHARE_NUDGE_SETS } from "../../public/js/verdict.js";
+import { SHARED_VERDICTS, SHARE_NUDGE_SETS, contentPct } from "../../public/js/verdict.js";
 import { store } from "../../public/js/store.js";
 
 const settle = async () => { for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0)); };
@@ -1694,6 +1694,45 @@ test("Reset puts the store's own price back, chip and all", async () => {
   const row = [...env.root.querySelectorAll(".game-row")]
     .find((r) => r.querySelector(".cell-name").textContent.startsWith("Hades"));
   assert.equal(row.querySelector(".edited-chip"), null, "the marker leaves with the edit");
+});
+
+test("a typical length turns playtime into content consumed in the drawer", async () => {
+  const { env, mod } = await boot({ seed: editSeed });
+  await settle();
+
+  await openTitle(env, "Hades");   // Hades: 20 h on record
+  assert.ok(editBox(env, "length"), "the drawer offers a typical length box");
+
+  await saveFigure(env, "length", 40);
+  const row = mod.getState().games.find((g) => g.id === "Steam:1");
+  assert.equal(row.expectedHours, 40, "the length lands on the row");
+  assert.equal(row.expectedSource, "manual", "and says where it came from");
+  assert.equal(Math.round(contentPct(row) * 100), 50, "20 of 40 is half a game");
+
+  const content = env.root.querySelectorAll(".drawer-row")
+    .find((r) => r.querySelector("span") && r.querySelector("span").textContent === "Content");
+  assert.ok(content, "a Content row appears once a length exists");
+  assert.ok(content.textContent.includes("50% of"), content.textContent);
+
+  // 0 is refused: it would divide every percentage downstream.
+  editBox(env, "length").value = "0";
+  editButton(env, "save-edit", "length").dispatch("click");
+  await settle();
+  assert.equal(mod.getState().games.find((g) => g.id === "Steam:1").expectedHours, 40,
+    "the refused zero leaves the stored length alone");
+  const err = env.root.querySelector(".edit-error");
+  assert.ok(err && err.hidden === false, "and the refusal is visible");
+
+  // Reset clears it, and the Content row leaves with it.
+  editButton(env, "reset-edit", "length").dispatch("click");
+  await settle();
+  const after = mod.getState().games.find((g) => g.id === "Steam:1");
+  // Reset drops the edit key outright, so the field is rebuilt away — absent,
+  // not null. Either way there is no length left to compute from.
+  assert.ok(after.expectedHours == null, "Reset clears the length");
+  assert.equal(env.root.querySelectorAll(".drawer-row")
+    .some((r) => r.querySelector("span") && r.querySelector("span").textContent === "Content"),
+  false, "and the Content row goes too");
 });
 
 test("a playtime entered by hand moves a game out of Untouched", async () => {
