@@ -123,6 +123,15 @@ test("cold start shows onboarding, hides metrics chrome", async () => {
     const links = c.querySelectorAll("button").filter((b) => b.dataset.action === "link");
     assert.equal(links.length, 0, "no dead Link button on a planned card");
   }
+  // The tag tells the truth: Xbox is not coming, it is not supported — and the
+  // reason is the missing open API plus the registration building it needs.
+  const xbox = planned[0];
+  assert.equal(xbox.querySelector(".pc-tag").textContent, "not planned");
+  assert.ok(xbox.querySelector(".pc-blurb").textContent.includes("unsupported"),
+    "the blurb agrees with the tag");
+  const xboxWhy = xbox.querySelector(".pc-planned").textContent;
+  assert.ok(xboxWhy.includes("no open library API"), "the reason is named");
+  assert.ok(xboxWhy.includes("registration"), "and what building it would require");
   assert.ok(env.root.querySelector(".api-keys"), "API keys card rendered");
   assert.equal(env.document.getElementById("kpi-high"), null, "no KPIs before linking");
   assert.equal(env.root.querySelector(".sources").hidden, true, "sources strip hidden on onboarding");
@@ -2367,7 +2376,7 @@ test("the Share button ships with the dashboard and opens the deck", async () =>
     "Copy link surfaces a URL that opens this exact card");
 });
 
-test("Copy link asks is.gd once, only on the click, and a refusal keeps the plain link", async () => {
+test("the drawer shows the short link, Copy and Share reuse it, and a refusal falls back", async () => {
   const { env } = await boot({ seed: withSteam });
   await settle();
   env.fetchRoutes.push((url) => (url.includes("is.gd/create.php")
@@ -2377,24 +2386,34 @@ test("Copy link asks is.gd once, only on the click, and a refusal keeps the plai
     .find((b) => b.dataset.action === "share");
   shareBtn.dispatch("click");
   await settle();
-  assert.ok(!env.fetchCalls.some((c) => c.url.includes("is.gd")),
-    "opening the drawer sends nothing: the card travels only on the click");
+  assert.equal(env.fetchCalls.filter((c) => c.url.includes("is.gd")).length, 1,
+    "opening the drawer asks for the short link once");
+  const linkBox = env.root.querySelector(".export-link");
+  assert.equal(linkBox.textContent, "https://is.gd/ab12cd",
+    "the field shows the short link — the long one is never displayed");
 
   const copy = env.root.querySelectorAll("button")
     .find((b) => b.dataset.action === "export-copy");
   copy.dispatch("click");
   await settle();
   assert.equal(env.fetchCalls.filter((c) => c.url.includes("is.gd")).length, 1,
-    "exactly one shortening request per copy");
+    "copying does not shorten again: it copies what the field shows");
   assert.match(env.root.querySelector(".export-status").textContent, /is\.gd\/ab12cd/,
-    "the short link is what gets surfaced (no clipboard in the stub, so it shows)");
+    "no clipboard in the stub, so the copied URL itself is shown");
 
-  // The shortener is optional: with it gone, the plain link still arrives.
+  // is.gd refuses some targets (localhost is one), and a dead shortener must
+  // degrade to the plain link rather than an empty field.
   env.fetchRoutes.pop();
+  const chip = env.root.querySelectorAll(".tab").find((b) => b.dataset.kind === "worst");
+  chip.dispatch("click");
+  await settle();
+  const plainBox = env.root.querySelector(".export-link");
+  assert.match(plainBox.textContent, /#card=/,
+    "a refused shortener shows the plain link instead");
   copy.dispatch("click");
   await settle();
-  assert.match(env.root.querySelector(".export-status").textContent, /#card=/,
-    "a refused shortener falls back to the full link");
+  assert.equal(env.root.querySelector(".export-status").textContent, plainBox.textContent,
+    "copy still copies exactly what is displayed");
 });
 
 test("the Share button waits for a library", async () => {

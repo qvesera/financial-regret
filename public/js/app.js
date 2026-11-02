@@ -1135,10 +1135,16 @@ async function repaintExportPreview() {
   if (!cv) return;
   const spec = currentExportSpec();
   if (!spec) { view.exportStatus("Nothing to export in this view."); return; }
-  const link = document.querySelector(".export-link");
-  if (link) link.textContent = await shareUrl(spec);
   const caption = document.querySelector(".export-caption");
   if (caption) caption.textContent = shareNudge(spec.regret);
+  const link = document.querySelector(".export-link");
+  // The field shows the link the visitor will copy: the short one when is.gd
+  // answers, the plain one when it does not (it refuses localhost targets, so
+  // a local run always lands on the plain link). Copy and Share read this
+  // field rather than minting a second URL — what you see is what you send.
+  const long = await shareUrl(spec);
+  const short = await api.shortenUrl(long);
+  if (link) link.textContent = short || long;
   await renderCardTo(cv, spec);
 }
 
@@ -1191,7 +1197,9 @@ async function shareExport() {
     ? new File([blob], exportFileName(spec), { type: "image/png" }) : null;
   if (file && typeof nav.canShare === "function" && nav.canShare({ files: [file] })) {
     try {
-      const payload = await sharePayload(spec);
+      const field = document.querySelector(".export-link");
+      const payload = await sharePayload(spec, undefined,
+        field && field.textContent ? field.textContent : undefined);
       await nav.share({ files: [file], title: payload.title, text: payload.text });
       view.exportStatus("Shared.");
       return;
@@ -1204,18 +1212,16 @@ async function shareExport() {
 async function copyExportLink() {
   const spec = currentExportSpec();
   if (!spec) return view.exportStatus("Nothing to export in this view.");
-  const long = await shareUrl(spec);
-  // Shortening is this click's opt-in: is.gd receives the card only when the
-  // visitor asks for a short link, and any refusal keeps the plain one —
-  // which the drawer already shows, and which never depended on anyone.
-  const short = await api.shortenUrl(long);
-  const url = short || long;
+  // Copy exactly what the drawer shows — the short link when is.gd answered,
+  // the plain one when it did not. Never a third, freshly-minted URL.
+  const field = document.querySelector(".export-link");
+  const url = (field && field.textContent) || await shareUrl(spec);
   try {
     if (typeof navigator !== "undefined" && navigator.clipboard
         && typeof navigator.clipboard.writeText === "function") {
       await navigator.clipboard.writeText(url);
-      view.exportStatus(short ? "Copied — short link."
-        : "Copied — full link (no shortener).");
+      view.exportStatus(url.includes("is.gd/")
+        ? "Copied — short link." : "Copied — full link (no shortener).");
       return;
     }
   } catch { /* clipboard refused: show the link so it can be copied by hand */ }

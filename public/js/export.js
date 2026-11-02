@@ -381,11 +381,14 @@ export async function shareUrl(spec, origin) {
 
 /** What a share sheet should send. The URL rides in `text`, not `url`: most
  *  targets drop `url` when a file is attached, and the sheet is sharing the
- *  PNG — the address has to survive inside the sentence. */
-export async function sharePayload(spec, origin) {
+ *  PNG — the address has to survive inside the sentence. `url` lets the
+ *  caller hand in the link the drawer is displaying, so the sentence carries
+ *  the same short link the visitor sees; without it, a plain one is built. */
+export async function sharePayload(spec, origin, url) {
+  const link = url || await shareUrl(spec, origin);
   return {
     title: spec.title,
-    text: `The damage report · my library, judged. Get your verdict at ${await shareUrl(spec, origin)}`,
+    text: `The damage report · my library, judged. Get your verdict at ${link}`,
   };
 }
 
