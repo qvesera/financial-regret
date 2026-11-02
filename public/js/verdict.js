@@ -49,6 +49,17 @@ export function benchmark(rows) {
   };
 }
 
+/** Share of a finite game actually consumed: playtime ÷ typical length,
+ *  capped at 1 — finishing early is still finished, and a 6-hour campaign
+ *  inside a 500-hour game is 100%, not 8000%. Null when either number is
+ *  missing, so a row without a length stays untouched: the verdict lens this
+ *  feeds lands with it, and until then it is an annotation the drawer shows. */
+export function contentPct(game) {
+  if (!game || game.hours == null || !(game.expectedHours > 0)) return null;
+  const pct = game.hours / game.expectedHours;
+  return Number.isFinite(pct) ? Math.min(1, pct) : null;
+}
+
 /** Tier order, cheapest verdict first. */
 export const TIERS = ["worth", "fair", "regret", "untouched", "free", "nodata"];
 

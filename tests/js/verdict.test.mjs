@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   benchmark, rateSamples, verdictOf, verdictMap, whatIf, coverHue, headline, comparators,
+  contentPct,
   TIER_LABEL, SHARED_VERDICTS, sharedVerdict, verdictBand, SHARE_NUDGE_SETS, shareNudge,
 } from "../../public/js/verdict.js";
 
@@ -33,6 +34,23 @@ test("benchmark reports quartiles of the library", () => {
   assert.equal(b.p75, 50);      // pos 2.25 → 40 + (80-40)*0.25
   assert.equal(b.max, 80);
   assert.equal(b.p90, 68);      // pos 2.7 → 40 + (80-40)*0.7
+});
+
+test("contentPct is playtime over a typical length, capped at finished", () => {
+  assert.equal(contentPct({ hours: 6, expectedHours: 12 }), 0.5);
+  assert.equal(contentPct({ hours: 20, expectedHours: 40 }), 0.5);
+  assert.equal(contentPct({ hours: 3, expectedHours: 12 }), 0.25);
+  assert.equal(contentPct({ hours: 500, expectedHours: 6 }), 1,
+    "a campaign inside a 500-hour game is finished, not 8300%");
+  assert.equal(contentPct({ hours: 0, expectedHours: 12 }), 0,
+    "opened for a minute is 0%, not unknown");
+  assert.equal(contentPct({ hours: 10, expectedHours: null }), null,
+    "no length, no percentage — the row stays on the rate lens");
+  assert.equal(contentPct({ hours: null, expectedHours: 12 }), null,
+    "no playtime, no percentage either");
+  assert.equal(contentPct({ hours: 10, expectedHours: 0 }), null,
+    "a zero length would divide, so it never reaches the maths");
+  assert.equal(contentPct(null), null, "and a missing row is not a number");
 });
 
 test("benchmark stays null below three observations (no invented thresholds)", () => {

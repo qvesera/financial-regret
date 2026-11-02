@@ -1,6 +1,6 @@
 /** DOM builders. textContent only — never innerHTML with user data. */
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
-import { TIER_LABEL, coverHue, headline as buildHeadline, sharedVerdict, whatIf } from "./verdict.js";
+import { TIER_LABEL, coverHue, headline as buildHeadline, sharedVerdict, whatIf, contentPct } from "./verdict.js";
 import { renderVerdictToy, repaintVerdictToy } from "./arcade.js";
 import { CARD_W, CARD_H, exportKinds, kindLabel, rupeeSvg, pixelCapRatio } from "./export.js";
 
@@ -221,8 +221,7 @@ const PLATFORMS = [
       + "application with Microsoft first — an Azure app registration and a "
       + "client ID — which no visitor can do from a browser, and even "
       + "Microsoft's own API reports last-played rather than hours played, "
-      + "too little for the per-hour verdicts. That is why this card reads "
-      + "not planned rather than coming soon.",
+      + "too little for the per-hour verdicts.",
   },
   {
     key: "psn",
@@ -2142,6 +2141,20 @@ export const view = {
     hoursRow.appendChild(this.el("strong", null, game.hours == null ? "unknown" : hours(game.hours)));
     drawerBody.appendChild(hoursRow);
 
+    // Content consumed — only when a typical length exists. It annotates the
+    // row here; the verdict lens it will feed is Phase 2, so nothing about the
+    // badge or the ranking changes yet.
+    if (game.expectedHours != null) {
+      const contentRow = this.el("div", "drawer-row");
+      contentRow.appendChild(this.el("span", null, "Content"));
+      const pct = contentPct(game);
+      contentRow.appendChild(this.el("strong", null,
+        pct == null
+          ? `${hours(game.expectedHours)} expected · not played`
+          : `${Math.round(pct * 100)}% of ${hours(game.expectedHours)}`));
+      drawerBody.appendChild(contentRow);
+    }
+
     // What the visitor says they paid, and how long they played. Placeholders
     // rather than values, so an empty box always reads as "no override" and
     // Reset is the only thing that can bring the store's figure back. Buttons
@@ -2178,6 +2191,7 @@ export const view = {
     this.editInputs = {
       price: editRow("Your price", "price", apiPrice, (v) => money(v, cur)),
       hours: editRow("Playtime", "hours", apiHours, (v) => hours(v)),
+      length: editRow("Typical length", "length", game.expectedHours, (v) => hours(v)),
     };
     this.editId = game.id;
     // The reference the Reset button restores, and — when a price was entered
@@ -2193,6 +2207,10 @@ export const view = {
     }
     if (edit.hours !== undefined) {
       drawerBody.appendChild(this.el("p", "edit-note", `Your playtime: ${hours(edit.hours)}`));
+    }
+    if (edit.length !== undefined) {
+      drawerBody.appendChild(this.el("p", "edit-note",
+        `Your typical length: ${hours(edit.length)}`));
     }
     const editError = this.el("p", "edit-error");
     editError.hidden = true;
