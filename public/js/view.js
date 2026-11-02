@@ -2059,10 +2059,6 @@ export const view = {
       if (verdict === "untouched") card.classList.add("unplayed");
       wrap.appendChild(card);
     }
-    if (!hasKey) {
-      wrap.appendChild(this.el("p", "muted grid-hint",
-        "Add a SteamGridDB API key under API keys to load cover art."));
-    }
   },
 
   /** Track showing where today's price sits between the all-time low and high.
