@@ -529,6 +529,12 @@ export const view = {
     profile.target = "_blank";
     profile.rel = "noopener noreferrer";
     links.appendChild(profile);
+    links.appendChild(this.el("span", null, " and "));
+    const contrib = this.el("a", null, "void-a11y");
+    contrib.href = "https://github.com/void-a11y";
+    contrib.target = "_blank";
+    contrib.rel = "noopener noreferrer";
+    links.appendChild(contrib);
     links.appendChild(this.el("span", null, " · "));
     const repo = this.el("a", null, "Source on GitHub ↗");
     repo.href = "https://github.com/qvesera/financial-regret";
@@ -536,17 +542,6 @@ export const view = {
     repo.rel = "noopener noreferrer";
     links.appendChild(repo);
     footer.appendChild(links);
-
-    // A second contributor, credited by their GitHub handle. The handle is the
-    // only name the git history carries for them.
-    const credit = this.el("p", "disclaimer-links");
-    credit.appendChild(this.el("span", null, "Also contributed: "));
-    const contrib = this.el("a", null, "void-a11y");
-    contrib.href = "https://github.com/void-a11y";
-    contrib.target = "_blank";
-    contrib.rel = "noopener noreferrer";
-    credit.appendChild(contrib);
-    footer.appendChild(credit);
 
     // Also down here, out from behind a menu: the way out of the app sits where
     // someone who has read this far will look for it.
@@ -2232,10 +2227,6 @@ export const view = {
       // discrepancy rather than a state.
       if (verdict === "untouched") card.classList.add("unplayed");
       wrap.appendChild(card);
-    }
-    if (!hasKey) {
-      wrap.appendChild(this.el("p", "muted grid-hint",
-        "Add a SteamGridDB API key under API keys to load cover art."));
     }
   },
 

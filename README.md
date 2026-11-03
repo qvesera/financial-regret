@@ -196,9 +196,7 @@ everything, on purpose.
 
 ## Author
 
-Built by [qvesera](https://github.com/qvesera). Source: [github.com/qvesera/financial-regret](https://github.com/qvesera/financial-regret).
-
-Also contributed: [void-a11y](https://github.com/void-a11y).
+Built by [qvesera](https://github.com/qvesera) and [void-a11y](https://github.com/void-a11y). Source: [github.com/qvesera/financial-regret](https://github.com/qvesera/financial-regret).
 
 This project stands with Palestine. Free Palestine.
 
