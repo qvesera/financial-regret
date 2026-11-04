@@ -254,7 +254,7 @@ const PLATFORMS = [
     key: "psn",
     name: "PlayStation",
     platform: "PlayStation",
-    blurb: "Played titles, with real playtime. Sony has no official library API, so this reads what your profile already shows publicly — no sign-in, no password, no token. Prices come from PlatPrices when a key is set.",
+    blurb: "Played titles, with real playtime. Sony has no official library API, so this reads what your profile already shows publicly — no sign-in, no password, no token. Prices come from the PlayStation Store itself, so no key is needed either.",
     cta: "Connect PlayStation",
     steps: [
       "Type your PSN online ID below — the name on your profile, not an email address and not an account id.",
@@ -489,15 +489,15 @@ export const view = {
     const footer = this.el("footer", "disclaimer");
     footer.appendChild(this.el("p", null, "Prices are today's cheapest price (IsThereAnyDeal) in your selected currency — a replacement-cost estimate, not what you actually paid. Games with unknown playtime are excluded from every ratio, never counted as zero."));
     footer.appendChild(this.el("p", null, "GOG and Epic use the unofficial credentials baked into their own launchers. Tokens stay in this browser's localStorage and are never logged or stored server-side."));
-    // PlatPrices' free and Indie plans require a credit wherever its data is
-    // shown. Left hidden until the server actually returns one, so a library
-    // with no PSN rows carries no dead credit line.
+    // A provider credit, wherever one is required by the data shown. None is
+    // owed today, but the line stays live and hidden rather than deleted, so a
+    // future provider that demands attribution appears without another change.
     const attribution = this.el("p", "disclaimer-attribution");
     attribution.hidden = true;
     footer.appendChild(attribution);
     // Why PlayStation pricing is empty, when that is knowable. Without it the
-    // four different reasons -- no key saved, region not on the key's plan,
-    // upstream down, store has no such title -- all look identical: a blank
+    // three different reasons -- this currency has no store, the store did not
+    // answer, the store carries no such title -- all look identical: a blank
     // column, and a user hunting for a bug that is really a setting.
     const psnNote = this.el("p", "disclaimer-psn-note");
     psnNote.hidden = true;
@@ -568,8 +568,8 @@ export const view = {
   },
 
 
-  /** Show the provider credit PlatPrices' free/Indie plans require, or hide
-   *  it entirely when no PSN prices came back. */
+  /** Show a provider credit, when a pricing source owes one, or hide the line
+   *  entirely when none is owed (which is what every source answers today). */
   setPricingAttribution(text) {
     if (!this.attribution) return;
     this.attribution.textContent = text || "";
@@ -881,9 +881,9 @@ export const view = {
     // could be read without one, which only holds while the server shares its
     // own — the hint says which world this instance is in. Only cover art is
     // genuinely optional.
-    // Four fields in a 2×2 grid. The card's own heading says what they are;
-    // the old KEYS/DISPLAY column split left with the currency picker, which
-    // now lives in the header on every screen.
+    // Three fields: prices, playtime and cover art. The card's own heading says
+    // what they are; the old KEYS/DISPLAY column split left with the currency
+    // picker, which now lives in the header on every screen.
     const fields = this.el("div", "api-keys-fields");
 
     fields.appendChild(this.keyField("itad", "IsThereAnyDeal API key",
@@ -892,12 +892,9 @@ export const view = {
     const steamField = this.keyField("steam", "Steam Web API key", copy.steamHint,
       "https://steamcommunity.com/dev/apikey");
     fields.appendChild(steamField);
-    // The backend already honours a user-supplied PlatPrices key (psn_prices
-    // reads X-Platprices-Key before the server's own), so its field sits with
-    // the other functional keys rather than only in the PlayStation copy.
-    fields.appendChild(this.keyField("platprices", "PlatPrices API key",
-      "PlayStation prices when the shared server key is missing",
-      "https://platprices.com/api-request"));
+    // No PlatPrices field: PlayStation now prices itself off Sony's public
+    // storefront (psn_prices.py), so there is no credential to paste, no quota
+    // to share and no third party to ask. Three fields remain.
     fields.appendChild(this.keyField("sgdb", "SteamGridDB API key",
       "cover art in the grid view — cosmetic, no number depends on it",
       "https://steamgriddb.com/profile/preferences/api"));

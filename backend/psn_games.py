@@ -31,10 +31,12 @@ Two honest limits, both upstream:
 Playtime arrives as an ISO-8601 duration ("PT228H56M33S") and is parsed to
 hours here; a title with no duration reports null, never 0.
 
-IsThereAnyDeal has no PlayStation Store catalog, so pricing comes from a
-different provider -- PlatPrices (see psn_prices.py), which joins on the PSN
-title id. That id is passed through below so the client can route each row to
-the right source without another gamelist request.
+IsThereAnyDeal has no PlayStation Store catalog, and PlatPrices -- the provider
+this used to price through -- no longer issues keys, so pricing comes from
+Sony's storefront (see psn_prices.py). That joins on the store's *concept* id:
+the gamelist already returns it as ``titleId``'s sibling ``concept.id``, which
+stands for every version of a game, so it is passed through below rather than
+forcing a second, fuzzy lookup by title text.
 """
 import os
 import re
@@ -118,6 +120,25 @@ def resolve_account_id(online_id: str, token: str | None) -> tuple:
 _DUR = re.compile(
     r"^P(?:(?P<d>\d+)D)?(?:T(?:(?P<h>\d+)H)?(?:(?P<m>\d+)M)?(?:(?P<s>\d+(?:\.\d+)?)S)?)?$"
 )
+
+
+def _concept_id(title) -> int | None:
+    """The PS Store concept id from one gamelist entry, or None when absent.
+
+    The gamelist carries ``concept: {id, titleIds, name}``, where the concept is
+    Sony's identifier spanning every version of a game (a PS4 and a PS5 edition
+    share one). Entries can arrive without it, and a missing concept is not an
+    error: the row stays Unpriced rather than being priced against some other
+    game, which is what a fuzzy title match would have done instead.
+    """
+    concept = title.get("concept")
+    if not isinstance(concept, dict):
+        return None
+    value = concept.get("id")
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    text = str(value).strip()
+    return int(text) if text.isdigit() and int(text) > 0 else None
 
 
 def iso8601_to_hours(raw) -> float | None:
@@ -233,9 +254,11 @@ class handler(BaseHTTPRequestHandler):
                 "id": f"PSN:{t.get('titleId') or t.get('name') or 'unknown'}",
                 "name": t.get("name") or t.get("localizedName") or "PlayStation game",
                 "platform": "PlayStation",
-                # PlatPrices joins on exactly this id (its `NpTitleId`), so pass
-                # it through rather than forcing a second lookup by title.
                 "titleId": t.get("titleId") or None,
+                # Sony's own id for "all versions of this game" -- the join key
+                # psn_prices.py prices on, so pass it through rather than
+                # forcing a second lookup by title text.
+                "conceptId": _concept_id(t),
                 "hours": iso8601_to_hours(t.get("playDuration")),
             }
             for t in titles

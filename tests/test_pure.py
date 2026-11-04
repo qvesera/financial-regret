@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 from prices import _normalise_title  # noqa: E402
 from psn_games import iso8601_to_hours  # noqa: E402
 from psn_prices import (  # noqa: E402
-    REGION_BY_CURRENCY, _index_by_title_id, _money, _price_fields,
+    LOCALE_BY_CURRENCY, _locale_for, _money, _price_fields, _purchase_cta,
 )
 
 
@@ -58,84 +58,119 @@ class TestIso8601ToHours(unittest.TestCase):
         self.assertIsNone(iso8601_to_hours(None))
 
 
-class TestPlatPricesMoney(unittest.TestCase):
-    """PlatPrices quotes integers in the region's *minor* units, and the
-    decimal count is per region -- not a universal 2. A hardcoded /100 would
-    price every Japanese title at 1/100th of what it costs."""
+def _cta(upsell, price):
+    return {"meta": {"upSellService": upsell}, "price": price}
 
-    def test_two_decimal_region(self):
-        self.assertEqual(_money(5999, "in"), 59.99)
 
-    def test_zero_decimal_region(self):
-        self.assertEqual(_money(5999, "jp"), 5999.0)
+def _payload(*ctas):
+    return {"data": {"conceptRetrieve": {"defaultProduct": {"mobilectas": list(ctas)}}}}
+
+
+class TestStoreMoney(unittest.TestCase):
+    """Sony quotes whole units for some currencies and hundredths for others.
+    The decimal count belongs to the currency, not the payload -- a blind /100
+    prices every Japanese title at 1/100th of what it costs."""
+
+    def test_hundredths_region(self):
+        self.assertEqual(_money(5999, "USD"), 59.99)
+        self.assertEqual(_money(7999, "EUR"), 79.99)
+
+    def test_whole_unit_regions(self):
+        # Probed live: en-IN answers 4999 as "Rs 4,999", ja-JP 8690 as "¥8,690",
+        # ko-KR 79800 as "79,800원" -- all without a decimal point.
+        for code in ("INR", "JPY", "KRW"):
+            self.assertEqual(_money(5999, code), 5999.0, code)
 
     def test_zero_is_a_real_price(self):
         # A genuinely free game, not a missing one.
-        self.assertEqual(_money(0, "in"), 0.0)
+        self.assertEqual(_money(0, "USD"), 0.0)
 
     def test_missing_is_none(self):
-        self.assertIsNone(_money(None, "in"))
+        self.assertIsNone(_money(None, "USD"))
 
     def test_negative_is_none(self):
-        self.assertIsNone(_money(-1, "in"))
+        self.assertIsNone(_money(-1, "USD"))
 
     def test_bool_is_none(self):
         # bool is an int subclass; accepting it would price a game at 0.01.
-        self.assertIsNone(_money(True, "in"))
+        self.assertIsNone(_money(True, "USD"))
 
 
-class TestPlatPricesFields(unittest.TestCase):
-    def test_sale_price_wins(self):
-        price, high, low = _price_fields(
-            {"BasePrice": 5999, "SalePrice": 2999, "LowestEverPrice": 2499}, "in")
-        self.assertEqual((price, high, low), (29.99, 59.99, 24.99))
+class TestStorePriceFields(unittest.TestCase):
+    def test_the_sale_price_wins_and_the_list_price_is_the_high(self):
+        p = _payload(_cta("NONE", {"basePriceValue": 5999, "discountedValue": 2999}))
+        self.assertEqual(_price_fields(p, "USD"), (29.99, 59.99, None))
 
-    def test_base_price_fallback(self):
-        # Most titles have no LaunchPrice, so the list price stands in as the
-        # high -- the same meaning highs carries for every other store.
-        price, high, low = _price_fields({"BasePrice": 5999, "SalePrice": None}, "in")
-        self.assertEqual((price, high), (59.99, 59.99))
+    def test_no_campaign_reports_the_list_price(self):
+        # discountedValue 0 with no campaign means "nothing is on sale", which
+        # must not be read as "this game is free".
+        p = _payload(_cta("NONE", {"basePriceValue": 5999, "discountedValue": 0}))
+        self.assertEqual(_price_fields(p, "USD"), (59.99, 59.99, None))
 
-    def test_delisted_price_is_none_but_history_survives(self):
-        price, high, low = _price_fields(
-            {"BasePrice": 5999, "SalePrice": 5999, "LowestEverPrice": 1499,
-             "IsDelisted": 1}, "in")
-        self.assertIsNone(price, "you cannot buy a delisted game")
-        self.assertEqual(high, 59.99)
-        self.assertEqual(low, 14.99)
+    def test_free_is_zero_not_none(self):
+        p = _payload(_cta("NONE", {"basePriceValue": 0, "discountedValue": 0,
+                                   "isFree": True}))
+        self.assertEqual(_price_fields(p, "USD"), (0.0, 0.0, None))
+
+    def test_the_plus_catalog_button_is_never_read(self):
+        # The trap this whole handler exists around: the PlayStation Plus button
+        # answers "Included", isFree true, discountedValue 0. Reading it prices
+        # an entire library at zero; only upSellService NONE is a purchase.
+        plus = _cta("PS_PLUS", {"basePriceValue": 5999, "discountedValue": 0,
+                                "isFree": True, "isTiedToSubscription": True})
+        real = _cta("NONE", {"basePriceValue": 5999, "discountedValue": 5999})
+        self.assertEqual(_price_fields(_payload(plus, real), "USD"),
+                         (59.99, 59.99, None), "the real button wins")
+        self.assertEqual(_price_fields(_payload(plus), "USD"),
+                         (None, None, None), "a Plus-only concept is unpriced")
+        self.assertIsNone(_purchase_cta(_payload(plus)))
+
+    def test_history_is_never_invented(self):
+        # lows is always None: the store keeps no all-time low here, and the
+        # dashboard's tooltip already promises to fall back to today's price.
+        p = _payload(_cta("NONE", {"basePriceValue": 5999, "discountedValue": 4999}))
+        self.assertIsNone(_price_fields(p, "USD")[2])
+
+    def test_no_purchase_button_is_no_price(self):
+        for payload in (_payload(), {"data": None}, {},
+                        {"data": {"conceptRetrieve": {}}},
+                        {"data": {"conceptRetrieve": {"defaultProduct": None}}}):
+            self.assertEqual(_price_fields(payload, "USD"), (None, None, None))
+
+    def test_a_sale_above_the_list_price_cannot_read_as_a_price_cut(self):
+        # A malformed campaign (discount > base) would otherwise show a "deal"
+        # that is really just a higher number.
+        p = _payload(_cta("NONE", {"basePriceValue": 5999, "discountedValue": 8999}))
+        self.assertEqual(_price_fields(p, "USD")[0], 59.99)
 
 
-class TestPlatPricesIndex(unittest.TestCase):
-    """The join key is NpTitleId, which is exactly the titleId psn_games.py
-    returns -- but GameID (bare, no _00) is echoed back too, so index both."""
+class TestStoreLocales(unittest.TestCase):
+    """A currency with no PlayStation Store must map to no locale at all.
+    Quoting another region's price is worse than quoting none, because it
+    reads as fact on every verdict the dashboard goes on to grade."""
 
-    def test_matches_suffixed_and_bare_ids(self):
-        item = {"NpTitleId": "PPSA23226_00", "GameID": "PPSA23226"}
-        index = _index_by_title_id([item])
-        self.assertIs(index["PPSA23226_00"], item)
-        self.assertIs(index["PPSA23226"], item)
+    # Exactly what the currency picker offers (public/js/format.js). One code
+    # without a locale would be a picker entry that can never price anything.
+    OFFERED = ["INR", "USD", "EUR", "GBP", "JPY", "AUD", "CAD", "BRL", "KRW",
+               "SGD", "HKD", "NZD", "SEK", "NOK", "DKK", "CHF", "PLN", "TRY",
+               "ZAR", "MXN", "CNY", "IDR", "THB", "PHP", "RUB", "UAH", "CZK",
+               "HUF", "ILS"]
 
-    def test_uppercase_normalisation_covers_mixed_case_ids(self):
-        # The handler looks a title up as-given and then uppercased, so a
-        # mixed-case id from the store must still land.
-        item = {"NpTitleId": "PpSa23226_00"}
-        self.assertIs(_index_by_title_id([item])["PPSA23226_00"], item)
+    def test_every_offered_currency_has_a_store(self):
+        for code in self.OFFERED:
+            self.assertIn(code, LOCALE_BY_CURRENCY, f"{code} cannot be priced")
 
-    def test_skips_non_objects_and_idless_rows(self):
-        self.assertEqual(_index_by_title_id([None, "junk", {"GameID": 123}]), {})
+    def test_a_locale_looks_like_a_locale(self):
+        for code in ("INR", "USD", "JPY", "BRL"):
+            self.assertRegex(_locale_for(code), r"^[a-z]{2}-[A-Z]{2}$")
 
-
-class TestPlatPricesRegions(unittest.TestCase):
-    """Currencies with no PlatPrices store must map to no region at all.
-    Quoting a wrong region's prices is worse than quoting none."""
-
-    def test_supported_currencies_map_to_a_region(self):
+    def test_supported_currencies_map_to_a_locale(self):
         for code in ("INR", "USD", "EUR", "GBP", "JPY", "KRW"):
-            self.assertIn(code, REGION_BY_CURRENCY)
+            self.assertIn(code, LOCALE_BY_CURRENCY)
 
-    def test_unsupported_currencies_have_no_region(self):
-        for code in ("CNY", "PHP", "RUB"):
-            self.assertNotIn(code, REGION_BY_CURRENCY)
+    def test_a_currency_without_a_store_has_none(self):
+        for code in ("XAF", "XCD", "ZZZ", "not-a-code"):
+            self.assertIsNone(_locale_for(code))
 
 
 if __name__ == "__main__":

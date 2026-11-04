@@ -61,10 +61,14 @@ def user_key(handler, header: str, env_var: str) -> str | None:
 
     The caller's header key always wins, so a visitor who brought their own
     spends their own quota first. Falling back to the server key is what makes
-    an instance usable without any setup -- but that quota is a shared pool
-    (PlatPrices' free tier is 1,000 requests a month), so one busy visitor
-    could drain it for everybody, and reselling another provider's data on your
-    own account is exactly what their paid tiers are for.
+    an instance usable without any setup -- but that quota is a shared pool,
+    so one busy visitor could drain it for everybody, and reselling another
+    provider's data on your own account is exactly what their paid tiers are
+    for.
+
+    Note that PlayStation pricing takes no key at all: it reads Sony's public
+    storefront (see psn_prices.py), so there is nothing here to spend and no
+    PlayStation entry in this fallback.
 
     Public deployments set REQUIRE_USER_KEYS=1 to remove the fallback: the
     server key is then never spent on a stranger's request, and a visitor

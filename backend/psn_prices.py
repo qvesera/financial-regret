@@ -1,79 +1,112 @@
 """
-POST /api/psn_prices   body: {"games": [{"id": "PSN:PPSA23226_00", "titleId": "PPSA23226_00"}], "currency": "INR"}
+POST /api/psn_prices   body: {"games": [{"id": "PSN:PPSA23226_00", "titleId":
+"PPSA23226_00", "conceptId": 10009763}], "currency": "INR"}
 
-PlayStation Store prices, looked up by PSN title id via PlatPrices
-(platprices.com/api/v2). IsThereAnyDeal -- the source for every other store --
-does not cover the PlayStation Store at all, so PSN rows used to have no price
-and rendered as "Unpriced".
+PlayStation Store prices, read from Sony's own storefront GraphQL.
 
-Why an id and not a name: PlatPrices' game object carries ``NpTitleId``
-(e.g. "PPSA23226_00"), which is exactly the ``titleId`` the gamelist endpoint
-in psn_games.py already returns. That is a real join key, so none of the fuzzy
-title matching (and none of its mis-pairings) the ITAD path needs is required.
+IsThereAnyDeal has no PlayStation Store catalog, and PlatPrices -- the
+third-party provider this used to call -- no longer grants keys. GG.deals'
+public API only prices Steam. So the price comes from the same public endpoint
+the PS Store web app itself calls, which needs no key, no account, no login:
 
-A missing key is NOT an error: without PLATPRICES_API_KEY the endpoint answers
-200 with empty maps and PSN rows simply stay Unpriced. Pricing is a garnish on
-this dashboard, never a precondition for a scan.
+    POST https://web.np.playstation.com/api/graphql/v1/op
+    operationName=metGetPricingDataByConceptId   (persisted query, hashed)
 
-Units: PlatPrices returns integers in the region's *minor* units, scaled by a
-per-region ``decimalPlaces``. We divide by 10**d before answering, because a
-hardcoded /100 would report every Japanese game at 1/100th of its price.
+Why an id and not a name: the gamelist in psn_games.py already returns
+``concept.id`` for every title, and a concept is Sony's own identifier for the
+"various versions of a game". Pricing by it joins exactly -- no fuzzy title
+matching, and none of the mis-pairings that fuzzy matching costs.
+
+Three traps this code deliberately walks around:
+
+  * **PlayStation Plus catalog CTAs are not a price.** One concept answers with
+    several purchase buttons; the Plus one reports discountedPrice "Included",
+    isFree true and discountedValue 0. Taking it would price every game free.
+    Only the button whose ``meta.upSellService`` is "NONE" is a real purchase.
+  * **Unit scale is per currency, not always per 100.** Sony quotes whole
+    rupees, yen and won but hundredths everywhere else. A blind /100 prices
+    every Japanese title at 1/100th of what it costs.
+  * **There is no history here.** The store reports today's list and sale
+    figures only, so ``lows`` is null and the dashboard's "lowest ever" figure
+    falls back to today's price -- which is what its own tooltip promises.
+
+A missing concept is NOT an error: without a reachable price the endpoint
+answers 200 with nulls and the row simply renders Unpriced. Pricing is a
+garnish on this dashboard, never a precondition for a scan.
+
+Honest limits:
+  * This is an *unofficial* read of Sony's storefront. No third party grants or
+    revokes it -- and psn_games.py already talks to Sony's network -- but it is
+    the same Terms-of-Service uncertainty PlatPrices refused to be tied to.
+  * The persisted query hash rotates when Sony redeploys the store, which shows
+    up as ``upstream_failed``. scripts/probe_psn_store.py checks it.
 
 Response: {"prices": {..}, "highs": {..}, "lows": {..}, "resolved": {..},
-           "currency": "INR", "region": "in",
-           "attribution": "Powered by PlatPrices", "reason": null,
-           "limited": {}}
+           "currency": "INR", "region": "en-IN",
+           "attribution": null, "reason": null, "limited": {}}
 
 ``reason`` explains an empty answer and is null once anything priced:
-"no_key" (no key reached the server), "no_region" (this currency has no
-PlatPrices store), "upstream_failed" (the API did not answer), "no_match"
-(it answered and carried none of these titles) or "rate_limited" (the key's
-quota is spent -- the one cause a visitor can fix by pasting their own).
-
-Regions: a key may only query the store regions it has been configured for --
-free plans allow 2, reconfigurable at most once a day via
-PUT /account/regions. A key whose allowlist excludes India therefore answers
-with nothing at all for region=in, which is precisely the failure that
-``reason`` exists to name.
+"no_region" (this display currency has no store), "upstream_failed" (the API
+did not answer or its shape changed), "rate_limited" (the store refused this
+burst) or "no_match" (it answered and carries none of these titles). ``no_key``
+no longer exists: there is no key to forget.
 """
 import json
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler
 
 import requests
 
-from _common import send_json, handle_options, user_key
+from _common import send_json, handle_options
 
-PLATPRICES_BASE = "https://platprices.com/api/v2"
-BATCH_SIZE = 100          # ids per /games/batch call; halved automatically on 400
+STORE_URL = "https://web.np.playstation.com/api/graphql/v1/op"
+OPERATION = "metGetPricingDataByConceptId"
+# Rotated when Sony redeploys the store frontend. When this starts failing, the
+# live hash is readable off the store's own network panel.
+PERSISTED_HASH = "abcb311ea830e679fe2b697a27f755764535d825b24510ab1239a4ca3092bd09"
+# The store app sends these; without them the operation answers empty.
+CLIENT_NAME = "@sie-ppr-web-store/app"
+CLIENT_VERSION = "0.109.0"
+
 MAX_GAMES = 5000
 MAX_BODY_BYTES = 1_048_576
 PRICE_TTL = 24 * 3600     # 24 hours. Console prices drift slowly, and the cache
-                          # is per serverless instance, so a longer window
-                          # stretches PlatPrices' 1,000-request monthly plan.
+                          # is per serverless instance.
 DEFAULT_CURRENCY = "INR"
-ATTRIBUTION = "Powered by PlatPrices"
+ATTRIBUTION = None        # Sony asks for no credit, so nothing is ever claimed.
 
-# Display currency -> PlatPrices store region. Only currencies that BOTH the
-# dashboard offers and PlatPrices actually serves: CNY, PHP and RUB have no
-# store there, so those stay unpriced rather than quoting a wrong region.
-REGION_BY_CURRENCY = {
-    "INR": "in", "USD": "us", "EUR": "de", "GBP": "gb", "JPY": "jp",
-    "AUD": "au", "CAD": "ca", "BRL": "br", "KRW": "kr", "SGD": "sg",
-    "HKD": "hk", "NZD": "nz", "SEK": "se", "NOK": "no", "DKK": "dk",
-    "CHF": "ch", "PLN": "pl", "TRY": "tr", "ZAR": "za", "MXN": "mx",
-    "IDR": "id", "THB": "th", "UAH": "ua", "CZK": "cz", "HUF": "hu",
-    "ILS": "il",
+# Concept lookups are one HTTP call each -- Apollo refuses a JSON array of
+# operations with 400, so there is no batch endpoint to lean on. A whole-library
+# scan can be a few hundred concepts, so they run in parallel against a
+# wall-clock budget: anything unfetched in time simply stays Unpriced rather
+# than holding the response open until the platform times the function out.
+FETCH_WORKERS = 12
+FETCH_BUDGET_S = 20
+FETCH_TIMEOUT_S = 8
+
+# Display currency -> PS Store locale. The locale picks both the storefront and
+# its currency, so this map answers the whole region question. Every entry was
+# probed live; an unsupported locale is answered by Sony rather than guessed at
+# here, so a currency with no store maps to no locale and reports no_region.
+LOCALE_BY_CURRENCY = {
+    "INR": "en-IN", "USD": "en-US", "EUR": "de-DE", "GBP": "en-GB", "JPY": "ja-JP",
+    "AUD": "en-AU", "CAD": "en-CA", "BRL": "pt-BR", "KRW": "ko-KR", "SGD": "en-SG",
+    "HKD": "zh-HK", "NZD": "en-NZ", "SEK": "sv-SE", "NOK": "no-NO", "DKK": "da-DK",
+    "CHF": "de-CH", "PLN": "pl-PL", "TRY": "en-TR", "ZAR": "en-ZA", "MXN": "es-MX",
+    "CNY": "zh-CN", "IDR": "id-ID", "THB": "th-TH", "PHP": "en-PH", "RUB": "ru-RU",
+    "UAH": "uk-UA", "CZK": "cs-CZ", "HUF": "hu-HU", "ILS": "he-IL",
 }
 
-# Regions whose currency has no minor unit; everywhere else PlatPrices quotes
-# hundredths. A static set rather than a /regions round-trip because the only
-# zero-decimal stores among PlatPrices' 47 are Japan and Korea.
-ZERO_DECIMAL_REGIONS = {"jp", "kr"}
+# Currencies Sony quotes in whole units. Everything else is quoted in
+# hundredths. Verified live for INR, JPY and KRW, and for the inverse across the
+# other 22 offered currencies; the last seven take their ISO minor unit.
+ZERO_DECIMAL_CURRENCIES = {"INR", "JPY", "KRW"}
 
-# {"region:title_id": ({price, high, low}, expiry)}
-_price_cache: dict[str, tuple[dict, float]] = {}
+# {locale:conceptId: ({price, high, low} | _MISS, expiry)}
+_price_cache: dict[str, tuple] = {}
+_MISS = object()          # cached marker: the store has no purchasable offer here
 
 
 def _now() -> float:
@@ -91,7 +124,7 @@ def _cache_get(key: str):
     return value
 
 
-def _cache_set(key: str, value: dict) -> None:
+def _cache_set(key: str, value) -> None:
     _price_cache[key] = (value, _now() + PRICE_TTL)
 
 
@@ -104,132 +137,212 @@ def _normalise_currency(raw) -> str:
     return DEFAULT_CURRENCY
 
 
-def _money(raw, region: str) -> float | None:
-    """Minor-unit integer -> major-unit float, or None when absent/invalid."""
+def _locale_for(currency: str) -> str | None:
+    """The store locale for this display currency, or None when it has none.
+
+    Deliberately absent rather than defaulted: quoting a wrong region's price is
+    worse than quoting none, because it reads as fact on every verdict.
+    """
+    return LOCALE_BY_CURRENCY.get(currency)
+
+
+def _unit_scale(currency: str) -> int:
+    """Divisor from Sony's integer to the displayed amount for this currency."""
+    return 1 if currency in ZERO_DECIMAL_CURRENCIES else 100
+
+
+def _money(raw, currency: str) -> float | None:
+    """Whole units -> major-unit float, or None when absent/invalid."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
     if raw < 0:
         return None
-    scale = 1 if region in ZERO_DECIMAL_REGIONS else 100
-    return round(raw / scale, 2)
+    return round(raw / _unit_scale(currency), 2)
 
 
-def _price_fields(item: dict, region: str) -> tuple:
-    """(price, high, low) from one PlatPrices game object.
+def _purchase_cta(payload: dict):
+    """The one CTA that is an actual purchase, or None.
 
-    ``SalePrice`` is what the store charges today (sale or not); ``BasePrice`` is
-    the undiscounted list figure. ``LaunchPrice`` is absent on most titles, so
-    the list price stands in as the historical high -- which is the same
-    meaning ``highs`` carries for every other store. A delisted game has no
-    purchasable price at all, so it reports None rather than an amount nobody
-    can act on.
-    """
-    price = item.get("SalePrice")
-    if price is None:
-        price = item.get("BasePrice")
-    high = item.get("LaunchPrice")
-    if high is None:
-        high = item.get("BasePrice")
-    low = item.get("LowestEverPrice")
-    if item.get("IsDelisted") in (1, True, "1"):
-        price = None
-    return (_money(price, region), _money(high, region), _money(low, region))
-
-
-def _index_by_title_id(items) -> dict:
-    """{id: game object}, indexed under both id shapes PlatPrices returns.
-
-    Verified against the keyless /demo payload: ``NpTitleId`` is the
-    ``_00``-suffixed form our gamelist already carries ("PPSA23226_00"), while
-    ``GameID`` is the bare one ("PPSA23226"). ``PSNID`` is deliberately skipped:
-    it is a full content id ("HP6545-PPSA23226_00-GAME000000000000"), not a
-    title id, so it is never a valid lookup key.
-    """
-    index: dict[str, dict] = {}
-    for item in items or []:
-        if not isinstance(item, dict):
-            continue
-        for key in ("NpTitleId", "GameID"):
-            value = item.get(key)
-            if isinstance(value, str) and value:
-                index[value] = item
-                index.setdefault(value.upper(), item)
-    return index
-
-
-def _request_batch(api_key: str, title_ids: list, region: str):
-    """One /games/batch call.
-
-    Returns a list (possibly empty), None on failure, the string "SPLIT" when
-    the batch exceeded the plan's per-request record cap -- which surfaces as
-    400 INVALID_PARAM -- and therefore needs to be halved by the caller, or the
-    string "LIMITED" when PlatPrices answers 429. A spent quota is a different
-    answer from a dead upstream, and only one of them is fixed by pasting a key.
+    A concept answers with several buttons: a PlayStation Plus catalog offer, a
+    trial, a preorder. Only upSellService "NONE" is "buy this game" -- the Plus
+    button reports itself as free and would price the whole library at zero.
     """
     try:
-        resp = requests.get(
-            f"{PLATPRICES_BASE}/games/batch",
-            params={"psnids": ",".join(title_ids), "region": region},
-            headers={"X-API-Key": api_key},
-            timeout=20,
+        product = payload["data"]["conceptRetrieve"]["defaultProduct"]
+    except (KeyError, TypeError):
+        return None
+    if not isinstance(product, dict):
+        return None
+    for cta in product.get("mobilectas") or []:
+        if not isinstance(cta, dict):
+            continue
+        meta = cta.get("meta") or {}
+        if meta.get("upSellService") == "NONE":
+            return cta
+    return None
+
+
+def _price_fields(payload: dict, currency: str) -> tuple:
+    """(price, high, low) from one metGetPricingDataByConceptId answer.
+
+    ``basePriceValue`` is the undiscounted list figure and stands in as the
+    historical high -- the same meaning ``highs`` carries for every other store.
+    The sale price is what the store charges today. There is no all-time low in
+    this payload at all, so low is always None and the dashboard falls back to
+    today's price rather than inventing a history it cannot back up.
+    """
+    cta = _purchase_cta(payload)
+    if cta is None:
+        return (None, None, None)
+    price_obj = cta.get("price")
+    if not isinstance(price_obj, dict):
+        return (None, None, None)
+
+    base = price_obj.get("basePriceValue")
+    discounted = price_obj.get("discountedValue")
+    if price_obj.get("isFree"):
+        return (0.0, _money(base, currency) or 0.0, None)
+
+    high = _money(base, currency)
+    price = _money(discounted, currency)
+    # discountedValue 0 with no campaign means "no discount offered", not "free".
+    if price is None or price <= 0:
+        price = high
+    elif high is not None and price > high:
+        price = high
+    return (price, high, None)
+
+
+def _concept_payload(concept_id) -> dict:
+    """The POST body for one concept. The id rides in variables, not the URL."""
+    return {
+        "operationName": OPERATION,
+        "variables": {"conceptId": str(concept_id)},
+        "extensions": {"persistedQuery": {"version": 1, "sha256Hash": PERSISTED_HASH}},
+    }
+
+
+def _headers(locale: str) -> dict:
+    return {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "x-apollo-operation-name": OPERATION,
+        "x-psn-store-locale-override": locale,
+        "apollographql-client-name": CLIENT_NAME,
+        "apollographql-client-version": CLIENT_VERSION,
+        "User-Agent": "Mozilla/5.0",
+    }
+
+
+class _Fetch:
+    """Pricing one concept: a price, a miss, or one kind of failure."""
+
+    OK = "ok"
+    NO_PRICE = "no_price"      # answered, but carries no purchasable offer
+    FAILED = "failed"          # network / 5xx / rotated hash / unparsable
+    LIMITED = "limited"        # 429
+
+    def __init__(self, status, fields=None):
+        self.status = status
+        self.fields = fields or (None, None, None)
+
+
+def _fetch_concept(args):
+    """Price one concept. Never raises: one bad title must not sink a scan."""
+    concept_id, locale, currency = args
+    try:
+        resp = requests.post(
+            STORE_URL,
+            data=json.dumps(_concept_payload(concept_id)),
+            headers=_headers(locale),
+            timeout=FETCH_TIMEOUT_S,
         )
     except requests.RequestException:
-        return None
-    if resp.status_code == 400:
-        return "SPLIT"
+        return _Fetch(_Fetch.FAILED)
     if resp.status_code == 429:
-        return "LIMITED"
+        return _Fetch(_Fetch.LIMITED)
     if resp.status_code != 200:
-        return None
+        return _Fetch(_Fetch.FAILED)
     try:
-        data = resp.json()
+        payload = resp.json()
     except ValueError:
-        return None
-    if not isinstance(data, dict) or not data.get("success"):
-        return None
-    items = data.get("data")
-    return items if isinstance(items, list) else []
+        return _Fetch(_Fetch.FAILED)
+    # A rotated persisted-query hash still answers 200 -- with an errors[] array
+    # and no data -- which is why "did it answer" is checked by shape, not code.
+    if not isinstance(payload, dict) or not payload.get("data"):
+        return _Fetch(_Fetch.FAILED)
+    fields = _price_fields(payload, currency)
+    if fields[0] is None:
+        return _Fetch(_Fetch.NO_PRICE)
+    return _Fetch(_Fetch.OK, fields)
 
 
-def _request_all(api_key: str, title_ids: list, region: str) -> tuple[list, bool, bool]:
-    """(game objects for ``title_ids``, whether any batch failed, whether any
-    batch was rate-limited), splitting on 400.
+def _request_all(concept_ids: list, locale: str, currency: str) -> tuple:
+    """({conceptId: (price, high, low)}, any failure, any rate limit).
 
-    The per-plan record cap is not published as a number, so a 400 is read as
-    "too many ids" and the batch is halved. That is both cheaper and more
-    durable than hardcoding a guess that silently starts failing when the plan
-    tiers change.
+    Cached per concept, so only titles not seen before cost a request.
 
-    Failure is reported rather than swallowed: "the store carries no such game"
-    and "we never got an answer" are different answers, and only one of them
-    should leave a user hunting for a configuration problem.
+    Two limits are deliberate: a bounded worker pool (an unbounded one against a
+    third party is just a way to earn yourself a rate limit) and a wall-clock
+    budget. The budget is what keeps a cold scan inside the function's lifetime
+    -- a concept still in flight when it expires is abandoned, that title stays
+    Unpriced, and the response still returns with everything already priced.
     """
-    out: list = []
+    fields_by_id: dict[str, tuple] = {}
+    work = []
+    for concept_id in concept_ids:
+        cached = _cache_get(f"{locale}:{concept_id}")
+        if cached is _MISS:
+            continue                      # already known: the store has no offer
+        if cached is not None:
+            fields_by_id[concept_id] = cached
+            continue
+        work.append(concept_id)
+
     failed = False
     limited = False
-    stack = [title_ids]
-    while stack:
-        chunk = stack.pop()
-        if not chunk:
-            continue
-        got = _request_batch(api_key, chunk, region)
-        if got == "SPLIT":
-            if len(chunk) == 1:
-                failed = True       # a single id the plan rejects: give up on it
+    if not work:
+        return fields_by_id, failed, limited
+
+    started = 0
+    answered = 0
+    pool = ThreadPoolExecutor(max_workers=min(FETCH_WORKERS, len(work)))
+    try:
+        futures = {
+            pool.submit(_fetch_concept, (cid, locale, currency)): cid
+            for cid in work
+        }
+        started = len(futures)
+        for future in as_completed(futures, timeout=FETCH_BUDGET_S):
+            concept_id = futures[future]
+            try:
+                result = future.result()
+            except Exception:
+                failed = True
                 continue
-            mid = len(chunk) // 2
-            stack.append(chunk[:mid])
-            stack.append(chunk[mid:])
-            continue
-        if got == "LIMITED":
-            limited = True          # quota spent: not the same as "no data"
-            continue
-        if got is None:
-            failed = True           # network error, bad key, or a non-200
-            continue
-        if got:
-            out.extend(got)
-    return out, failed, limited
+            answered += 1
+            if result.status == _Fetch.OK:
+                fields_by_id[concept_id] = result.fields
+                _cache_set(f"{locale}:{concept_id}", result.fields)
+            elif result.status == _Fetch.NO_PRICE:
+                _cache_set(f"{locale}:{concept_id}", _MISS)
+            elif result.status == _Fetch.LIMITED:
+                limited = True
+            else:
+                failed = True
+    except (TimeoutError, RuntimeError):
+        # The budget elapsed mid-burst: keep what arrived, abandon the rest.
+        pass
+    finally:
+        # Never wait: futures still running must not hold the response open.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    if answered < started:
+        # Something was never answered -- a timeout or a cancellation. Reporting
+        # it as a store miss would send the visitor hunting for a title problem
+        # that is really "we ran out of time".
+        failed = True
+    return fields_by_id, failed, limited
 
 
 class handler(BaseHTTPRequestHandler):
@@ -254,8 +367,8 @@ class handler(BaseHTTPRequestHandler):
         if len(games) > MAX_GAMES:
             send_json(self, 400, {"error": f"'games' list exceeds {MAX_GAMES} items"})
             return
-        # Validate up front: the loops below key on both fields, so a missing
-        # titleId would otherwise raise mid-request.
+        # Validate up front: the loops below key on these fields, so a missing
+        # id would otherwise raise mid-request and answer 500 to a bad caller.
         for i, g in enumerate(games):
             if (not isinstance(g, dict) or not isinstance(g.get("id"), str)
                     or not isinstance(g.get("titleId"), str) or not g["titleId"].strip()):
@@ -265,94 +378,87 @@ class handler(BaseHTTPRequestHandler):
                 return
 
         currency = _normalise_currency(payload.get("currency"))
-        region = REGION_BY_CURRENCY.get(currency)
+        locale = _locale_for(currency)
 
         def respond(**extra) -> None:
             body = {
                 "prices": {}, "highs": {}, "lows": {}, "resolved": {},
-                "currency": currency, "region": region, "attribution": None,
+                "currency": currency, "region": locale,
+                # Sony asks for no credit, so nothing is ever claimed. The field
+                # survives because the footer's credit line is provider-agnostic.
+                "attribution": ATTRIBUTION,
                 # Why the maps above are empty; null once anything priced. An
-                # empty answer used to be indistinguishable between "no key",
-                # "key cannot see this region" and "store has no such game",
-                # which is exactly the confusion that sends people hunting for
-                # a bug that is really a missing configuration step.
+                # empty answer used to be indistinguishable between "no key
+                # saved", "wrong region" and "store has no such game", which is
+                # exactly the confusion that sends people hunting for a
+                # configuration step that was never there.
                 "reason": None,
-                # Which shared key refused this batch; {} once answered.
+                # Which shared key refused this batch. Always {} now: there is
+                # no visitor-supplied PlayStation key to spend, so a refusal here
+                # cannot be fixed by pasting one, and saying otherwise would
+                # send them to a key field we just deleted.
                 "limited": {},
             }
             body.update(extra)
             send_json(self, 200, body)
 
-        # Prefer the caller's own PlatPrices key (the free and Indie plans cap
-        # at 2 regions and 1,000 requests/month), else fall back to the server
-        # key -- unless this deployment is public and REQUIRE_USER_KEYS=1.
-        api_key = user_key(self, "X-Platprices-Key", "PLATPRICES_API_KEY")
-        if not api_key:
-            respond(reason="no_key")
-            return
-        if not region:
-            respond(reason="no_region")   # this currency has no PlatPrices store
+        if not locale:
+            respond(reason="no_region")   # this currency has no PlayStation Store
             return
 
-        # One title id can back several dashboard rows, so fetch each once and
-        # fan the answer back out.
-        ids_by_title: dict[str, list] = {}
+        # One concept backs several dashboard rows (PS4 and PS5 editions of a
+        # game share one), so price each concept once and fan it back out.
+        rows_by_concept: dict[str, list] = {}
         for g in games:
-            ids_by_title.setdefault(g["titleId"].strip(), []).append(g["id"])
+            concept_id = g.get("conceptId")
+            if isinstance(concept_id, bool) or concept_id in (None, "", 0):
+                continue
+            key = str(concept_id).strip()
+            if key.isdigit():
+                rows_by_concept.setdefault(key, []).append(g["id"])
+
+        if not rows_by_concept:
+            # Nothing to ask the store about. "no_match" is close enough -- from
+            # the visitor's side the answer is the same: no price exists for
+            # these rows and no setting will conjure one.
+            respond(reason="no_match")
+            return
 
         prices = {g["id"]: None for g in games}
         highs = {g["id"]: None for g in games}
         lows = {g["id"]: None for g in games}
         resolved: dict[str, str] = {}
 
-        def apply(title_id: str, price, high, low) -> None:
-            for gid in ids_by_title.get(title_id, []):
+        fields_by_id, failed, limited = _request_all(
+            sorted(rows_by_concept, key=int), locale, currency)
+
+        for concept_id, fields in fields_by_id.items():
+            price, high, low = fields
+            for gid in rows_by_concept.get(concept_id, []):
                 prices[gid] = price
                 highs[gid] = high
                 lows[gid] = low
-                resolved[gid] = title_id
-
-        pending: list[str] = []
-        for title_id in ids_by_title:
-            cached = _cache_get(f"{region}:{title_id}")
-            if cached is None:
-                pending.append(title_id)
-            else:
-                apply(title_id, cached.get("price"), cached.get("high"), cached.get("low"))
-
-        upstream_failed = False
-        rate_limited = False
-        for i in range(0, len(pending), BATCH_SIZE):
-            chunk = pending[i:i + BATCH_SIZE]
-            items, chunk_failed, chunk_limited = _request_all(api_key, chunk, region)
-            upstream_failed = upstream_failed or chunk_failed
-            rate_limited = rate_limited or chunk_limited
-            index = _index_by_title_id(items)
-            for title_id in chunk:
-                item = index.get(title_id) or index.get(title_id.upper())
-                if item is None:
-                    continue      # not in the store (or DLC-only): stays Unpriced
-                price, high, low = _price_fields(item, region)
-                _cache_set(f"{region}:{title_id}", {"price": price, "high": high, "low": low})
-                apply(title_id, price, high, low)
+                resolved[gid] = concept_id
 
         priced = any(v is not None for v in prices.values())
         reason = None
         if not priced:
-            # A spent quota outranks every other cause: it is the only one the
-            # visitor can fix by pasting a key of their own.
-            if rate_limited:
+            # A refused burst outranks every other cause: it is the only one
+            # waiting a minute can fix.
+            if limited:
                 reason = "rate_limited"
             else:
-                reason = "upstream_failed" if upstream_failed else "no_match"
+                reason = "upstream_failed" if failed else "no_match"
 
         respond(
             prices=prices, highs=highs, lows=lows, resolved=resolved,
-            # Credit only where there is data to credit: a dead upstream is not
-            # PlatPrices answering, it is nobody answering.
-            attribution=(ATTRIBUTION if (priced or not upstream_failed) else None),
             reason=reason,
-            # Same shape /api/prices answers with, so the browser merges both
-            # sources into one record of who refused it.
-            limited={"platprices": rate_limited},
+            # `limited` stays as the /api/prices shape answers it -- always empty
+            # here. PlayStation spends no key, so there is no refusal that
+            # pasting one could fix, and inventing an entry would only send the
+            # browser looking for a key field this change just deleted. The 429
+            # still reaches the visitor: it arrives as `reason`.
         )
+
+
+

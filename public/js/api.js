@@ -88,8 +88,9 @@ export async function fetchEpicGames(cursor = null) {
  *
  * Every store except PlayStation is priced by IsThereAnyDeal, whose catalog has
  * no PlayStation Store at all -- so PSN rows sent there always come back empty.
- * PlatPrices covers PSN instead, and it keys on the PSN title id, so the batch
- * is split by platform rather than quietly pricing nothing.
+ * The store prices PlayStation itself (by the concept id the gamelist already
+ * carries), so the batch is split by platform rather than quietly pricing
+ * nothing.
  */
 export async function fetchPrices(games, currency = "INR") {
   const psn = games.filter((g) => g.platform === "PlayStation" && g.titleId);
@@ -102,8 +103,10 @@ export async function fetchPrices(games, currency = "INR") {
     Object.assign(out.highs, part.highs || {});
     Object.assign(out.lows, part.lows || {});
     if (part.currency) out.currency = part.currency;
-    // Only PlatPrices sets one; it must survive the merge or the UI can never
-    // show the credit the free plans require.
+    // Provider credit for a pricing answer, when one is ever owed again. No
+    // current source requires one, so it stays null -- but the line survives
+    // so a future provider that demands attribution reaches the footer, the
+    // exported cards and the share link without another change here.
     if (part.attribution) out.attribution = part.attribution;
     // Why PlayStation pricing came back empty, if it did -- the difference
     // between "no key saved here" and "the store has no price for this".
@@ -125,9 +128,13 @@ export async function fetchPrices(games, currency = "INR") {
 }
 
 /**
- * PlayStation Store prices from PlatPrices, batched by PSN title id. Returns
- * nulls for titles the store does not carry, so they still render as "Unpriced"
- * rather than being dropped from the batch.
+ * PlayStation Store prices from Sony's own storefront, batched by the concept
+ * id the gamelist carried alongside the title. Returns nulls for titles the
+ * store does not price, so they still render as "Unpriced" rather than being
+ * dropped from the batch.
+ *
+ * No key travels here: this is a public read of the same endpoint the PS Store
+ * web app calls, which is exactly why PlatPrices' credential had to go.
  */
 export async function fetchPsnPrices(games, currency = "INR") {
   const BATCH_SIZE = 200;
@@ -140,21 +147,22 @@ export async function fetchPsnPrices(games, currency = "INR") {
   const limited = {};
 
   const headers = { "Content-Type": "application/json" };
-  // Same pattern as the ITAD key: a user-supplied key carries their own quota.
-  const platpricesKey = localStorage.getItem("platprices_api_key");
-  if (platpricesKey) headers["X-Platprices-Key"] = platpricesKey;
 
   for (let i = 0; i < games.length; i += BATCH_SIZE) {
     const batch = games.slice(i, i + BATCH_SIZE).map((g) => ({
       id: g.id,
       titleId: g.titleId,
+      conceptId: g.conceptId,
     }));
     const resp = await fetch(apiUrl("/api/psn_prices"), {
       method: "POST",
       headers,
       body: JSON.stringify({ games: batch, currency }),
     });
-    if (resp.status === 429) { limited.platprices = true; continue; }
+    // Our own per-IP limiter answers 429 before the request leaves. Naming it
+    // as a rate-limit rather than staying silent is the whole point: the
+    // reason reaches the footer as plain words, with no key to paste.
+    if (resp.status === 429) { reason = "rate_limited"; continue; }
     if (!resp.ok) continue;
     const data = await resp.json();
     Object.assign(prices, data.prices || {});

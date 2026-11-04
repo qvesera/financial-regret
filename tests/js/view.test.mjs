@@ -202,11 +202,11 @@ test("the shell builds the credit line, and setPricingAttribution toggles it", (
   // node would still pass if the shell never rendered one.
   const line = view.footer.querySelector(".disclaimer-attribution");
   assert.ok(line, "the credit line is part of the disclaimer footer");
-  assert.equal(line.hidden, true, "hidden until PlatPrices data actually arrives");
+  assert.equal(line.hidden, true, "hidden until a provider credit actually arrives");
 
-  view.setPricingAttribution("Powered by PlatPrices");
-  assert.equal(line.textContent, "Powered by PlatPrices");
-  assert.equal(line.hidden, false, "a credit is shown whenever PlatPrices data is");
+  view.setPricingAttribution("Pricing by Example Data");
+  assert.equal(line.textContent, "Pricing by Example Data");
+  assert.equal(line.hidden, false, "a credit is shown whenever one is owed");
 
   view.setPricingAttribution(null);
   assert.equal(line.hidden, true, "no PSN prices means no dead credit line");
