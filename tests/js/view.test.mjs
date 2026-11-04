@@ -65,6 +65,36 @@ test("renderTable keeps the money columns in place and appends the verdict", () 
   assert.equal(cells[5].querySelector(".badge").textContent, "Regret");
 });
 
+test("narrow store labels abbreviate PlayStation without touching the row", () => {
+  // The platform column is narrower than the word: "PlayStation" printed as
+  // "PlayStati…" beside a glyph that already names the store. The label may
+  // shorten; the value must not — it is the key filtering, dupe detection,
+  // counts and the pie all group by.
+  installEnv();
+  view.currency = "INR";
+  const game = { id: "PSN:PPSA00142_00", name: "Astro Bot", platform: "PlayStation",
+                 hours: 5 };
+  const prices = { "PSN:PPSA00142_00": 749 };
+  const verdicts = new Map([["PSN:PPSA00142_00", "fair"]]);
+
+  const tbody = document.createElement("tbody");
+  view.renderTable(tbody, [game], prices, false, verdicts);
+  const cells = tbody.children[0].querySelectorAll("td");
+  assert.equal(cells[1].textContent, "PS", "the table column reads PS");
+  assert.ok(cells[1].querySelector(".platform-mark"),
+    "the glyph still renders — brand lookup needs the full name, so it gets it");
+
+  const wrap = document.createElement("div");
+  view.renderGrid(wrap, [game], prices, false, verdicts);
+  assert.equal(wrap.querySelector(".card-store").textContent, "PS",
+    "the card's store corner follows the same rule");
+
+  assert.equal(game.platform, "PlayStation",
+    "the row key the whole app groups by is untouched");
+  assert.equal(wrap.querySelector(".game-card").getAttribute("aria-label"),
+    "Astro Bot, PlayStation", "screen readers still hear the full store name");
+});
+
 test("renderGrid gives every card a fallback, a badge and a tab stop", () => {
   installEnv();
   view.currency = "INR";

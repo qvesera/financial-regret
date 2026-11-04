@@ -280,6 +280,21 @@ const BRAND_PATHS = {
 /** Display name ("Epic", "GOG", "Amazon") → PLATFORMS key, or null. */
 const BRAND_KEY = new Map(PLATFORMS.map((p) => [p.platform.toLowerCase(), p.key]));
 
+/** Store names for the narrow columns.
+ *
+ *  `game.platform` stays "PlayStation" everywhere in state — it is the row key
+ *  that filtering, dupe detection, counts and the pie all group by — but the
+ *  table's platform column is narrower than a nine-letter name and printed it
+ *  as "PlayStati…" beside a glyph that already says which store this is. So the
+ *  data keeps the full name and only the printed label abbreviates it: the
+ *  value that reaches state, the filter and the aria-label never changes.
+ */
+const PLATFORM_SHORT = { PlayStation: "PS" };
+
+/** Printed label for one store in a narrow column; every other store is
+ *  returned untouched. */
+const platformLabel = (platform) => PLATFORM_SHORT[platform] || platform;
+
 function brandIcon(platform, size = 14) {
   const key = BRAND_KEY.get(String(platform || "").toLowerCase()) || platform;
   const d = BRAND_PATHS[key];
@@ -1419,8 +1434,9 @@ export const view = {
       if (this.platformSelect.dataset.sig !== sig) {
         this.platformSelect.textContent = "";
         for (const value of ["All", ...plats]) {
-          const opt = this.el("option", null, value === "All" ? "All platforms" : value);
-          opt.value = value;
+          const opt = this.el("option", null,
+            value === "All" ? "All platforms" : platformLabel(value));
+          opt.value = value;   // the filter still matches on the full name
           this.platformSelect.appendChild(opt);
         }
         this.platformSelect.dataset.sig = sig;
@@ -2117,11 +2133,13 @@ export const view = {
           return;
         }
         // Platform cell: the store's mark, then its name — the eye finds the
-        // column by glyph long before it reads the word.
+        // column by glyph long before it reads the word. The label is the
+        // narrow-column abbreviation (PlayStation → PS); the glyph still takes
+        // the full name so the brand lookup keeps working.
         const td = this.el("td", "cell-platform");
         const pmark = brandIcon(text, 13);
         if (pmark) { pmark.classList.add("platform-mark"); td.appendChild(pmark); }
-        td.appendChild(this.el("span", null, text || ""));
+        td.appendChild(this.el("span", null, platformLabel(text) || ""));
         tr.appendChild(td);
       });
       // Verdict is the last column: the money columns keep their positions.
@@ -2212,7 +2230,9 @@ export const view = {
       const store = this.el("span", "card-store");
       const cmark = brandIcon(game.platform, 12);
       if (cmark) { cmark.classList.add("card-mark"); store.appendChild(cmark); }
-      store.appendChild(this.el("span", null, game.platform || "—"));
+      // Same narrow-column rule as the table: abbreviated label, full name
+      // still what the glyph looks up and what the aria-label announces.
+      store.appendChild(this.el("span", null, platformLabel(game.platform) || "—"));
       sub.appendChild(store);
       meta.appendChild(sub);
       card.appendChild(meta);
