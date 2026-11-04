@@ -973,9 +973,11 @@ class TestCurrencySelection(unittest.TestCase):
 
 
 class TestCovers(unittest.TestCase):
-    """Grid-view cover art comes from SteamGridDB: the caller's own key, a
-    direct appid lookup for Steam games, a title search for everything else,
-    and a placeholder-friendly 401 when no key is configured."""
+    """Grid-view cover art, Sony first: a PlayStation title answers from
+    Sony's own storefront with no key at all, SteamGridDB sits behind it as
+    the backup (the caller's own key, a direct appid lookup for Steam games,
+    a title search for everything else), and no key anywhere is a 200 with
+    placeholders rather than a 401."""
 
     def setUp(self):
         import covers
@@ -992,16 +994,168 @@ class TestCovers(unittest.TestCase):
         fake.rfile = io.BytesIO(body)
         return fake
 
-    def test_missing_key_is_401(self):
+    @staticmethod
+    def _psn_payload(url=None):
+        """One metGetPricingDataByConceptId answer: a base game whose media
+        carries the portrait role when ``url`` is given, and only the square
+        MASTER when it is not -- the two shapes Sony answers with."""
+        product = {"id": "UP9000-CUSA00900_00-BLOODBORNE000000",
+                   "name": "Bloodborne",
+                   "media": [{"role": "MASTER", "url": "https://img/master.png"}]}
+        if url:
+            product["media"].append({"role": "PORTRAIT_BANNER", "url": url})
+        return {"data": {"conceptRetrieve": {"selectableProducts": {
+            "purchasableProducts": [product]}}}}
+
+    def test_missing_key_still_answers_200_with_placeholders(self):
+        """The refusal is gone: Sony's leg spends no key, so only the
+        SteamGridDB half is skipped and it answers null, not an error."""
         import covers
         fake = self._req([{"id": "Steam:730", "title": "Counter-Strike 2", "appid": 730}],
                          with_key=False)
         with mock.patch.dict(os.environ, {"SGDB_API_KEY": ""}), \
+                mock.patch.object(covers, "requests") as rq, \
                 mock.patch.object(covers, "send_json") as sj:
             covers.handler.do_POST(fake)
-        status, payload = sj.call_args.args[1], sj.call_args.args[2]
-        self.assertEqual(status, 401)
-        self.assertIn("SteamGridDB", payload["error"])
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+            self.assertEqual(status, 200)
+            self.assertIsNone(payload["covers"]["Steam:730"])
+            rq.get.assert_not_called()
+            rq.post.assert_not_called()
+
+    def test_psn_art_serves_with_no_key_at_all(self):
+        """A concept id in, Sony's portrait art out -- on an instance with
+        nothing configured, which is the whole point of the keyless leg."""
+        import covers
+        fake = self._req([{"id": "PSN:200520", "title": "Bloodborne",
+                           "conceptId": "200520"}], with_key=False)
+
+        def fake_post(url, data=None, headers=None, timeout=None):
+            r = mock.MagicMock()
+            r.status_code = 200
+            r.json.return_value = self._psn_payload("https://img/portrait.png")
+            return r
+
+        with mock.patch.dict(os.environ, {"SGDB_API_KEY": ""}), \
+                mock.patch.object(covers, "requests") as rq, \
+                mock.patch.object(covers, "send_json") as sj:
+            rq.post.side_effect = fake_post
+            covers.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["covers"]["PSN:200520"],
+                             "https://img/portrait.png")
+            # The concept id travelled in the body of the same store read
+            # psn_prices.py makes; SteamGridDB was never asked.
+            self.assertEqual(rq.post.call_args.args[0], covers.STORE_URL)
+            self.assertIn("200520", rq.post.call_args.kwargs["data"])
+            rq.get.assert_not_called()
+
+    def test_sony_art_wins_and_sgdb_spends_nothing(self):
+        """Sony first, SteamGridDB backup: with a key present the backup's
+        quota is not touched while Sony's art answers."""
+        import covers
+        fake = self._req([{"id": "PSN:200520", "title": "Bloodborne",
+                           "conceptId": "200520"}])
+
+        def fake_post(url, data=None, headers=None, timeout=None):
+            r = mock.MagicMock()
+            r.status_code = 200
+            r.json.return_value = self._psn_payload("https://img/portrait.png")
+            return r
+
+        with mock.patch.object(covers, "requests") as rq, \
+                mock.patch.object(covers, "send_json") as sj:
+            rq.post.side_effect = fake_post
+            rq.RequestException = Exception
+            covers.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["covers"]["PSN:200520"],
+                             "https://img/portrait.png")
+            rq.get.assert_not_called()
+
+    def test_sgdb_is_the_backup_when_sony_has_no_portrait(self):
+        """A concept whose media carries no portrait role falls through to
+        SteamGridDB -- asked after Sony, not instead of her."""
+        import covers
+        fake = self._req([{"id": "PSN:200520", "title": "Bloodborne",
+                           "conceptId": "200520"}])
+        events = []
+
+        def fake_post(url, data=None, headers=None, timeout=None):
+            events.append("sony")
+            r = mock.MagicMock()
+            r.status_code = 200
+            r.json.return_value = self._psn_payload(None)   # MASTER only
+            return r
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            events.append(url)
+            r = mock.MagicMock()
+            r.status_code = 200
+            if "/search/" in url:
+                r.json.return_value = {"success": True, "data": [{"id": 42}]}
+            else:
+                r.json.return_value = {"success": True, "data": [
+                    {"url": "https://cdn2.steamgriddb.com/grid/bb.jpg"}]}
+            return r
+
+        with mock.patch.object(covers, "requests") as rq, \
+                mock.patch.object(covers, "send_json") as sj:
+            rq.post.side_effect = fake_post
+            rq.get.side_effect = fake_get
+            rq.RequestException = Exception
+            covers.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["covers"]["PSN:200520"],
+                             "https://cdn2.steamgriddb.com/grid/bb.jpg")
+            self.assertEqual(events[0], "sony", "Sony is asked first")
+            self.assertTrue(any("/search/" in e for e in events[1:]),
+                            "SteamGridDB only after Sony came up empty")
+
+    def test_sony_upstream_failure_falls_back_and_never_caches(self):
+        """A store that refuses or times out is not a miss: the backup still
+        answers, and the next ask retries Sony rather than serving a day of
+        placeholders out of the cache."""
+        import covers
+        fake = self._req([{"id": "PSN:200520", "title": "Bloodborne",
+                           "conceptId": "200520"}])
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            r = mock.MagicMock()
+            r.status_code = 200
+            if "/search/" in url:
+                r.json.return_value = {"success": True, "data": [{"id": 42}]}
+            else:
+                r.json.return_value = {"success": True, "data": [
+                    {"url": "https://cdn2.steamgriddb.com/grid/ok.jpg"}]}
+            return r
+
+        with mock.patch.object(covers, "requests") as rq, \
+                mock.patch.object(covers, "send_json") as sj:
+            rq.RequestException = Exception
+            rq.post.side_effect = rq.RequestException("upstream down")
+            rq.get.side_effect = fake_get
+            covers.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["covers"]["PSN:200520"],
+                             "https://cdn2.steamgriddb.com/grid/ok.jpg")
+
+            # Nothing was cached: with no key this time, Sony is asked again
+            # instead of the failure being replayed as a cached miss.
+            covers.handler.do_POST(self._req(
+                [{"id": "PSN:200520", "title": "Bloodborne", "conceptId": "200520"}],
+                with_key=False))
+            self.assertGreaterEqual(rq.post.call_count, 2,
+                                    "a transport failure is never cached")
 
     def test_steam_game_resolves_directly_from_appid(self):
         import covers

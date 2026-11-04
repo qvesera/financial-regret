@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 from prices import _normalise_title  # noqa: E402
+from covers import _psn_portrait_url  # noqa: E402
 from psn_games import iso8601_to_hours  # noqa: E402
 from psn_prices import (  # noqa: E402
     LOCALE_BY_CURRENCY, _locale_for, _money, _price_fields, _purchase_cta,
@@ -171,6 +172,51 @@ class TestStoreLocales(unittest.TestCase):
     def test_a_currency_without_a_store_has_none(self):
         for code in ("XAF", "XCD", "ZZZ", "not-a-code"):
             self.assertIsNone(_locale_for(code))
+
+
+class TestPsnPortraitUrl(unittest.TestCase):
+    """The cover art half of Sony's store answer: one concept arrives as
+    several product nodes whose media lists differ, and only one role is
+    actually a portrait the grid can fill its 2:3 box with."""
+
+    @staticmethod
+    def _payload(*products):
+        return {"data": {"conceptRetrieve": {"selectableProducts": {
+            "purchasableProducts": list(products)}}}}
+
+    def test_base_game_portrait_wins_over_a_bundle_without_one(self):
+        # Real shape: the edition bundle keeps only a square MASTER, the base
+        # game the full media set -- walking in order would miss the art.
+        payload = self._payload(
+            {"id": "bundle", "media": [{"role": "MASTER", "url": "master.png"}]},
+            {"id": "base", "media": [{"role": "MASTER", "url": "m2.png"},
+                                     {"role": "PORTRAIT_BANNER", "url": "p.png"}]},
+        )
+        self.assertEqual(_psn_portrait_url(payload), "p.png")
+
+    def test_landscape_and_square_roles_are_not_portraits(self):
+        # BACKGROUND / EDITION_KEY_ART are 16:9; MASTER is square. Cropping
+        # any of them to the card's 2:3 would show a stripe of the artwork.
+        payload = {"data": {"conceptRetrieve": {"defaultProduct": {
+            "media": [{"role": "MASTER", "url": "m.png"},
+                      {"role": "BACKGROUND", "url": "bg.png"},
+                      {"role": "EDITION_KEY_ART", "url": "key.png"}]}}}}
+        self.assertIsNone(_psn_portrait_url(payload))
+
+    def test_a_portrait_without_a_url_is_skipped_not_returned(self):
+        payload = self._payload(
+            {"media": [{"role": "PORTRAIT_BANNER", "url": None}]},
+            {"media": [{"role": "PORTRAIT_BANNER", "url": "second.png"}]},
+        )
+        self.assertEqual(_psn_portrait_url(payload), "second.png")
+
+    def test_absent_or_malformed_answers_are_none(self):
+        for payload in (None, {}, {"data": {}}, {"data": None},
+                        {"data": {"conceptRetrieve": None}},
+                        {"data": {"conceptRetrieve": "not a concept"}},
+                        {"errors": [{"message": "PersistedQuery not found"}]}):
+            self.assertIsNone(_psn_portrait_url(payload),
+                              f"{payload!r} must read as no art")
 
 
 if __name__ == "__main__":

@@ -273,10 +273,12 @@ function coverageLine() {
 
 /** Recompute derived state and hand it to the view. */
 // ---------- cover art (grid view) ----------
-// SteamGridDB urls come back from /api/covers and are memoised here (persisted)
+// Cover urls come back from /api/covers and are memoised here (persisted)
 // so a re-render or a restart never refetches art. Loading is lazy: only cards
 // scrolling into view are requested, which keeps a 500-game library inside one
-// rate-limit window. Without an SGDB key the grid just keeps its placeholders.
+// rate-limit window. PlayStation titles resolve with no key at all (Sony's own
+// storefront answers the concept id); every other store needs an SGDB key
+// somewhere, and without one those cards keep their placeholders.
 const coversCache = new Map();      // gameId -> image url
 let coverPending = new Set();       // ids queued for the next batch
 let coverInflight = new Set();      // ids currently being fetched
@@ -341,9 +343,15 @@ function sgdbKeyAvailable() {
 }
 
 function queueCovers(ids) {
-  if (!sgdbKeyAvailable()) return;
+  const keyless = !sgdbKeyAvailable();
+  // Without an SGDB key only Sony's leg can answer, and only for the titles
+  // the gamelist identified by concept id — asking for anything else would buy
+  // a guaranteed null on every render, so those keep their placeholders.
+  const byId = keyless ? new Map(state.games.map((g) => [g.id, g])) : null;
   for (const id of ids) {
-    if (!coversCache.has(id) && !coverInflight.has(id)) coverPending.add(id);
+    if (coversCache.has(id) || coverInflight.has(id)) continue;
+    if (keyless && !(byId.get(id) || {}).conceptId) continue;
+    coverPending.add(id);
   }
   if (!coverPending.size) return;
   clearTimeout(coverTimer);
@@ -360,7 +368,14 @@ async function flushCovers() {
   const payload = batch
     .map((id) => byId.get(id))
     .filter(Boolean)
-    .map((g) => ({ id: g.id, title: g.name, appid: g.appid || null }));
+    .map((g) => ({
+      id: g.id,
+      title: g.name,
+      appid: g.appid || null,
+      // Sony's join key: concept id in, portrait art out — no title search,
+      // so a duplicate or renamed title can never pick the wrong cover.
+      conceptId: g.conceptId || null,
+    }));
 
   try {
     if (payload.length) {
@@ -368,10 +383,12 @@ async function flushCovers() {
         method: "POST",
         // The header only when the visitor brought their own key: without it the
         // server spends its shared one, which is exactly why it is configured.
+        // Sony's art never needs it — the currency just picks which storefront
+        // catalogue is asked, mirroring what /api/psn_prices does.
         headers: key
           ? { "Content-Type": "application/json", "X-SGDB-Key": key }
           : { "Content-Type": "application/json" },
-        body: JSON.stringify({ games: payload }),
+        body: JSON.stringify({ games: payload, currency: state.currency }),
       });
       if (resp.ok) {
         const data = await resp.json();

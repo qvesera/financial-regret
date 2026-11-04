@@ -167,8 +167,9 @@ switch. Those are reliability limits, not credential risks.
    a heap dump, can read tokens as they pass. The only real mitigation is not
    handling the credential at all.
 2. **Shared in-memory caches cross visitors.** `backend/epic_games.py` caches
-   playtime keyed by Epic account id; `backend/covers.py` caches cover art keyed by
-   title. Neither holds secrets, but on a shared instance a visitor who knows
+   playtime keyed by Epic account id; `backend/covers.py` caches cover art keyed
+   by store concept id (or title for games without one). Neither holds secrets,
+   but on a shared instance a visitor who knows
    another visitor's account id could read that visitor's cached playtime.
    Prices are keyed by currency and region and are not user-specific.
 3. **`localStorage` is readable by any script on the origin.** The CSP is what

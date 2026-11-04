@@ -299,6 +299,33 @@ const coverSeed = (sgdbShared) => (e) => {
   });
 };
 
+// A bare instance: no key anywhere, one PlayStation title the gamelist
+// identified by concept id -- the shape Sony's keyless leg answers.
+const psnCoverSeed = (e) => {
+  e.localStorage.setItem("psn_online_id", "FakePlayer_91");
+  e.fetchRoutes.push((url) => {
+    if (url.includes("/api/config")) return { json: {
+      requireUserKeys: false,
+      keys: { steam: false, itad: false, sgdb: false },
+    } };
+    if (url.includes("/api/psn_games")) return { json: { games: [
+      { id: "PSN:200520", name: "Bloodborne", platform: "PlayStation",
+        hours: 5, titleId: "CUSA00207", conceptId: "200520" },
+    ] } };
+    if (url.includes("/api/psn_prices")) return { json: {
+      prices: { "PSN:200520": 1999 }, highs: {}, lows: {}, currency: "INR",
+      attribution: null, reason: null,
+    } };
+    if (url.includes("/api/steam_games") || url.includes("/api/gog_games")
+        || url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/prices")) return { json: { prices: {}, highs: {}, lows: {} } };
+    if (url.includes("/api/covers")) return { json: { covers: {
+      "PSN:200520": "https://img.example/portrait.png",
+    } } };
+    return null;
+  });
+};
+
 test("covers are fetched with the instance's key when the visitor has none", async () => {
   const { env } = await boot({ seed: coverSeed(true) });
   await settle();
@@ -313,7 +340,10 @@ test("covers are fetched with the instance's key when the visitor has none", asy
   assert.equal(env.localStorage.getItem("sgdb_api_key"), null, "and none is saved");
 });
 
-test("with no key anywhere, covers are not requested at all", async () => {
+test("with no key anywhere, non-PlayStation covers are not requested", async () => {
+  // The keyless gate is per title: Sony's art only answers for PlayStation
+  // entries the gamelist identified, so a Steam-only library still spends
+  // nothing — asking would buy a guaranteed null.
   const { env } = await boot({ seed: coverSeed(false) });
   await settle();
   await openTitle(env, "Coverless");
@@ -321,6 +351,24 @@ test("with no key anywhere, covers are not requested at all", async () => {
 
   assert.ok(!env.fetchCalls.some((c) => c.url.includes("/api/covers")),
     "nothing to ask with: no visitor key and no shared one either — placeholders stay");
+});
+
+test("PlayStation covers are asked for without any key, carrying the concept id", async () => {
+  const { env } = await boot({ seed: psnCoverSeed });
+  await settle();
+  await openTitle(env, "Bloodborne");
+  await new Promise((r) => setTimeout(r, 400)); // flushCovers debounces 250ms
+
+  const call = env.fetchCalls.find((c) => c.url.includes("/api/covers"));
+  assert.ok(call,
+    "no SGDB key anywhere — yet the PlayStation title is still asked for");
+  assert.equal((call.opts.headers || {})["X-SGDB-Key"], undefined,
+    "nothing to spend: Sony's own art needs no key");
+  const body = JSON.parse(call.opts.body);
+  assert.equal(body.games[0].conceptId, "200520",
+    "the concept id is the join key — no title search, no wrong cover");
+  assert.ok(body.currency,
+    "the display currency picks which storefront catalogue is asked");
 });
 
 test("the shared term in one key field fills all three fields", async () => {
