@@ -159,6 +159,11 @@ let state = {
   // PlayStation console facet: "All" | "PS5" | "PS4" | "Other PS". Only ever
   // applied when a PlayStation account is linked -- see computeRows.
   psConsole: "All",
+  // Catalogue facts from the last price pass: the store stopped selling it,
+  // or it is in the Plus catalogue today. They ride with the prices because
+  // both are facts about the same answer, and both survive a reload.
+  notSold: {},
+  plusIncluded: {},
   tier: "All",
   verdictSlide: "games",
   viewMode: "list",
@@ -200,6 +205,9 @@ let state = {
   comparators: { worst: [], best: [] },
   simTarget: savedUi.simTarget || null,
   simHours: Number(savedUi.simHours) || 10,
+  // A preview, never a computation: toggling this changes one line in the
+  // what-if card and nothing else.
+  simPlus: Boolean(savedUi.simPlus),
   scanSteps: null,
   // /api/config, fetched at boot: whether this instance can price anything
   // without the visitor's own keys. null until it lands, and stays null if
@@ -761,6 +769,8 @@ async function scan() {
       // re-fetch, and refreshed here — wherever raw prices land — never by
       // applyEdits, which would otherwise latch onto its own output.
       apiPrice: state.prices[g.id] ?? null,
+      notSold: Boolean(state.notSold[g.id]),
+      plusIncluded: Boolean(state.plusIncluded[g.id]),
       high: highs[g.id] ?? null,
       low: lows[g.id] ?? null,
     }));
@@ -780,6 +790,8 @@ async function scan() {
       const priced = await api.fetchPrices(chunk, state.currency);
       if (epoch !== scanEpoch) return;   // …and the pricing fetch outlived it too
       state.prices = { ...state.prices, ...priced.prices };
+      state.notSold = { ...state.notSold, ...(priced.notSold || {}) };
+      state.plusIncluded = { ...state.plusIncluded, ...(priced.plusIncluded || {}) };
       highs = { ...highs, ...(priced.highs || {}) };
       lows = { ...lows, ...(priced.lows || {}) };
       if (priced.currency) state.currency = priced.currency;
@@ -814,7 +826,9 @@ async function scan() {
       .filter((r) => r.status === "rejected")
       .map((r) => (r.reason && r.reason.message) || String(r.reason));
     state.scanError = errors.length ? errors.join(" · ") : null;
-    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency, persona: state.steamPersona });
+    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts,
+      currency: state.currency, persona: state.steamPersona,
+      notSold: state.notSold, plusIncluded: state.plusIncluded });
   } catch (e) {
     if (epoch !== scanEpoch) return;
     state.scanError = (e && e.message) || String(e);
@@ -850,6 +864,8 @@ async function reprice(nextCurrency) {
     const priced = await api.fetchPrices(state.games, state.currency);
     if (epoch !== scanEpoch) return;
     state.prices = priced.prices;
+    state.notSold = priced.notSold || {};
+    state.plusIncluded = priced.plusIncluded || {};
     if (priced.currency) state.currency = priced.currency;
     applyPricingNotes(priced);
     const highs = priced.highs || {}, lows = priced.lows || {};
@@ -857,10 +873,14 @@ async function reprice(nextCurrency) {
       ...g,
       price: state.prices[g.id] ?? null,
       apiPrice: state.prices[g.id] ?? null,   // see bake(): the raw copy Reset restores
+      notSold: Boolean(state.notSold[g.id]),
+      plusIncluded: Boolean(state.plusIncluded[g.id]),
       high: highs[g.id] ?? null,
       low: lows[g.id] ?? null,
     }));
-    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency, persona: state.steamPersona });
+    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts,
+      currency: state.currency, persona: state.steamPersona,
+      notSold: state.notSold, plusIncluded: state.plusIncluded });
     localStorage.setItem("currency", state.currency);
   } catch {
     state.currency = prev;   // keep prior prices labelled correctly
@@ -1040,6 +1060,8 @@ function unlinkPlatform(platform, displayName) {
     state.dupes = new Map();
     state.rows = [];
     state.prices = {};
+    state.notSold = {};
+    state.plusIncluded = {};
     state.metrics = null;
     state.counts = {};
     state.epicScanned = 0;
@@ -1375,6 +1397,8 @@ function forget() {
   state.dupes = new Map();
   state.rows = [];
   state.prices = {};
+  state.notSold = {};
+  state.plusIncluded = {};
   state.counts = {};
   state.epicScanned = 0;
   state.epicFiltered = 0;
@@ -1422,6 +1446,23 @@ function closestAction(el) {
     n = n.parentNode || n.parentElement;
   }
   return null;
+}
+
+/** Persist the visitor's own PlayStation Plus figure. A number only they know:
+ *  validated, stored with the currency it was typed in (there is no FX in the
+ *  app, so a figure in another currency is labelled rather than relabelled),
+ *  and read back by one KPI alone — nothing else is calculated from it. */
+function saveFigure() {
+  const amountEl = document.getElementById("ps-plus-amount");
+  const sinceEl = document.getElementById("ps-plus-since");
+  const amount = Number(String((amountEl && amountEl.value) || "").replace(/[^\d.]/g, ""));
+  if (Number.isFinite(amount) && amount > 0) {
+    localStorage.setItem("ps_plus_amount", String(amount));
+    localStorage.setItem("ps_plus_currency", state.currency);
+    const since = String((sinceEl && sinceEl.value) || "").trim();
+    if (/^\d{4}$/.test(since)) localStorage.setItem("ps_plus_since", since);
+  }
+  renderAll();
 }
 
 function onClick(e) {
@@ -1517,6 +1558,7 @@ function onClick(e) {
     // submits the field (and Enter does too), so there is no "submit-psn"
     // action to dispatch to. See view.pasteBlock(..., withButton = false).
     case "save-key": saveApiKey(t.dataset.kind); break;
+    case "save-figure": saveFigure(); break;
     case "save-edit": saveEdit(t.dataset.id, t.dataset.field); break;
     case "reset-edit": saveEdit(t.dataset.id, t.dataset.field, ""); break;
     case "show-keys":
@@ -1584,6 +1626,10 @@ function onChange(e) {
   } else if (t.dataset.action === "psconsole") {
     state.psConsole = t.value || "All";
     state.page = 1;
+    renderAll();
+  } else if (t.dataset.action === "sim-plus") {
+    state.simPlus = Boolean(t.checked);
+    saveUiState({ simPlus: state.simPlus });
     renderAll();
   } else if (t.dataset.action === "sim-target") {
     state.simTarget = t.value;
@@ -1693,6 +1739,8 @@ export async function boot() {
     // restored session must find its cross-store copies again.
     state.dupes = findDuplicates(state.games);
     state.prices = snap.prices || {};
+    state.notSold = snap.notSold || {};
+    state.plusIncluded = snap.plusIncluded || {};
     state.steamPersona = snap.persona || null;
   }
   // A shared card link (#card=…) renders the snapshot it carries, before the

@@ -113,7 +113,8 @@ export function lensOf(game, contentBench) {
 }
 
 /** Tier order, cheapest verdict first. */
-export const TIERS = ["worth", "fair", "regret", "untouched", "free", "nodata"];
+export const TIERS = ["worth", "fair", "regret", "untouched", "free",
+  "nodata", "notsold", "app"];
 
 export const TIER_LABEL = {
   worth: "Worth it",
@@ -127,6 +128,13 @@ export const TIER_LABEL = {
   // Not "No data": the play-status tab already owns that phrase (it means
   // hours unknown there). Here the gap is specifically the price.
   nodata: "Unpriced",
+  // The store has stopped selling it: a fact about the catalogue, not a fetch
+  // that went wrong. It sits outside the graded scale for the same reason free
+  // does -- there is no price left to judge against.
+  notsold: "Not sold",
+  // A PlayStation row with no concept at all: a streaming app, never a store
+  // title, so no price will ever exist and none is missing.
+  app: "Apps",
   unknown: "No benchmark",
 };
 
@@ -138,7 +146,16 @@ export const TIER_LABEL = {
  *              make Worth it mean "is it free"
  *  unknown   — fewer than 3 priced games in the library to compare against   */
 export function verdictOf(game, rateBench, contentBench) {
-  if (!game || game.price == null) return "nodata";
+  if (!game) return "nodata";
+  if (game.price == null) {
+    // Never sold vs never asked. The platform gate matters: without it an
+    // unpriced Steam row -- conceptId is always null there -- would read as an
+    // app, and a Plus-only PlayStation title stays Unpriced because the store
+    // does still list it.
+    if (game.notSold) return "notsold";
+    if (game.conceptId == null && game.platform === "PlayStation") return "app";
+    return "nodata";
+  }
   if (game.hours == null || game.hours < 1) return "untouched";
   // Playtime is checked first on purpose: a free game never opened is still
   // Untouched — the play truth comes before the money truth.

@@ -96,7 +96,8 @@ export async function fetchPrices(games, currency = "INR") {
   const psn = games.filter((g) => g.platform === "PlayStation" && g.titleId);
   const rest = psn.length ? games.filter((g) => !psn.includes(g)) : games;
 
-  const out = { prices: {}, highs: {}, lows: {}, currency, attribution: null, psnReason: null, limited: {} };
+  const out = { prices: {}, highs: {}, lows: {}, currency, attribution: null,
+    psnReason: null, limited: {}, notSold: {}, plusIncluded: {} };
   const merge = (part) => {
     if (!part) return;
     Object.assign(out.prices, part.prices || {});
@@ -114,6 +115,8 @@ export async function fetchPrices(games, currency = "INR") {
     // Which shared key refused this batch, kept per provider: one call can
     // report a spent ITAD key while its PlayStation half answered fine.
     if (part.limited) Object.assign(out.limited, part.limited);
+    Object.assign(out.notSold, part.notSold || {});
+    Object.assign(out.plusIncluded, part.plusIncluded || {});
   };
 
   if (rest.length) merge(await fetchItadPrices(rest, currency));
@@ -145,6 +148,10 @@ export async function fetchPsnPrices(games, currency = "INR") {
   let attribution = null;
   let reason = null;
   const limited = {};
+  // Catalogue facts, not prices: the store stopped selling a title, or it is
+  // in the Plus catalogue. Both ride the same answer and both batch up.
+  const notSold = {};
+  const plusIncluded = {};
 
   const headers = { "Content-Type": "application/json" };
 
@@ -172,9 +179,12 @@ export async function fetchPsnPrices(games, currency = "INR") {
     if (data.attribution) attribution = data.attribution;
     if (data.reason) reason = data.reason;
     if (data.limited) Object.assign(limited, data.limited);
+    Object.assign(notSold, data.notSold || {});
+    Object.assign(plusIncluded, data.plusIncluded || {});
   }
 
-  return { prices, highs, lows, currency: actual, attribution, psnReason: reason, limited };
+  return { prices, highs, lows, currency: actual, attribution, psnReason: reason,
+    limited, notSold, plusIncluded };
 }
 
 /** IsThereAnyDeal prices for the non-PlayStation stores. */

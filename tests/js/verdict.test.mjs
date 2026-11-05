@@ -6,6 +6,7 @@ import {
   contentPct, contentBench, lensOf,
   TIER_LABEL, SHARED_VERDICTS, sharedVerdict, verdictBand, SHARE_NUDGE_SETS, shareNudge,
 } from "../../public/js/verdict.js";
+import { computeRegret } from "../../public/js/regret.js";
 
 const g = (id, name, hours, price) => ({ id, name, hours, price, platform: "Steam" });
 
@@ -380,3 +381,25 @@ test("headline can describe the worst buy in content terms", () => {
     "50% of 10 games played. Worst buy: Anthem at ₹2,100/h.", "rate wording untouched");
 });
 
+
+
+test("Plus-covered value counts only priced Plus titles", () => {
+  // The coverage figure is a sum of today's prices, so an unpriced Plus title
+  // contributes nothing and a priced non-Plus title contributes nothing: it
+  // answers exactly "what would this cost if the subscription did not exist".
+  const rows = [
+    { id: "a", name: "A", hours: 5, price: 100, plusIncluded: true, platform: "PlayStation" },
+    { id: "b", name: "B", hours: 5, price: 50, plusIncluded: false, platform: "PlayStation" },
+    { id: "c", name: "C", hours: 5, price: null, plusIncluded: true, platform: "PlayStation" },
+    { id: "d", name: "D", hours: 5, price: 25, plusIncluded: true, platform: "PlayStation" },
+    { id: "e", name: "E", hours: 5, price: 0, plusIncluded: true, platform: "PlayStation" },
+  ];
+  assert.equal(computeRegret(rows).plusCovered, 125);
+});
+
+test("Plus-covered value is zero when nothing is priced yet", () => {
+  assert.equal(computeRegret([]).plusCovered, 0);
+  assert.equal(computeRegret([
+    { id: "x", name: "X", hours: 1, price: null, plusIncluded: true, platform: "PlayStation" },
+  ]).plusCovered, 0);
+});

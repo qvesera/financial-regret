@@ -1123,16 +1123,18 @@ test("the store's silence about a console is remembered, not re-asked", async ()
 
 // One PlayStation row, one covers answer: the seed for every question about
 // which console a card should wear.
-const bandSeed = (game, covers, platforms = {}) => (e) => {
+const bandSeed = (game, covers, platforms = {}, priceExtra = {}) => (e) => {
   e.localStorage.setItem("psn_online_id", "FakePlayer_91");
   e.fetchRoutes.push((url) => {
     if (url.includes("/api/config")) return { json: {
       requireUserKeys: false, keys: { steam: false, itad: false, sgdb: false },
     } };
-    if (url.includes("/api/psn_games")) return { json: { games: [game] } };
+    if (url.includes("/api/psn_games")) {
+      return { json: { games: Array.isArray(game) ? game : [game] } };
+    }
     if (url.includes("/api/psn_prices")) return { json: {
       prices: {}, highs: {}, lows: {}, currency: "INR", attribution: null,
-      reason: null,
+      reason: null, ...priceExtra,
     } };
     if (url.includes("/api/steam_games") || url.includes("/api/gog_games")
         || url.includes("/api/epic_games")) return { json: { games: [] } };
@@ -1140,6 +1142,12 @@ const bandSeed = (game, covers, platforms = {}) => (e) => {
     if (url.includes("/api/covers")) return { json: { covers, psPlatforms: platforms } };
     return null;
   });
+};
+
+const drawerPrice = (env) => {
+  const row = env.document.querySelectorAll(".drawer-row")
+    .find((r) => r.textContent.includes("Current price"));
+  return row ? row.querySelector("strong") : null;
 };
 
 const bandClasses = (env) => {
@@ -1218,6 +1226,169 @@ test("a snapshot from before consoles existed still lights both up", async () =>
   assert.ok(b.ps4, "the console was read off the title id");
   assert.ok(!env.root.querySelector(".console-select").parentElement.hidden,
     "and the console filter shows without a rescan");
+});
+
+test("a delisted row says Not sold and an app row says App", async () => {
+  // The two facts a price cannot carry: the store stopped selling it, and it
+  // was never a store title. Both used to wear the same dash as a fetch that
+  // simply failed, which is the confusion this replaces.
+  const delisted = bandSeed(
+    { id: "PSN:CUSA08809_00", name: "JUMP FORCE", platform: "PlayStation",
+      hours: 5, titleId: "CUSA08809_00", console: "PS4", conceptId: 10011645 },
+    { "PSN:CUSA08809_00": "https://img.example/jf.png" }, {},
+    { prices: { "PSN:CUSA08809_00": null },
+      notSold: { "PSN:CUSA08809_00": true } });
+  const { env, mod } = await boot({ seed: delisted });
+  await settle();
+  await openTitle(env, "JUMP FORCE");
+  await new Promise((r) => setTimeout(r, 400));
+
+  const pl = drawerPrice(env);
+  assert.ok(pl, "the drawer names the price row");
+  assert.equal(pl.textContent, "Not sold",
+    "the card says what is true instead of implying a failed fetch");
+  assert.equal(mod.getState().verdicts.get("PSN:CUSA08809_00"), "notsold",
+    "the verdict map agrees with the label");
+  const facet = env.root.querySelectorAll(".tier-facet")
+    .find((b) => b.dataset.tier === "notsold");
+  assert.ok(facet, "the verdict row has a Not sold facet");
+  assert.equal(facet.querySelector(".tier-count").textContent, "1");
+});
+
+test("an app row says App, and only on PlayStation", async () => {
+  const seed = bandSeed(
+    { id: "PSN:CUSA08526_00", name: "Spotify", platform: "PlayStation",
+      hours: 12, titleId: "CUSA08526_00", console: "PS4", conceptId: null },
+    { "PSN:CUSA08526_00": "https://img.example/spotify.png" }, {},
+    { prices: { "PSN:CUSA08526_00": null } });
+  const { env } = await boot({ seed });
+  await settle();
+  await openTitle(env, "Spotify");
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(drawerPrice(env).textContent, "App");
+});
+
+test("a priced Plus title wears the chip and keeps its price", async () => {
+  // Plus is a chip, not a verdict: the store still sells this title, so its
+  // real judgment stands and only the catalogue fact is added.
+  const seed = bandSeed(
+    { id: "PSN:PPSA20622_00", name: "ASTRO BOT", platform: "PlayStation",
+      hours: 5, titleId: "PPSA20622_00", console: "PS5", conceptId: 10026204 },
+    { "PSN:PPSA20622_00": "https://img.example/astro.png" }, {},
+    { prices: { "PSN:PPSA20622_00": 4999 },
+      plusIncluded: { "PSN:PPSA20622_00": true } });
+  const { env, mod } = await boot({ seed });
+  await settle();
+  await openTitle(env, "ASTRO BOT");
+  await new Promise((r) => setTimeout(r, 400));
+
+  const card = drawerPrice(env);
+  assert.ok(card.textContent.includes("4,999"),
+    "the price is still the price: Plus never zeroes it");
+  assert.ok(env.document.querySelector(".ps-plus-chip"),
+    "and the card says it is in the Plus catalogue");
+  assert.notEqual(mod.getState().verdicts.get("PSN:PPSA20622_00"), "notsold",
+    "a priced title keeps its real verdict");
+});
+
+test("the PS Plus figure is saved, shown and forgotten with everything else", async () => {
+  // The one number no store can supply: asked for beside the keys, kept with
+  // everything else the visitor supplies, and taken by Forget my data.
+  const { env } = await boot();          // onboarding: the keys card is the page
+  await settle();
+
+  const amount = env.document.getElementById("ps-plus-amount");
+  assert.ok(amount, "the card asks for the figure");
+  amount.value = "4500";
+  env.document.getElementById("ps-plus-since").value = "2019";
+  const btn = env.root.querySelectorAll("button")
+    .find((b) => b.dataset.action === "save-figure");
+  assert.ok(btn, "the figure field has a Save button: "
+    + env.root.querySelectorAll("button").map((b) => b.dataset.action).join(", "));
+  btn.dispatch("click");
+  await settle();
+
+  assert.equal(env.localStorage.getItem("ps_plus_amount"), "4500");
+  assert.equal(env.localStorage.getItem("ps_plus_since"), "2019");
+  assert.ok(env.localStorage.getItem("ps_plus_currency"),
+    "the currency it was typed in travels with it");
+
+});
+
+test("forgetting the library takes the PS Plus figure with it", async () => {
+  // Forget my data lives in the dashboard header, so this half runs there:
+  // the figure is stored like every other thing the visitor supplies, which
+  // means Forget has to take it too.
+  const { env } = await boot({ seed: psnCoverSeed });
+  await settle();
+  env.localStorage.setItem("ps_plus_amount", "4500");
+  env.localStorage.setItem("ps_plus_since", "2019");
+  env.localStorage.setItem("ps_plus_currency", "INR");
+
+  // The header button only asks; the modal's own button does the forgetting.
+  const ask = env.root.querySelectorAll("button")
+    .find((b) => b.dataset.action === "confirm-forget");
+  assert.ok(ask, "the dashboard header offers Forget my data");
+  ask.dispatch("click");
+  await settle();
+  const confirm = env.root.querySelectorAll("button")
+    .find((b) => b.dataset.action === "do-forget");
+  assert.ok(confirm, "and it asks before taking anything");
+  confirm.dispatch("click");
+  await settle();
+
+  assert.equal(env.localStorage.getItem("ps_plus_amount"), null,
+    "forgetting takes the figure with the rest");
+  assert.equal(env.localStorage.getItem("ps_plus_since"), null);
+  assert.equal(env.localStorage.getItem("ps_plus_currency"), null);
+});
+
+test("the Plus what-if previews an alternative without touching the headline", async () => {
+  // The whole point of putting it in What if: re-buy cost stays the "buy it
+  // all at retail" number that every verdict and benchmark is computed from,
+  // and the subscription scenario is one line the visitor asked for.
+  // Three rows, one untouched: without a populated "worst" list the regret
+  // panel — and the toggle inside it — is never built.
+  const seed = bandSeed([
+    { id: "PSN:PPSA20622_00", name: "ASTRO BOT", platform: "PlayStation",
+      hours: 5, titleId: "PPSA00142_00", console: "PS5", conceptId: 10026204 },
+    { id: "PSN:CUSA08809_00", name: "JUMP FORCE", platform: "PlayStation",
+      hours: 0, titleId: "CUSA08809_00", console: "PS4", conceptId: 10011645 },
+    { id: "PSN:CUSA12605_00", name: "DEATH STRANDING", platform: "PlayStation",
+      hours: 12, titleId: "CUSA12605_00", console: "PS4", conceptId: 234585 },
+  ], {
+    "PSN:PPSA20622_00": "https://img.example/astro.png",
+    "PSN:CUSA08809_00": "https://img.example/jf.png",
+    "PSN:CUSA12605_00": "https://img.example/ds.png",
+  }, {}, {
+    prices: { "PSN:PPSA20622_00": 4999, "PSN:CUSA08809_00": 1000,
+      "PSN:CUSA12605_00": 500 },
+    plusIncluded: { "PSN:PPSA20622_00": true },
+  });
+  const { env, mod } = await boot({ seed });
+  await settle();
+
+  const plusRow = env.document.querySelector(".sim-plus");
+  assert.ok(plusRow, "the toggle sits in the what-if card");
+  const box = plusRow.querySelector("input");
+  assert.ok(box, "the toggle is a checkbox");
+  assert.equal(env.document.getElementById("sim-plus-out").textContent, "",
+    "off by default: retail is the default basis");
+  assert.equal(mod.getState().metrics.plusCovered, 4999,
+    "the coverage figure the preview will subtract");
+
+  const headline = env.document.getElementById("hero-spend").textContent;
+  box.checked = true;
+  box.dispatch("change");
+  await settle();
+
+  const out = env.document.getElementById("sim-plus-out").textContent;
+  assert.ok(out.includes("Re-buy without those"), out);
+  assert.ok(out.includes("saved"), out);
+  assert.equal(env.document.getElementById("hero-spend").textContent, headline,
+    "the headline itself never moves — only the preview does");
+  assert.equal(mod.getState().simPlus, true, "and the choice is remembered");
+  assert.equal(JSON.parse(env.localStorage.getItem("ui_state")).simPlus, true);
 });
 
 test("the console filter stays hidden for a library with no PlayStation", async () => {
@@ -2399,12 +2570,13 @@ test("every dashboard metric carries a wired explanation chip", async () => {
   await settle();
 
   const chips = env.root.querySelectorAll(".info");
-  // 7 KPI cards (incl. the add-on card, which is present-but-hidden without DLC)
-  // + the hero label + the headline + all three ranked cards.
+  // 9 KPI cards (incl. the add-on card, which is present-but-hidden without
+  // DLC, and the two PlayStation Plus figures) + the hero label + the headline
+  // + all three ranked cards.
   // Root-scoped on purpose: it counts attached nodes only, which is what makes
   // it a real guard against a chip being detached from the page while its id
   // stays reachable — exactly what happened with the ₹/hour label.
-  assert.equal(chips.length, 12,
+  assert.equal(chips.length, 14,
     chips.map((c) => c.getAttribute("aria-describedby")).join(", "));
 
   for (const chip of chips) {
