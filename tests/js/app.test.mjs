@@ -299,6 +299,34 @@ const coverSeed = (sgdbShared) => (e) => {
   });
 };
 
+// A bare instance: no key anywhere, one PlayStation title the gamelist
+// identified by concept id -- the shape Sony's keyless leg answers.
+const psnCoverSeed = (e) => {
+  e.localStorage.setItem("psn_online_id", "FakePlayer_91");
+  e.fetchRoutes.push((url) => {
+    if (url.includes("/api/config")) return { json: {
+      requireUserKeys: false,
+      keys: { steam: false, itad: false, sgdb: false },
+    } };
+    if (url.includes("/api/psn_games")) return { json: { games: [
+      { id: "PSN:200520", name: "Bloodborne", platform: "PlayStation",
+        hours: 5, titleId: "CUSA00207", console: "PS4", conceptId: "200520" },
+    ] } };
+    if (url.includes("/api/psn_prices")) return { json: {
+      prices: { "PSN:200520": 1999 }, highs: {}, lows: {}, currency: "INR",
+      attribution: null, reason: null,
+    } };
+    if (url.includes("/api/steam_games") || url.includes("/api/gog_games")
+        || url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/prices")) return { json: { prices: {}, highs: {}, lows: {} } };
+    if (url.includes("/api/covers")) return { json: {
+      covers: { "PSN:200520": "https://img.example/portrait.png" },
+      psPlatforms: { "PSN:200520": "PS5" },
+    } };
+    return null;
+  });
+};
+
 test("covers are fetched with the instance's key when the visitor has none", async () => {
   const { env } = await boot({ seed: coverSeed(true) });
   await settle();
@@ -313,7 +341,10 @@ test("covers are fetched with the instance's key when the visitor has none", asy
   assert.equal(env.localStorage.getItem("sgdb_api_key"), null, "and none is saved");
 });
 
-test("with no key anywhere, covers are not requested at all", async () => {
+test("with no key anywhere, non-PlayStation covers are not requested", async () => {
+  // The keyless gate is per title: Sony's art only answers for PlayStation
+  // entries the gamelist identified, so a Steam-only library still spends
+  // nothing — asking would buy a guaranteed null.
   const { env } = await boot({ seed: coverSeed(false) });
   await settle();
   await openTitle(env, "Coverless");
@@ -321,6 +352,41 @@ test("with no key anywhere, covers are not requested at all", async () => {
 
   assert.ok(!env.fetchCalls.some((c) => c.url.includes("/api/covers")),
     "nothing to ask with: no visitor key and no shared one either — placeholders stay");
+});
+
+test("PlayStation covers are asked for without any key, carrying the concept id", async () => {
+  const { env } = await boot({ seed: psnCoverSeed });
+  await settle();
+  await openTitle(env, "Bloodborne");
+  await new Promise((r) => setTimeout(r, 400)); // flushCovers debounces 250ms
+
+  const call = env.fetchCalls.find((c) => c.url.includes("/api/covers"));
+  assert.ok(call,
+    "no SGDB key anywhere — yet the PlayStation title is still asked for");
+  assert.equal((call.opts.headers || {})["X-SGDB-Key"], undefined,
+    "nothing to spend: Sony's own art needs no key");
+  const body = JSON.parse(call.opts.body);
+  assert.equal(body.games[0].conceptId, "200520",
+    "the concept id is the join key — no title search, no wrong cover");
+  assert.ok(body.currency,
+    "the display currency picks which storefront catalogue is asked");
+});
+
+test("Sony's console picks the retail band, and only on her art", async () => {
+  const { env } = await boot({ seed: psnCoverSeed });
+  await settle();
+  await openTitle(env, "Bloodborne");
+  await new Promise((r) => setTimeout(r, 400));
+
+  assert.equal(env.localStorage.getItem("covers_platforms"),
+    JSON.stringify({ "PSN:200520": "PS5" }),
+    "the console travels with the art and is persisted");
+  const cover = env.document.querySelector(".cover");
+  assert.ok(cover.classList.contains("is-psn-art"),
+    "art from Sony's store wears a band");
+  assert.ok(cover.classList.contains("ps5"),
+    "PS5 art wears the PS5 template, not a guess");
+  assert.ok(!cover.classList.contains("ps4"), "and never the other console");
 });
 
 test("the shared term in one key field fills all three fields", async () => {
@@ -965,6 +1031,50 @@ test("platform filter narrows the table to the chosen platform", async () => {
   sel.dispatch("change");
   await settle();
   assert.equal(mod.getState().rows.length, 3, "back to everything");
+});
+
+test("the console filter shows for a linked PlayStation library and filters", async () => {
+  // PS4 vs PS5 is a distinction Sony's scan can make (PPSA/CUSA title ids)
+  // and it only means anything for a linked PlayStation account -- so the
+  // control is gated on the link and narrows to PS rows once chosen.
+  const { env, mod } = await boot({ seed: psnCoverSeed });
+  await settle();
+
+  const sel = env.root.querySelector(".console-select");
+  assert.ok(sel, "the control is built with the rest of the filter bar");
+  assert.ok(!sel.parentElement.hidden,
+    "shown: PlayStation is linked and the scan named a console");
+  assert.equal(mod.getState().psConsole, "All", "starts on every console");
+
+  sel.value = "PS5";
+  sel.dispatch("change");
+  await settle();
+  assert.equal(mod.getState().psConsole, "PS5", "the choice is recorded");
+  assert.equal(mod.getState().rows.length, 0,
+    "no PS5 titles in a PS4-only library");
+
+  sel.value = "PS4";
+  sel.dispatch("change");
+  await settle();
+  assert.equal(mod.getState().rows.length, 1, "the PS4 title remains");
+  assert.equal(mod.getState().rows[0].name, "Bloodborne");
+
+  sel.value = "All";
+  sel.dispatch("change");
+  await settle();
+  assert.equal(mod.getState().rows.length, 1, "back to every console");
+});
+
+test("the console filter stays hidden for a library with no PlayStation", async () => {
+  // For a Steam-only library the control would be a choice between nothing,
+  // so it never appears rather than sitting there dead.
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  const sel = env.root.querySelector(".console-select");
+  assert.ok(sel, "built once, like every other select");
+  assert.ok(sel.parentElement.hidden,
+    "hidden: no PlayStation link, so there is no console to choose");
 });
 
 test("view toggle switches between list and grid and persists", async () => {

@@ -84,6 +84,13 @@ export class FakeElement {
     return out;
   }
 
+  /** Nearest self-or-ancestor matching sel - Element.closest. */
+  closest(sel) {
+    const pred = matches(sel);
+    for (let n = this; n; n = n.parentNode) if (pred(n)) return n;
+    return null;
+  }
+
   /** Fire an event that bubbles from this node up through its ancestors. */
   dispatch(type, init = {}) {
     const ev = { type, target: this, preventDefault() {}, ...init };

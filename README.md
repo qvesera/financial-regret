@@ -43,14 +43,14 @@ docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
 |---|---|---|
 | `ITAD_API_KEY` | No | IsThereAnyDeal API key for price lookups. Without it, prices fall back to Steam public API. |
 | `PLATPRICES_API_KEY` | — | **Removed.** PlayStation pricing reads Sony's public storefront and needs no key; see `backend/psn_prices.py`. |
-| `SGDB_API_KEY` | No | SteamGridDB key used as the fallback for cover art. A browser-supplied key (dashboard → API keys → SteamGridDB) takes precedence and is sent per-request as `X-SGDB-Key`; without either, the covers endpoint returns no art. |
+| `SGDB_API_KEY` | No | SteamGridDB key for cover art: it backs up PlayStation titles — whose art is read keyless from Sony's own storefront first — and supplies every other store's art. A browser-supplied key (dashboard → API keys → SteamGridDB) takes precedence and is sent per-request as `X-SGDB-Key`; without either, PlayStation covers still resolve and the rest keep their placeholders. |
 | `GOG_CLIENT_ID` | No | GOG OAuth client ID. Defaults to public PKCE client. |
 | `EPIC_CLIENT_ID` | No | Epic OAuth client ID. Defaults to public PKCE client. |
 | `PSN_REFRESH_TOKEN` | For the PlayStation store | The reader token that lets this server fetch PlayStation playtime from **public** profiles. Mint it once on your own machine — `python3 scripts/psn_login.py` prompts for an NPSSO (hidden, never stored), exchanges it locally and prints a refresh token to paste here. It is an API credential, not a web session: it cannot sign in to the PlayStation website, and no visitor ever supplies one — linking PlayStation is just typing a public online ID. Without it, the PlayStation step reports it is unconfigured and nothing else is affected. It is good for only about **ten days** (Sony's grant for this client), so keep it on the schedule in *Keeping the PlayStation reader token fresh* rather than hand-renewing once and forgetting; `/api/psn_games` answers `refresh_failed` when it stops working. |
 | `PORT` | No | Port to listen on (default 3000; `run.sh` passes 8089). |
 | `HOST` | No | Host to bind (default 0.0.0.0). |
 | `CORS_ALLOWED_ORIGINS` | No | Comma-separated origins allowed to call this API cross-origin, e.g. `https://your-app.vercel.app`. Empty — the default — means same-origin only. Wildcards are discarded rather than honoured. |
-| `REQUIRE_USER_KEYS` | No | `1` to ignore the server's `STEAM_API_KEY` / `ITAD_API_KEY` / `SGDB_API_KEY` and require every visitor to bring their own. Unset — the default — a visitor's own key always wins and the server key fills in when they have none, so the instance works without setup. Set `1` on a public deployment where you would rather refuse than spend your quota. (PlayStation is unaffected: it spends no key of any kind.) |
+| `REQUIRE_USER_KEYS` | No | `1` to ignore the server's `STEAM_API_KEY` / `ITAD_API_KEY` / `SGDB_API_KEY` and require every visitor to bring their own. Unset — the default — a visitor's own key always wins and the server key fills in when they have none, so the instance works without setup. Set `1` on a public deployment where you would rather refuse than spend your quota. (PlayStation is unaffected: its pricing and its cover art spend no key of any kind.) |
 | `TRUST_PROXY` | No | `1` to read the client IP from `X-Forwarded-For`. Only behind a reverse proxy you control — otherwise the per-IP rate limit is trivially bypassed. |
 | `RATE_LIMIT_PER_MIN` | No | Per-IP requests per minute (default 120), enforced by `server.py` — local, Docker and Render. The Vercel function enforces no app-level limit; the equivalent there is a rate-limiting rule in the Vercel Firewall (one free rule per Hobby project, first 1,000,000 requests a month included). |
 | `PUBLIC_BASE_URL` | No | The URL the app is reached on. OAuth redirect URIs (GOG, Epic) must match what those providers have registered. |
@@ -160,8 +160,8 @@ public online ID and not a token field.
 ## Tests
 
 ```bash
-npm test                                    # 194 JS tests
-python3 -m unittest discover -s tests       # 150 python tests
+npm test                                    # 223 JS tests
+python3 -m unittest discover -s tests       # 210 python tests
 npm run shots                               # phone-width layout gate (needs Playwright)
 ```
 

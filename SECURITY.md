@@ -72,7 +72,14 @@ rule, and `tests/test_logging.py` pins the consequence.
   `vercel.json` on Vercel. `connect-src` names one outbound host beyond
   `'self'` — `https://is.gd` — reachable only from the share drawer, which
   fetches a short link when it paints one; nothing else on the page can open
-  a connection at all.
+  a connection at all. `img-src` names three image hosts beyond `'self'`:
+  `https://image.api.playstation.com` (the store's own cover art — a plain
+  GET of a public image, no credentials and no cookies), and
+  `https://cdn2.steamgriddb.com` / `https://cdn.steamgriddb.com` for
+  SteamGridDB uploads. The retail band templates are same-origin, so they
+  need no host entry. `scripts/probe_psn_store.py` fetches a portrait on every
+  run, so Sony moving to another image domain fails the schedule instead of
+  silently blanking the grid under a stale `img-src`.
 * **Paths cannot escape `public/`.** Every dot segment is rejected up front and
   the resolved path is checked against the resolved root.
 * **Per-IP rate limiting** on every endpoint, including `OPTIONS` — enforced by
@@ -167,8 +174,9 @@ switch. Those are reliability limits, not credential risks.
    a heap dump, can read tokens as they pass. The only real mitigation is not
    handling the credential at all.
 2. **Shared in-memory caches cross visitors.** `backend/epic_games.py` caches
-   playtime keyed by Epic account id; `backend/covers.py` caches cover art keyed by
-   title. Neither holds secrets, but on a shared instance a visitor who knows
+   playtime keyed by Epic account id; `backend/covers.py` caches cover art keyed
+   by store concept id (or title for games without one). Neither holds secrets,
+   but on a shared instance a visitor who knows
    another visitor's account id could read that visitor's cached playtime.
    Prices are keyed by currency and region and are not user-specific.
 3. **`localStorage` is readable by any script on the origin.** The CSP is what

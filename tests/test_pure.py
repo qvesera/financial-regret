@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 from prices import _normalise_title  # noqa: E402
+from covers import _psn_portrait  # noqa: E402
 from psn_games import iso8601_to_hours  # noqa: E402
 from psn_prices import (  # noqa: E402
     LOCALE_BY_CURRENCY, _locale_for, _money, _price_fields, _purchase_cta,
@@ -171,6 +172,81 @@ class TestStoreLocales(unittest.TestCase):
     def test_a_currency_without_a_store_has_none(self):
         for code in ("XAF", "XCD", "ZZZ", "not-a-code"):
             self.assertIsNone(_locale_for(code))
+
+
+class TestPsnPortrait(unittest.TestCase):
+    """The cover art half of Sony's store answer: one concept arrives as
+    several product nodes whose media lists differ, and only one role is
+    actually a portrait the grid can fill its 2:3 box with. Each answer is
+    the (url, console) pair, because the console picks the retail band the
+    card wears over the art."""
+
+    @staticmethod
+    def _payload(*products):
+        return {"data": {"conceptRetrieve": {"selectableProducts": {
+            "purchasableProducts": list(products)}}}}
+
+    def test_base_game_portrait_wins_over_a_bundle_without_one(self):
+        # Real shape: the edition bundle keeps only a square MASTER, the base
+        # game the full media set -- walking in order would miss the art.
+        payload = self._payload(
+            {"id": "bundle", "media": [{"role": "MASTER", "url": "master.png"}]},
+            {"id": "base", "media": [{"role": "MASTER", "url": "m2.png"},
+                                     {"role": "PORTRAIT_BANNER", "url": "p.png"}]},
+        )
+        self.assertEqual(_psn_portrait(payload), ("p.png", None))
+
+    def test_landscape_and_square_roles_are_not_portraits(self):
+        # BACKGROUND / EDITION_KEY_ART are 16:9; MASTER is square. Cropping
+        # any of them to the card's 2:3 would show a stripe of the artwork.
+        payload = {"data": {"conceptRetrieve": {"defaultProduct": {
+            "media": [{"role": "MASTER", "url": "m.png"},
+                      {"role": "BACKGROUND", "url": "bg.png"},
+                      {"role": "EDITION_KEY_ART", "url": "key.png"}]}}}}
+        self.assertEqual(_psn_portrait(payload), (None, None))
+
+    def test_a_portrait_without_a_url_is_skipped_not_returned(self):
+        payload = self._payload(
+            {"media": [{"role": "PORTRAIT_BANNER", "url": None}]},
+            {"media": [{"role": "PORTRAIT_BANNER", "url": "second.png"}]},
+        )
+        self.assertEqual(_psn_portrait(payload), ("second.png", None))
+
+    def test_absent_or_malformed_answers_are_none(self):
+        for payload in (None, {}, {"data": {}}, {"data": None},
+                        {"data": {"conceptRetrieve": None}},
+                        {"data": {"conceptRetrieve": "not a concept"}},
+                        {"errors": [{"message": "PersistedQuery not found"}]}):
+            self.assertEqual(_psn_portrait(payload), (None, None),
+                             f"{payload!r} must read as no art")
+
+    def test_the_band_comes_from_the_same_product_as_the_art(self):
+        # One node carries both the portrait and the platforms it runs on, so
+        # a band can never be borrowed from a different product in the same
+        # concept (an edition bundle wearing the base game's console).
+        payload = self._payload(
+            {"id": "base", "platforms": ["PS5"],
+             "media": [{"role": "PORTRAIT_BANNER", "url": "p.png"}]},
+        )
+        self.assertEqual(_psn_portrait(payload), ("p.png", "PS5"))
+
+    def test_a_cross_gen_title_wears_the_current_gen_band(self):
+        # One band fits on a cover, so a cross-gen release gets the current-gen
+        # one -- the same choice a shop shelf makes.
+        payload = self._payload(
+            {"id": "base", "platforms": ["PS4", "PS5"],
+             "media": [{"role": "PORTRAIT_BANNER", "url": "p.png"}]},
+        )
+        self.assertEqual(_psn_portrait(payload), ("p.png", "PS5"))
+
+    def test_a_console_with_no_template_gets_the_art_but_no_band(self):
+        # A platform neither template covers still gets its cover; it just
+        # wears none rather than one that would be wrong.
+        payload = self._payload(
+            {"id": "base", "platforms": ["PS3"],
+             "media": [{"role": "PORTRAIT_BANNER", "url": "p.png"}]},
+        )
+        self.assertEqual(_psn_portrait(payload), ("p.png", None))
 
 
 if __name__ == "__main__":

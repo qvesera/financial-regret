@@ -163,6 +163,25 @@ def iso8601_to_hours(raw) -> float | None:
     return max(round(total, 1), 0.1)
 
 
+def _console(title_id) -> str | None:
+    """"PS5" / "PS4" read off Sony's own title id, or None.
+
+    PPSA... is a PS5 title and CUSA... a PS4 one -- the two prefixes the
+    gamelist hands back for the current generation, and the exact id whose
+    concept already carries the price join. Any other shape (PS3, Vita, no id
+    at all) answers None instead of a guess, so the console filter only ever
+    offers what the scan actually knows and "Other PS" holds the rest.
+    """
+    if not isinstance(title_id, str):
+        return None
+    upper = title_id.upper()
+    if upper.startswith("PPSA"):
+        return "PS5"
+    if upper.startswith("CUSA"):
+        return "PS4"
+    return None
+
+
 def fetch_titles(access_token: str, account_id: str) -> tuple:
     """All played titles for one account (paged).
 
@@ -255,6 +274,9 @@ class handler(BaseHTTPRequestHandler):
                 "name": t.get("name") or t.get("localizedName") or "PlayStation game",
                 "platform": "PlayStation",
                 "titleId": t.get("titleId") or None,
+                # PS4 vs PS5 for the console filter: free, because it is the
+                # same id the row was already keyed on.
+                "console": _console(t.get("titleId")),
                 # Sony's own id for "all versions of this game" -- the join key
                 # psn_prices.py prices on, so pass it through rather than
                 # forcing a second lookup by title text.

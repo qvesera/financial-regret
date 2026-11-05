@@ -12,11 +12,15 @@ from _cors import send_cors
 
 # connect-src names exactly one outbound host beyond 'self': is.gd, used only
 # when a visitor clicks Copy link to fetch a short URL. SECURITY.md records
-# what that host can see and how to remove it again.
+# what that host can see and how to remove it again. img-src names the
+# cover-art CDNs too: SteamGridDB's uploads, Sony's store portraits, and
+# the retail band templates served from 'self'. SECURITY.md records each.
+# the cover-art CDNs too: SteamGridDB's uploads, Sony's store portraits,
+# and the band templates from 'self'. SECURITY.md records each of them.
 CSP = (
     "default-src 'self'; "
     "connect-src 'self' https://is.gd; "
-    "img-src 'self' data: https://cdn2.steamgriddb.com https://cdn.steamgriddb.com; "
+    "img-src 'self' data: https://image.api.playstation.com https://cdn2.steamgriddb.com https://cdn.steamgriddb.com; "
     "style-src 'self'; "
     "frame-ancestors 'none'; "
     "base-uri 'none'; "

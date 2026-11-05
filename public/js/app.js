@@ -156,6 +156,9 @@ let state = {
   scanError: null,
   filter: "All",
   platform: "All",
+  // PlayStation console facet: "All" | "PS5" | "PS4" | "Other PS". Only ever
+  // applied when a PlayStation account is linked -- see computeRows.
+  psConsole: "All",
   tier: "All",
   verdictSlide: "games",
   viewMode: "list",
@@ -229,6 +232,15 @@ function anyLinked(acc = linkedAccounts()) {
 function computeRows({ skipPlayFilter = false } = {}) {
   let g = state.games;
   if (state.platform && state.platform !== "All") g = g.filter((x) => x.platform === state.platform);
+  // Console is a PlayStation-only facet: choosing one implies PlayStation
+  // rows, so everything else drops with it. Gated on the link too, so a
+  // selection made while linked goes inert (rather than filtering in secret)
+  // the moment the account is forgotten.
+  if (state.psConsole && state.psConsole !== "All"
+      && (state.accounts || {}).psn) {
+    g = g.filter((x) => x.platform === "PlayStation"
+      && (state.psConsole === "Other" ? !x.console : x.console === state.psConsole));
+  }
   // Tier is read from the verdict map, which is built against the whole
   // library — so narrowing by verdict never moves the goalposts.
   if (state.tier && state.tier !== "All") {
@@ -273,11 +285,14 @@ function coverageLine() {
 
 /** Recompute derived state and hand it to the view. */
 // ---------- cover art (grid view) ----------
-// SteamGridDB urls come back from /api/covers and are memoised here (persisted)
+// Cover urls come back from /api/covers and are memoised here (persisted)
 // so a re-render or a restart never refetches art. Loading is lazy: only cards
 // scrolling into view are requested, which keeps a 500-game library inside one
-// rate-limit window. Without an SGDB key the grid just keeps its placeholders.
+// rate-limit window. PlayStation titles resolve with no key at all (Sony's own
+// storefront answers the concept id); every other store needs an SGDB key
+// somewhere, and without one those cards keep their placeholders.
 const coversCache = new Map();      // gameId -> image url
+const coverPlatforms = new Map();   // gameId -> "PS4" | "PS5", the retail band
 let coverPending = new Set();       // ids queued for the next batch
 let coverInflight = new Set();      // ids currently being fetched
 let coverTimer = null;
@@ -288,15 +303,44 @@ function loadCoversCache() {
     const raw = JSON.parse(localStorage.getItem("covers_cache") || "{}");
     for (const [id, url] of Object.entries(raw)) if (url) coversCache.set(id, url);
   } catch { /* corrupt cache is simply ignored */ }
+  try {
+    const raw = JSON.parse(localStorage.getItem("covers_platforms") || "{}");
+    for (const [id, platform] of Object.entries(raw)) {
+      if (platform) coverPlatforms.set(id, platform);
+    }
+  } catch { /* corrupt cache is simply ignored */ }
+  // A cache written before the platform map existed can hold Sony's art with
+  // no console beside it, and the band needs one. Drop those entries so the
+  // band is resolved again on the next scroll; a title Sony genuinely states
+  // no console for costs one refetch per load, which beats a missing band.
+  for (const [id, url] of coversCache) {
+    if (url.includes("image.api.playstation.com") && !coverPlatforms.has(id)) {
+      coversCache.delete(id);
+    }
+  }
 }
 
 function persistCovers() {
   try {
     localStorage.setItem("covers_cache", JSON.stringify(Object.fromEntries(coversCache)));
+    localStorage.setItem("covers_platforms",
+      JSON.stringify(Object.fromEntries(coverPlatforms)));
   } catch { /* quota exceeded: the cache is an optimisation, never fatal */ }
 }
 
 /** Stamp every rendered placeholder whose url we already know. */
+/** Reveal the retail band on covers whose store named a console for them.
+ *  Sony's art arrives banner-less; SteamGridDB's uploads are usually the
+ *  retail cover already, band and all, so those never wear one of ours. */
+function stampBand(img) {
+  const cover = img.closest(".cover");
+  if (!cover) return;
+  const platform = coverPlatforms.get(img.dataset.coverId);
+  cover.classList.toggle("is-psn-art", Boolean(platform));
+  cover.classList.toggle("ps4", platform === "PS4");
+  cover.classList.toggle("ps5", platform === "PS5");
+}
+
 function applyCovers() {
   for (const img of document.querySelectorAll(".cover-img")) {
     if (img.dataset.loaded) continue;
@@ -304,6 +348,7 @@ function applyCovers() {
     if (url) {
       img.setAttribute("src", url);
       img.dataset.loaded = "1";
+      stampBand(img);
       // A memory-cache hit can be complete before any load event listener
       // has a say — reveal it either way.
       if (img.complete) img.classList.add("is-loaded");
@@ -341,9 +386,15 @@ function sgdbKeyAvailable() {
 }
 
 function queueCovers(ids) {
-  if (!sgdbKeyAvailable()) return;
+  const keyless = !sgdbKeyAvailable();
+  // Without an SGDB key only Sony's leg can answer, and only for the titles
+  // the gamelist identified by concept id — asking for anything else would buy
+  // a guaranteed null on every render, so those keep their placeholders.
+  const byId = keyless ? new Map(state.games.map((g) => [g.id, g])) : null;
   for (const id of ids) {
-    if (!coversCache.has(id) && !coverInflight.has(id)) coverPending.add(id);
+    if (coversCache.has(id) || coverInflight.has(id)) continue;
+    if (keyless && !(byId.get(id) || {}).conceptId) continue;
+    coverPending.add(id);
   }
   if (!coverPending.size) return;
   clearTimeout(coverTimer);
@@ -360,7 +411,14 @@ async function flushCovers() {
   const payload = batch
     .map((id) => byId.get(id))
     .filter(Boolean)
-    .map((g) => ({ id: g.id, title: g.name, appid: g.appid || null }));
+    .map((g) => ({
+      id: g.id,
+      title: g.name,
+      appid: g.appid || null,
+      // Sony's join key: concept id in, portrait art out — no title search,
+      // so a duplicate or renamed title can never pick the wrong cover.
+      conceptId: g.conceptId || null,
+    }));
 
   try {
     if (payload.length) {
@@ -368,15 +426,22 @@ async function flushCovers() {
         method: "POST",
         // The header only when the visitor brought their own key: without it the
         // server spends its shared one, which is exactly why it is configured.
+        // Sony's art never needs it — the currency just picks which storefront
+        // catalogue is asked, mirroring what /api/psn_prices does.
         headers: key
           ? { "Content-Type": "application/json", "X-SGDB-Key": key }
           : { "Content-Type": "application/json" },
-        body: JSON.stringify({ games: payload }),
+        body: JSON.stringify({ games: payload, currency: state.currency }),
       });
       if (resp.ok) {
         const data = await resp.json();
         for (const [id, url] of Object.entries(data.covers || {})) {
           if (url) coversCache.set(id, url);
+        }
+        // The console Sony named travels with the art: it picks which retail
+        // band the card wears, and only for art that came from her store.
+        for (const [id, platform] of Object.entries(data.psPlatforms || {})) {
+          coverPlatforms.set(id, platform);
         }
         persistCovers();
         applyCovers();
@@ -891,7 +956,10 @@ function dropStoreData(name) {
   state.prices = prices;
   // The cover art fetched for those titles is that library's too — otherwise a
   // forgotten store keeps a cache of its box art in the browser forever.
-  for (const id of dropped) coversCache.delete(id);
+  for (const id of dropped) {
+    coversCache.delete(id);
+    coverPlatforms.delete(id);
+  }
   if (dropped.size) persistCovers();
   // A manual figure is keyed by game id — and Steam ids are appids, so an edit
   // made for this account's Hades would silently apply to the next account's.
@@ -1258,6 +1326,8 @@ function forget() {
   invalidateScan();   // an in-flight scan must not write the forgotten data back
   store.forget();
   coversCache.clear();
+  coverPlatforms.clear();
+  state.psConsole = "All";
   state.games = [];
   state.dupes = new Map();
   state.rows = [];
@@ -1461,6 +1531,15 @@ function onChange(e) {
     renderAll();
   } else if (t.dataset.action === "platform") {
     state.platform = t.value || "All";
+    // The console select hides on a store that has no consoles in it; a
+    // hidden control must not keep filtering, so the choice goes with it.
+    if (state.platform !== "All" && state.platform !== "PlayStation") {
+      state.psConsole = "All";
+    }
+    state.page = 1;
+    renderAll();
+  } else if (t.dataset.action === "psconsole") {
+    state.psConsole = t.value || "All";
     state.page = 1;
     renderAll();
   } else if (t.dataset.action === "sim-target") {

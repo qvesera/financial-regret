@@ -96,6 +96,7 @@ class TestPsnGames(unittest.TestCase):
         self.assertEqual(body["games"], [{
             "id": "PSN:PPSA00142_00", "name": "Astro Bot",
             "platform": "PlayStation", "titleId": "PPSA00142_00",
+            "console": "PS5",
             "conceptId": None, "hours": 5.2,
         }])
         self.assertNotIn("reason", body, "a non-empty answer needs no excuse")
@@ -107,6 +108,18 @@ class TestPsnGames(unittest.TestCase):
         self.assertIn("profile2", first.args[0])
         self.assertIn("2736737651100659016", second.args[0], "gamelist by account id")
         self.assertIn("Bearer tok", second.kwargs["headers"]["Authorization"])
+
+    def test_the_console_is_read_off_the_title_id(self):
+        """PS4 vs PS5 comes from Sony's own id shape -- PPSA is PS5, CUSA is
+        PS4 -- and anything else answers None so the console filter only ever
+        offers what the scan actually knows."""
+        self.assertEqual(psn_games._console("PPSA00142_00"), "PS5")
+        self.assertEqual(psn_games._console("CUSA00207"), "PS4")
+        self.assertEqual(psn_games._console("ppsa00001_00"), "PS5",
+                         "the prefix is case-insensitive")
+        for junk in (None, "", "  ", 123, "NPNA00001", "PCSE00001",
+                     "PLAYSTATION4", "unknown"):
+            self.assertIsNone(psn_games._console(junk), f"{junk!r} must stay unknown")
 
     def test_a_malformed_online_id_never_reaches_sony(self):
         # %20 decodes to a space before validation, which is legal -- the
