@@ -150,6 +150,80 @@ class TestCatalogueFacts(unittest.TestCase):
         rq.post.assert_not_called()
 
 
+def _no_default_product():
+    """Death Stranding's real answer in en-ZA: defaultProduct is NULL, the PS5
+    Director's Cut is on sale, the PS4 original is Plus-only and the PS4
+    Deluxe is the only PS4 thing you can actually buy."""
+    return {"data": {"conceptRetrieve": {
+        "defaultProduct": None,
+        "selectableProducts": {"purchasableProducts": [
+            {"name": "DEATH STRANDING DIRECTOR’S CUT", "platforms": ["PS5"],
+             "media": [{"role": "PORTRAIT_BANNER", "url": "https://img/dc.png"}],
+             "mobilectas": [
+                 {"meta": {"upSellService": "PS_PLUS"},
+                  "price": {"basePriceValue": 94900, "discountedValue": 0,
+                            "currencyCode": "ZAR", "isFree": True}},
+                 {"meta": {"upSellService": "NONE"},
+                  "price": {"basePriceValue": 94900, "discountedValue": 37960,
+                            "currencyCode": "ZAR", "isFree": False}}]},
+            {"name": "DEATH STRANDING", "platforms": ["PS4"],
+             "media": [{"role": "PORTRAIT_BANNER", "url": "https://img/ds.png"}],
+             "mobilectas": [
+                 {"meta": {"upSellService": "PS_PLUS"},
+                  "price": {"basePriceValue": 114900, "discountedValue": 0,
+                            "currencyCode": "ZAR", "isFree": True}}]},
+            {"name": "DEATH STRANDING Digital Deluxe Edition",
+             "platforms": ["PS4"],
+             "mobilectas": [
+                 {"meta": {"upSellService": "NONE"},
+                  "price": {"basePriceValue": 94900, "discountedValue": 94900,
+                            "currencyCode": "ZAR", "isFree": False}}]},
+        ]},
+    }}}
+
+
+class TestNoDefaultProduct(unittest.TestCase):
+    """The reader must not stop at defaultProduct: it is NULL for concepts the
+    store sells through a specific product, and two purchase buttons were
+    sitting one level down while Death Stranding read Unpriced."""
+
+    def setUp(self):
+        psn_prices._price_cache.clear()
+
+    @staticmethod
+    def _fetch(payload, console):
+        with mock.patch.object(psn_prices, "requests") as rq:
+            rq.post.return_value = _Resp(payload)
+            return psn_prices._fetch_concept(("234585", "en-ZA", "ZAR", console))
+
+    def test_a_ps4_row_is_priced_from_a_ps4_product(self):
+        result = self._fetch(_no_default_product(), "PS4")
+        self.assertEqual(result.status, psn_prices._Fetch.OK)
+        # The PS4 Deluxe (94900), not the PS5 Director's Cut that is listed
+        # first and on sale -- the row owns a PS4 title.
+        self.assertEqual(result.fields[0], 949.0)
+
+    def test_a_ps5_row_is_priced_from_the_directors_cut(self):
+        result = self._fetch(_no_default_product(), "PS5")
+        self.assertEqual(result.status, psn_prices._Fetch.OK)
+        self.assertEqual(result.fields[0], 379.60, "the Director's Cut is on sale")
+
+    def test_the_plus_flag_comes_from_a_product_not_the_default(self):
+        # defaultProduct is NULL here, and the Plus button lives on the
+        # products -- reading only the default would lose the chip too.
+        result = self._fetch(_no_default_product(), "PS4")
+        self.assertTrue(result.plus)
+
+    def test_concepts_without_a_console_keep_the_old_cache_key(self):
+        # A row with no derivable console must not be written under a key that
+        # includes "None", or it would never be found again.
+        with mock.patch.object(psn_prices, "requests") as rq:
+            rq.post.return_value = _Resp(_no_default_product())
+            psn_prices._request_all(["234585"], "en-ZA", "ZAR")
+        self.assertIn("en-ZA:234585", psn_prices._price_cache)
+        self.assertNotIn("en-ZA:None:234585", psn_prices._price_cache)
+
+
 class TestHandlerFansOut(unittest.TestCase):
     """One concept backs several rows: both facts fan out to each of them."""
 

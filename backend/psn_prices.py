@@ -161,29 +161,73 @@ def _money(raw, currency: str) -> float | None:
     return round(raw / _unit_scale(currency), 2)
 
 
-def _purchase_cta(payload: dict):
+def _product_nodes(payload: dict) -> list:
+    """Every product node in one answer: the default first, then the selectable.
+
+    defaultProduct is NULL for concepts the store still sells through a
+    specific product -- Death Stranding answers with three products and no
+    default, while two purchase buttons sit one level down. A reader that
+    stops at the default reports "no price" for a game that is on sale.
+    """
+    try:
+        concept = payload["data"]["conceptRetrieve"]
+    except (KeyError, TypeError):
+        return []
+    if not isinstance(concept, dict):
+        return []
+    nodes = []
+    default = concept.get("defaultProduct")
+    if isinstance(default, dict):
+        nodes.append(default)
+    sel = concept.get("selectableProducts")
+    products = (sel.get("purchasableProducts") or []) if isinstance(sel, dict) else (sel or [])
+    nodes.extend(p for p in products if isinstance(p, dict))
+    return nodes
+
+
+def _console_of(title_id) -> str | None:
+    """PS5 / PS4 from Sony's own title id -- the rule psn_games derives a row's
+    console with. A price is read from the product the row owns, not from
+    whichever product the store happens to list first."""
+    if not isinstance(title_id, str):
+        return None
+    tid = title_id.upper()
+    if tid.startswith("PPSA"):
+        return "PS5"
+    if tid.startswith("CUSA"):
+        return "PS4"
+    return None
+
+
+def _purchase_cta(payload: dict, console: str | None = None):
     """The one CTA that is an actual purchase, or None.
 
     A concept answers with several buttons: a PlayStation Plus catalog offer, a
     trial, a preorder. Only upSellService "NONE" is "buy this game" -- the Plus
     button reports itself as free and would price the whole library at zero.
+
+    Every product node is walked, preferring the one that runs on the console
+    the row owns. Death Stranding answers with a PS5 Director's Cut that is on
+    sale, a PS4 original that is Plus-only and a PS4 Deluxe you can actually
+    buy: reading the first button would price a PS4 row with the PS5 edition.
     """
-    try:
-        product = payload["data"]["conceptRetrieve"]["defaultProduct"]
-    except (KeyError, TypeError):
-        return None
-    if not isinstance(product, dict):
-        return None
-    for cta in product.get("mobilectas") or []:
-        if not isinstance(cta, dict):
-            continue
-        meta = cta.get("meta") or {}
-        if meta.get("upSellService") == "NONE":
-            return cta
+    nodes = _product_nodes(payload)
+    ordered = nodes
+    if console:
+        matched = [n for n in nodes if console in (n.get("platforms") or [])]
+        if matched:
+            ordered = matched + [n for n in nodes if n not in matched]
+    for product in ordered:
+        for cta in product.get("mobilectas") or []:
+            if not isinstance(cta, dict):
+                continue
+            meta = cta.get("meta") or {}
+            if meta.get("upSellService") == "NONE":
+                return cta
     return None
 
 
-def _price_fields(payload: dict, currency: str) -> tuple:
+def _price_fields(payload: dict, currency: str, console: str | None = None) -> tuple:
     """(price, high, low) from one metGetPricingDataByConceptId answer.
 
     ``basePriceValue`` is the undiscounted list figure and stands in as the
@@ -192,7 +236,7 @@ def _price_fields(payload: dict, currency: str) -> tuple:
     this payload at all, so low is always None and the dashboard falls back to
     today's price rather than inventing a history it cannot back up.
     """
-    cta = _purchase_cta(payload)
+    cta = _purchase_cta(payload, console)
     if cta is None:
         return (None, None, None)
     price_obj = cta.get("price")
@@ -239,18 +283,16 @@ def _plus_cta(payload: dict) -> bool:
     discounted to zero and reported as "Included". Any other non-NONE value is
     a trial or a preorder, which are not the catalogue -- and the purchase
     button itself is "NONE", so a game you can simply buy never counts here.
+
+    Walked across every product node: a concept with no default product still
+    carries its Plus button on the product that has one.
     """
-    try:
-        product = payload["data"]["conceptRetrieve"]["defaultProduct"]
-    except (KeyError, TypeError):
-        return False
-    if not isinstance(product, dict):
-        return False
-    for cta in product.get("mobilectas") or []:
-        if not isinstance(cta, dict):
-            continue
-        if (cta.get("meta") or {}).get("upSellService") == "PS_PLUS":
-            return True
+    for product in _product_nodes(payload):
+        for cta in product.get("mobilectas") or []:
+            if not isinstance(cta, dict):
+                continue
+            if (cta.get("meta") or {}).get("upSellService") == "PS_PLUS":
+                return True
     return False
 
 
@@ -294,8 +336,14 @@ class _Fetch:
 
 
 def _fetch_concept(args):
-    """Price one concept. Never raises: one bad title must not sink a scan."""
-    concept_id, locale, currency = args
+    """Price one concept. Never raises: one bad title must not sink a scan.
+
+    args is (concept, locale, currency) or (concept, locale, currency, console)
+    -- the console being the one the row owns, so the price is read from the
+    product for that console.
+    """
+    concept_id, locale, currency = args[:3]
+    console = args[3] if len(args) > 3 else None
     try:
         resp = requests.post(
             STORE_URL,
@@ -324,13 +372,14 @@ def _fetch_concept(args):
     # like. Collapsing the two is what would label a free game "Not sold".
     if not _still_listed(payload):
         return _Fetch(_Fetch.NOT_SOLD, plus=plus)
-    fields = _price_fields(payload, currency)
+    fields = _price_fields(payload, currency, console)
     if fields[0] is None:
         return _Fetch(_Fetch.NO_PRICE, plus=plus)
     return _Fetch(_Fetch.OK, fields, plus)
 
 
-def _request_all(concept_ids: list, locale: str, currency: str) -> tuple:
+def _request_all(concept_ids: list, locale: str, currency: str,
+                 consoles: dict | None = None) -> tuple:
     """({conceptId: (price, high, low)}, not-sold ids, Plus ids, failed, limited).
 
     Cached per concept, so only titles not seen before cost a request.
@@ -341,18 +390,27 @@ def _request_all(concept_ids: list, locale: str, currency: str) -> tuple:
     -- a concept still in flight when it expires is abandoned, that title stays
     Unpriced, and the response still returns with everything already priced.
     """
+    consoles = consoles or {}
     fields_by_id: dict[str, tuple] = {}
     not_sold: set[str] = set()
     plus_ids: set[str] = set()
 
+    def _cache_key(concept_id: str) -> str:
+        # The console joins the key when the row owns one: the same concept
+        # read for PS4 and for PS5 is a different question (Death Stranding's
+        # PS4 Deluxe and its PS5 Director's Cut are priced separately), and a
+        # concept with no console keeps the plain key it has always used.
+        console = consoles.get(concept_id)
+        return f"{locale}:{console}:{concept_id}" if console else f"{locale}:{concept_id}"
+
     def _plus_cached(concept_id: str) -> bool:
         # The Plus flag rides its own cache entry: the price entry is either a
         # 3-tuple or one of two markers, and none of them has room for it.
-        return _cache_get(f"plus:{locale}:{concept_id}") is True
+        return _cache_get(f"plus:{_cache_key(concept_id)}") is True
 
     work = []
     for concept_id in concept_ids:
-        cached = _cache_get(f"{locale}:{concept_id}")
+        cached = _cache_get(_cache_key(concept_id))
         if cached is _NOT_SOLD:
             not_sold.add(concept_id)        # already known: nothing left to sell
             if _plus_cached(concept_id):
@@ -379,7 +437,8 @@ def _request_all(concept_ids: list, locale: str, currency: str) -> tuple:
     pool = ThreadPoolExecutor(max_workers=min(FETCH_WORKERS, len(work)))
     try:
         futures = {
-            pool.submit(_fetch_concept, (cid, locale, currency)): cid
+            pool.submit(_fetch_concept,
+                        (cid, locale, currency, consoles.get(cid))): cid
             for cid in work
         }
         started = len(futures)
@@ -395,15 +454,15 @@ def _request_all(concept_ids: list, locale: str, currency: str) -> tuple:
             # not about the price, so it has to survive a hit on either marker.
             if result.plus:
                 plus_ids.add(concept_id)
-            _cache_set(f"plus:{locale}:{concept_id}", result.plus)
+            _cache_set(f"plus:{_cache_key(concept_id)}", result.plus)
             if result.status == _Fetch.OK:
                 fields_by_id[concept_id] = result.fields
-                _cache_set(f"{locale}:{concept_id}", result.fields)
+                _cache_set(_cache_key(concept_id), result.fields)
             elif result.status == _Fetch.NOT_SOLD:
                 not_sold.add(concept_id)
-                _cache_set(f"{locale}:{concept_id}", _NOT_SOLD)
+                _cache_set(_cache_key(concept_id), _NOT_SOLD)
             elif result.status == _Fetch.NO_PRICE:
-                _cache_set(f"{locale}:{concept_id}", _MISS)
+                _cache_set(_cache_key(concept_id), _MISS)
             elif result.status == _Fetch.LIMITED:
                 limited = True
             else:
@@ -491,6 +550,7 @@ class handler(BaseHTTPRequestHandler):
         # One concept backs several dashboard rows (PS4 and PS5 editions of a
         # game share one), so price each concept once and fan it back out.
         rows_by_concept: dict[str, list] = {}
+        concept_console: dict[str, str | None] = {}
         for g in games:
             concept_id = g.get("conceptId")
             if isinstance(concept_id, bool) or concept_id in (None, "", 0):
@@ -498,6 +558,14 @@ class handler(BaseHTTPRequestHandler):
             key = str(concept_id).strip()
             if key.isdigit():
                 rows_by_concept.setdefault(key, []).append(g["id"])
+                console = _console_of(g.get("titleId"))
+                if key not in concept_console:
+                    concept_console[key] = console
+                elif concept_console[key] != console:
+                    # One concept backing both a PS4 and a PS5 row: no single
+                    # console is right, so the reader falls back to any
+                    # purchasable product rather than picking a side.
+                    concept_console[key] = None
 
         if not rows_by_concept:
             # Nothing to ask the store about. "no_match" is close enough -- from
@@ -514,7 +582,7 @@ class handler(BaseHTTPRequestHandler):
         plusIncluded: dict[str, bool] = {}
 
         fields_by_id, not_sold, plus_ids, failed, limited = _request_all(
-            sorted(rows_by_concept, key=int), locale, currency)
+            sorted(rows_by_concept, key=int), locale, currency, concept_console)
 
         for concept_id, fields in fields_by_id.items():
             price, high, low = fields
