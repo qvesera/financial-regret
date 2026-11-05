@@ -372,7 +372,7 @@ test("PlayStation covers are asked for without any key, carrying the concept id"
     "the display currency picks which storefront catalogue is asked");
 });
 
-test("Sony's console picks the retail band, and only on her art", async () => {
+test("the retail band follows the row, not the store's console map", async () => {
   const { env } = await boot({ seed: psnCoverSeed });
   await settle();
   await openTitle(env, "Bloodborne");
@@ -384,9 +384,13 @@ test("Sony's console picks the retail band, and only on her art", async () => {
   const cover = env.document.querySelector(".cover");
   assert.ok(cover.classList.contains("is-psn-art"),
     "art from Sony's store wears a band");
-  assert.ok(cover.classList.contains("ps5"),
-    "PS5 art wears the PS5 template, not a guess");
-  assert.ok(!cover.classList.contains("ps4"), "and never the other console");
+  // The row is CUSA00207 -- a PS4 title the visitor owns -- while the store's
+  // map (here from the product it happened to list first) claimed PS5. The row
+  // is what the console filter counts, so the band must agree with it.
+  assert.ok(cover.classList.contains("ps4"),
+    "PS4, because that is the version in the row");
+  assert.ok(!cover.classList.contains("ps5"),
+    "the store's first product never gets to dress this card");
 });
 
 test("the shared term in one key field fills all three fields", async () => {
@@ -1063,6 +1067,157 @@ test("the console filter shows for a linked PlayStation library and filters", as
   sel.dispatch("change");
   await settle();
   assert.equal(mod.getState().rows.length, 1, "back to every console");
+});
+
+test("cached art with no console is re-resolved instead of staying bare", async () => {
+  // Exactly the shape that shipped band-less: art already in the browser from
+  // before the console map existed, and from SteamGridDB rather than Sony --
+  // so the heal that only looked at Sony's host never touched it, and the card
+  // stayed plain forever. The console gets re-asked and the band follows.
+  const seed = (e) => {
+    psnCoverSeed(e);
+    e.localStorage.setItem("covers_cache", JSON.stringify({
+      "PSN:200520": "https://cdn2.steamgriddb.com/grid/stale.jpg",
+    }));
+    e.localStorage.setItem("covers_platforms", "{}");
+  };
+  const { env } = await boot({ seed });
+  await settle();
+  await openTitle(env, "Bloodborne");
+  await new Promise((r) => setTimeout(r, 400));
+
+  assert.ok(env.fetchCalls.some((c) => c.url.includes("/api/covers")),
+    "the stale entry is re-asked instead of trusted forever");
+  assert.equal(env.localStorage.getItem("covers_cache"),
+    JSON.stringify({ "PSN:200520": "https://img.example/portrait.png" }),
+    "the fresh art replaces it");
+  const cover = env.document.querySelector(".cover");
+  assert.ok(cover.classList.contains("is-psn-art"), "the band returns");
+  assert.ok(cover.classList.contains("ps4"),
+    "PS4, read from the row the title id carries");
+});
+
+test("the store's silence about a console is remembered, not re-asked", async () => {
+  // "Asked, and the store named no console" is a real answer. It must be
+  // recorded -- as null -- or the heal above would refetch this title on every
+  // single load, and the card must stay bare rather than wear a made-up band.
+  const seed = (e) => {
+    psnCoverSeed(e);
+    e.fetchRoutes.unshift((url) => (url.includes("/api/covers")
+      ? { json: { covers: { "PSN:200520": "https://img.example/x.png" } } }
+      : null));
+  };
+  const { env } = await boot({ seed });
+  await settle();
+  await openTitle(env, "Bloodborne");
+  await new Promise((r) => setTimeout(r, 400));
+
+  assert.equal(env.localStorage.getItem("covers_platforms"),
+    JSON.stringify({ "PSN:200520": null }),
+    "the store's silence is remembered so the heal does not loop");
+  const cover = env.document.querySelector(".cover");
+  assert.ok(cover.classList.contains("is-psn-art"),
+    "the band comes from the row, which does state a console");
+  assert.ok(cover.classList.contains("ps4"), "PS4 from CUSA00207");
+});
+
+// One PlayStation row, one covers answer: the seed for every question about
+// which console a card should wear.
+const bandSeed = (game, covers, platforms = {}) => (e) => {
+  e.localStorage.setItem("psn_online_id", "FakePlayer_91");
+  e.fetchRoutes.push((url) => {
+    if (url.includes("/api/config")) return { json: {
+      requireUserKeys: false, keys: { steam: false, itad: false, sgdb: false },
+    } };
+    if (url.includes("/api/psn_games")) return { json: { games: [game] } };
+    if (url.includes("/api/psn_prices")) return { json: {
+      prices: {}, highs: {}, lows: {}, currency: "INR", attribution: null,
+      reason: null,
+    } };
+    if (url.includes("/api/steam_games") || url.includes("/api/gog_games")
+        || url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/prices")) return { json: { prices: {}, highs: {}, lows: {} } };
+    if (url.includes("/api/covers")) return { json: { covers, psPlatforms: platforms } };
+    return null;
+  });
+};
+
+const bandClasses = (env) => {
+  const cover = env.document.querySelector(".cover");
+  return { banded: cover.classList.contains("is-psn-art"),
+    ps4: cover.classList.contains("ps4"), ps5: cover.classList.contains("ps5") };
+};
+
+test("the band follows the title you own, not the store's first product", async () => {
+  // Death Stranding's concept lists a PS5 Director's Cut in front of the PS4
+  // original the row is -- the store's answer said PS5, the row says PS4, and
+  // the row is what the visitor owns and what the console filter counts.
+  const seed = bandSeed(
+    { id: "PSN:CUSA12605_00", name: "DEATH STRANDING", platform: "PlayStation",
+      hours: 58.2, titleId: "CUSA12605_00", console: "PS4", conceptId: 234585 },
+    { "PSN:CUSA12605_00": "https://img.example/ds.png" },
+    { "PSN:CUSA12605_00": "PS5" });
+  const { env } = await boot({ seed });
+  await settle();
+  await openTitle(env, "DEATH STRANDING");
+  await new Promise((r) => setTimeout(r, 400));
+
+  const b = bandClasses(env);
+  assert.ok(b.banded, "it wears a band");
+  assert.ok(b.ps4, "PS4, because that is the version in the row");
+  assert.ok(!b.ps5, "the Director's Cut the store listed first is not the game");
+});
+
+test("a delisted title still wears its band, with the store saying nothing", async () => {
+  // Delisted concepts answer with zero products, so there is no store console
+  // to read -- but the row still knows it is PS4, and a bare cover is what
+  // used to ship for every one of them.
+  const seed = bandSeed(
+    { id: "PSN:CUSA08809_00", name: "JUMP FORCE", platform: "PlayStation",
+      hours: 62.1, titleId: "CUSA08809_00", console: "PS4", conceptId: 10011645 },
+    { "PSN:CUSA08809_00": "https://img.example/jf.png" });
+  const { env } = await boot({ seed });
+  await settle();
+  await openTitle(env, "JUMP FORCE");
+  await new Promise((r) => setTimeout(r, 400));
+
+  const b = bandClasses(env);
+  assert.ok(b.banded, "the band comes from the row");
+  assert.ok(b.ps4, "PS4 from the title id");
+});
+
+test("an app wears no band, whatever the store says", async () => {
+  // A retail band is a claim that this is the PS4 game; a streaming app with
+  // no concept cannot keep it, so the row-derived band is gated on one.
+  const seed = bandSeed(
+    { id: "PSN:CUSA08526_00", name: "Spotify", platform: "PlayStation",
+      hours: 12, titleId: "CUSA08526_00", console: "PS4", conceptId: null },
+    { "PSN:CUSA08526_00": "https://img.example/spotify.png" },
+    { "PSN:CUSA08526_00": "PS4" });
+  const { env } = await boot({ seed });
+  await settle();
+  await openTitle(env, "Spotify");
+  await new Promise((r) => setTimeout(r, 400));
+
+  assert.ok(!bandClasses(env).banded, "no concept, no band");
+});
+
+test("a snapshot from before consoles existed still lights both up", async () => {
+  // The row carries only Sony's title id: the console is derived on ingest, so
+  // the filter appears and the band is right without waiting for a rescan.
+  const seed = bandSeed(
+    { id: "PSN:CUSA08809_00", name: "JUMP FORCE", platform: "PlayStation",
+      hours: 62.1, titleId: "CUSA08809_00", conceptId: 10011645 },
+    { "PSN:CUSA08809_00": "https://img.example/jf.png" });
+  const { env } = await boot({ seed });
+  await settle();
+  await openTitle(env, "JUMP FORCE");
+  await new Promise((r) => setTimeout(r, 400));
+
+  const b = bandClasses(env);
+  assert.ok(b.ps4, "the console was read off the title id");
+  assert.ok(!env.root.querySelector(".console-select").parentElement.hidden,
+    "and the console filter shows without a rescan");
 });
 
 test("the console filter stays hidden for a library with no PlayStation", async () => {

@@ -47,6 +47,7 @@ export const store = {
     localStorage.removeItem("paid_overrides");   // legacy "what I paid" entries
     localStorage.removeItem("game_edits");       // the visitor's own figures
     localStorage.removeItem("covers_cache");     // derived cover-art urls
+    localStorage.removeItem("covers_platforms"); // derived console per title
     this.clearSnapshot();
   },
 };
