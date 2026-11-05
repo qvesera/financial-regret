@@ -319,9 +319,10 @@ const psnCoverSeed = (e) => {
     if (url.includes("/api/steam_games") || url.includes("/api/gog_games")
         || url.includes("/api/epic_games")) return { json: { games: [] } };
     if (url.includes("/api/prices")) return { json: { prices: {}, highs: {}, lows: {} } };
-    if (url.includes("/api/covers")) return { json: { covers: {
-      "PSN:200520": "https://img.example/portrait.png",
-    } } };
+    if (url.includes("/api/covers")) return { json: {
+      covers: { "PSN:200520": "https://img.example/portrait.png" },
+      psPlatforms: { "PSN:200520": "PS5" },
+    } };
     return null;
   });
 };
@@ -369,6 +370,23 @@ test("PlayStation covers are asked for without any key, carrying the concept id"
     "the concept id is the join key — no title search, no wrong cover");
   assert.ok(body.currency,
     "the display currency picks which storefront catalogue is asked");
+});
+
+test("Sony's console picks the retail band, and only on her art", async () => {
+  const { env } = await boot({ seed: psnCoverSeed });
+  await settle();
+  await openTitle(env, "Bloodborne");
+  await new Promise((r) => setTimeout(r, 400));
+
+  assert.equal(env.localStorage.getItem("covers_platforms"),
+    JSON.stringify({ "PSN:200520": "PS5" }),
+    "the console travels with the art and is persisted");
+  const cover = env.document.querySelector(".cover");
+  assert.ok(cover.classList.contains("is-psn-art"),
+    "art from Sony's store wears a band");
+  assert.ok(cover.classList.contains("ps5"),
+    "PS5 art wears the PS5 template, not a guess");
+  assert.ok(!cover.classList.contains("ps4"), "and never the other console");
 });
 
 test("the shared term in one key field fills all three fields", async () => {

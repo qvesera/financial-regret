@@ -1001,6 +1001,7 @@ class TestCovers(unittest.TestCase):
         MASTER when it is not -- the two shapes Sony answers with."""
         product = {"id": "UP9000-CUSA00900_00-BLOODBORNE000000",
                    "name": "Bloodborne",
+                   "platforms": ["PS4"],
                    "media": [{"role": "MASTER", "url": "https://img/master.png"}]}
         if url:
             product["media"].append({"role": "PORTRAIT_BANNER", "url": url})
@@ -1021,8 +1022,55 @@ class TestCovers(unittest.TestCase):
 
             self.assertEqual(status, 200)
             self.assertIsNone(payload["covers"]["Steam:730"])
+            self.assertEqual(payload["psPlatforms"], {})
             rq.get.assert_not_called()
             rq.post.assert_not_called()
+
+    def test_the_band_is_named_only_when_sony_states_a_console(self):
+        """Art still serves when the product names no platforms -- the card
+        simply wears no band instead of one borrowed from a guess."""
+        import covers
+        fake = self._req([{"id": "PSN:200520", "title": "Bloodborne",
+                           "conceptId": "200520"}], with_key=False)
+        art = self._psn_payload("https://img/portrait.png")
+        del art["data"]["conceptRetrieve"]["selectableProducts"][
+            "purchasableProducts"][0]["platforms"]
+
+        def fake_post(url, data=None, headers=None, timeout=None):
+            r = mock.MagicMock()
+            r.status_code = 200
+            r.json.return_value = art
+            return r
+
+        with mock.patch.dict(os.environ, {"SGDB_API_KEY": ""}), \
+                mock.patch.object(covers, "requests") as rq, \
+                mock.patch.object(covers, "send_json") as sj:
+            rq.post.side_effect = fake_post
+            covers.handler.do_POST(fake)
+            status, payload = sj.call_args.args[1], sj.call_args.args[2]
+
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["covers"]["PSN:200520"],
+                             "https://img/portrait.png",
+                             "no console must not cost the cover")
+            self.assertEqual(payload["psPlatforms"], {})
+
+    def test_the_csp_names_the_sony_image_host(self):
+        """The covers load in the browser from Sony's CDN. A CSP that does not
+        name it blocks every PlayStation cover while the API still answers
+        200 -- which is how the grid shipped blank -- and the two copies of
+        that string (self-hosted server and Vercel) must stay identical."""
+        from _common import CSP
+        host = "https://image.api.playstation.com"
+        self.assertIn(host, CSP)
+        vercel_path = os.path.join(os.path.dirname(__file__), "..", "vercel.json")
+        with open(vercel_path, encoding="utf-8") as fh:
+            headers = [h["value"] for entry in json.load(fh)["headers"]
+                       for h in entry.get("headers", [])
+                       if h.get("key") == "Content-Security-Policy"]
+        self.assertTrue(headers, "vercel.json ships a CSP")
+        self.assertIn(host, headers[0])
+        self.assertIn(CSP, headers[0] + " ", "the two CSPs must not drift apart")
 
     def test_psn_art_serves_with_no_key_at_all(self):
         """A concept id in, Sony's portrait art out -- on an instance with
@@ -1047,6 +1095,9 @@ class TestCovers(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(payload["covers"]["PSN:200520"],
                              "https://img/portrait.png")
+            # The console that came with the art names the retail band the card
+            # wears over it -- no console, no band, and no guess either.
+            self.assertEqual(payload["psPlatforms"], {"PSN:200520": "PS4"})
             # The concept id travelled in the body of the same store read
             # psn_prices.py makes; SteamGridDB was never asked.
             self.assertEqual(rq.post.call_args.args[0], covers.STORE_URL)

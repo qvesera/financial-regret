@@ -2191,6 +2191,13 @@ export const view = {
       img.addEventListener("error", () => { img.style.opacity = "0"; });
       art.appendChild(img);
 
+      // The retail band (PS4/PS5) from public/*-band.png. It is only ever
+      // revealed by app.js once the store named a console for this title, so
+      // a Steam cover or a Sony title with no stated platform wears none.
+      const psBand = this.el("span", "ps-band");
+      psBand.setAttribute("aria-hidden", "true");  // decorative: the platform
+      art.appendChild(psBand);                      // is printed under the card
+
       const badge = tierBadge(verdict, lensFor(this.contentBench, game));
       badge.classList.add("card-badge");
       art.appendChild(badge);
@@ -2293,6 +2300,9 @@ export const view = {
     img.addEventListener("load", () => img.classList.add("is-loaded"));
     img.addEventListener("error", () => { img.style.opacity = "0"; });
     art.appendChild(img);
+    const psBand = this.el("span", "ps-band");
+    psBand.setAttribute("aria-hidden", "true");
+    art.appendChild(psBand);
     head.appendChild(art);
 
     const titles = this.el("div", "drawer-titles");

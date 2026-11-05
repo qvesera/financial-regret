@@ -1659,6 +1659,43 @@ td.cell-platform { white-space: nowrap; }
 }
 .cover-img.is-loaded { opacity: 1; }
 
+/* ---- the retail band, from the stock band templates in public/ ----
+   Sony's store art carries no banner, so a PlayStation cover wears the band
+   from whichever template matches its console. Both templates are already
+   cropped to the band and scaled by the element's own aspect-ratio, so the
+   PS logo keeps its proportions at any card size instead of being squashed
+   onto the card's 2:3. Only Sony's art wears it: SteamGridDB's uploads are
+   usually the retail cover already, band and all. */
+.ps-band { display: none; }
+.is-psn-art .ps-band {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  aspect-ratio: var(--ps-band-aspect);
+  background: var(--ps-band-image) top left / 100% 100% no-repeat;
+  z-index: 1;
+  pointer-events: none;
+}
+/* Band height as a share of the CARD's height, not its width: `top` resolves
+   against height, so the template's rows-over-width is multiplied by the
+   card's 2:3. 155/1024*2/3 = 10.09%, 223/1523*2/3 = 9.76%. */
+.is-psn-art.ps4 {
+  --ps-band-aspect: 1024 / 155;
+  --ps-band-h: 10.09%;
+  --ps-band-image: url("/ps4-band.png");
+}
+.is-psn-art.ps5 {
+  --ps-band-aspect: 1523 / 223;
+  --ps-band-h: 9.76%;
+  --ps-band-image: url("/ps5-band.png");
+}
+/* The verdict badge and the dupe ear sit exactly where the PS logo lives,
+   so both drop below the band on art that wears one. */
+.is-psn-art .card-badge,
+.is-psn-art .dup-ear { top: calc(var(--ps-band-h) + var(--space-1)); }
+
 .card-badge {
   position: absolute;
   top: var(--space-1);

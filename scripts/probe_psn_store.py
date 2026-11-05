@@ -32,6 +32,7 @@ No credentials: this is the same public call the store's web app makes.
 import json
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 STORE_URL = "https://web.np.playstation.com/api/graphql/v1/op"
@@ -122,6 +123,18 @@ def _ask(locale: str):
         return status, "concept not sold in this store", None, None
 
     portrait = _portrait(payload)
+    # The art's host has to stay in the CSP too. Prices would stay green while
+    # the browser blocked every cover if Sony moved to another image domain,
+    # and nothing else in the request path would notice -- so fetch it here.
+    if portrait:
+        try:
+            with urllib.request.urlopen(portrait, timeout=20) as art:
+                if art.status != 200:
+                    return (status, f"portrait answered HTTP {art.status}",
+                            None, portrait)
+        except Exception as exc:
+            return (status, f"portrait unreachable ({type(exc).__name__}: {exc})",
+                    None, portrait)
     for cta in product.get("mobilectas") or []:
         meta = (cta or {}).get("meta") or {}
         if meta.get("upSellService") != "NONE":
@@ -155,8 +168,9 @@ def main() -> int:
             failures.append(f"{locale}: no PORTRAIT_BANNER media for cover art")
             print(f"FAIL {locale}: no PORTRAIT_BANNER media (cover art would fall back)")
             continue
+        host = urllib.parse.urlparse(portrait).netloc
         print(f"ok   {locale}: {value} {currency} "
-              f"({price.get('basePrice')!r}, HTTP {status}, portrait ok)")
+              f"({price.get('basePrice')!r}, HTTP {status}, portrait ok @ {host})")
 
     if failures:
         print("\nThe PlayStation price source is not answering as designed.")
@@ -166,7 +180,9 @@ def main() -> int:
               "docstring) into backend/psn_prices.py and here.")
         print("If prices are fine but the portrait check fails, Sony kept "
               "pricing and moved the cover art: check the media roles in "
-              "backend/covers.py (PORTRAIT_ROLE).")
+              "backend/covers.py (PORTRAIT_ROLE), and update the image host "
+              "in img-src (backend/_common.py and vercel.json) if the answer "
+              "named a new domain.")
         return 1
     print("\nPlayStation store pricing and cover art are healthy.")
     return 0

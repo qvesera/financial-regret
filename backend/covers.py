@@ -28,7 +28,14 @@ Results are cached per game -- including the "no art found" misses -- so
 scrolling back never re-hits an API, and a global throttle keeps one big
 library inside a single rate-limit window.
 
-Response: {"covers": {"Steam:730": "https://cdn2.steamgriddb.com/...", ...}}
+The answer also names a PlayStation title's console ("PS5" or "PS4") beside
+its url, read from the same product node that carries the art: the grid wears
+that console's retail band (public/ps4-band.png, public/ps5-band.png) over
+Sony's banner-less key art. A title Sony states no console for gets no band
+rather than a guess.
+
+Response: {"covers": {"Steam:730": "https://cdn2.steamgriddb.com/...", ...},
+           "psPlatforms": {"PSN:200520": "PS4"}}
 """
 import json
 import threading
@@ -166,8 +173,26 @@ def _search_game_id(title, key):
     return None
 
 
-def _psn_portrait_url(payload) -> str | None:
-    """The portrait key-art URL inside one metGetPricingDataByConceptId answer.
+def _console_of(product) -> str | None:
+    """Which retail band this title wears: "PS5", "PS4", or None.
+
+    The product node that carries the portrait also lists the platforms it
+    runs on (["PS5"], or both on a cross-gen release). Only one band fits on
+    a cover, so the current-gen one wins -- the same choice a shop shelf
+    makes. A node that states nothing answers None instead of a guess: the
+    band is the one thing on the card that would be a lie if it were wrong.
+    """
+    listed = product.get("platforms")
+    if not isinstance(listed, list):
+        return None
+    for console in ("PS5", "PS4"):
+        if console in listed:
+            return console
+    return None
+
+
+def _psn_portrait(payload):
+    """(art-url, console) for one metGetPricingDataByConceptId answer.
 
     A concept answers with several product nodes -- base game, edition bundle
     -- and their media lists are not equal: the bundle usually keeps only a
@@ -175,13 +200,14 @@ def _psn_portrait_url(payload) -> str | None:
     walked and the first PORTRAIT_BANNER wins, because it is the only role
     that is actually a portrait (1440x2160, the grid's 2:3 box): MASTER is
     square and the landscape roles would crop to a stripe in the card.
+    (None, None) when no node carries one.
     """
     try:
         concept = payload["data"]["conceptRetrieve"]
     except (KeyError, TypeError):
-        return None
+        return None, None
     if not isinstance(concept, dict):
-        return None
+        return None, None
     nodes = []
     selectable = concept.get("selectableProducts")
     products = ((selectable or []) if not isinstance(selectable, dict)
@@ -198,12 +224,12 @@ def _psn_portrait_url(payload) -> str | None:
         for m in media:
             if (isinstance(m, dict) and m.get("role") == PORTRAIT_ROLE
                     and m.get("url")):
-                return str(m["url"])
-    return None
+                return str(m["url"]), _console_of(product)
+    return None, None
 
 
 def _psn_art(concept_id, locale: str):
-    """Sony's portrait art for one concept: url, None, or _PSN_FAIL.
+    """Sony's art for one concept: (url, console), (None, None), or _PSN_FAIL.
 
     A clean answer is cached either way -- url or the 24h miss, since the
     store simply does not carry that portrait. A transport failure, a refusal
@@ -215,7 +241,7 @@ def _psn_art(concept_id, locale: str):
     cache_key = f"psn:{locale}:{concept_id}"
     cached = _cache_get(cache_key)
     if cached is not None:
-        return None if cached is _MISS else cached
+        return (None, None) if cached is _MISS else cached
     try:
         resp = requests.post(
             STORE_URL,
@@ -225,15 +251,16 @@ def _psn_art(concept_id, locale: str):
         )
         if resp.status_code != 200:
             return _PSN_FAIL
-        url = _psn_portrait_url(resp.json())
+        url, console = _psn_portrait(resp.json())
     except (requests.RequestException, ValueError):
         return _PSN_FAIL
-    _cache_set(cache_key, url if url else _MISS, CACHE_TTL if url else NEGATIVE_TTL)
-    return url
+    _cache_set(cache_key, (url, console) if url else _MISS,
+               CACHE_TTL if url else NEGATIVE_TTL)
+    return url, console
 
 
 def resolve_cover(title, appid, concept_id, locale, key):
-    """Cover URL for one game, or None. Sony first, SteamGridDB behind it."""
+    """(cover-url, console) for one game. Sony first, SteamGridDB behind it."""
     if concept_id:
         cache_key = f"concept:{locale}:{concept_id}"
     elif appid and str(appid).isdigit():
@@ -242,18 +269,20 @@ def resolve_cover(title, appid, concept_id, locale, key):
         cache_key = f"title:{(title or '').strip().lower()}"
     cached = _cache_get(cache_key)
     if cached is not None:
-        return None if cached is _MISS else cached
+        return (None, None) if cached is _MISS else cached
 
-    url = None
+    url, console = None, None
     failed = False
     if concept_id:
         art = _psn_art(concept_id, locale)
         if art is _PSN_FAIL:
             failed = True          # Sony's blip must not become a cached miss
         else:
-            url = art
+            url, console = art
     # The keyless leg answered -- or there was none to give -- before any of
     # this runs, so SteamGridDB only ever spends on what Sony could not serve.
+    # Its uploads are usually the retail cover already -- band and all -- so
+    # they wear no band of ours: console stays None for that half.
     if not url and key:
         if appid and str(appid).isdigit():
             url = _first_grid_url(_sgdb(f"/grids/steam/{appid}", key, GRID_PARAMS))
@@ -263,8 +292,9 @@ def resolve_cover(title, appid, concept_id, locale, key):
                 url = _first_grid_url(_sgdb(f"/grids/game/{gid}", key, GRID_PARAMS))
 
     if not failed:
-        _cache_set(cache_key, url if url else _MISS, CACHE_TTL if url else NEGATIVE_TTL)
-    return url
+        _cache_set(cache_key, (url, console) if url else _MISS,
+                   CACHE_TTL if url else NEGATIVE_TTL)
+    return url, console
 
 
 class handler(BaseHTTPRequestHandler):
@@ -302,6 +332,7 @@ class handler(BaseHTTPRequestHandler):
         locale = _locale_for(currency) or PSN_FALLBACK_LOCALE
 
         covers: dict[str, str | None] = {}
+        consoles: dict[str, str] = {}
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = {
                 pool.submit(resolve_cover, g.get("title"), g.get("appid"),
@@ -311,9 +342,12 @@ class handler(BaseHTTPRequestHandler):
             for fut in as_completed(futures):
                 gid = futures[fut]
                 try:
-                    covers[gid] = fut.result()
+                    url, console = fut.result()
                 except Exception:
-                    covers[gid] = None
+                    url, console = None, None
+                covers[gid] = url
+                if url and console:
+                    consoles[gid] = console
 
-        send_json(self, 200, {"covers": covers})
+        send_json(self, 200, {"covers": covers, "psPlatforms": consoles})
 

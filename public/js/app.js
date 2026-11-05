@@ -280,6 +280,7 @@ function coverageLine() {
 // storefront answers the concept id); every other store needs an SGDB key
 // somewhere, and without one those cards keep their placeholders.
 const coversCache = new Map();      // gameId -> image url
+const coverPlatforms = new Map();   // gameId -> "PS4" | "PS5", the retail band
 let coverPending = new Set();       // ids queued for the next batch
 let coverInflight = new Set();      // ids currently being fetched
 let coverTimer = null;
@@ -290,15 +291,44 @@ function loadCoversCache() {
     const raw = JSON.parse(localStorage.getItem("covers_cache") || "{}");
     for (const [id, url] of Object.entries(raw)) if (url) coversCache.set(id, url);
   } catch { /* corrupt cache is simply ignored */ }
+  try {
+    const raw = JSON.parse(localStorage.getItem("covers_platforms") || "{}");
+    for (const [id, platform] of Object.entries(raw)) {
+      if (platform) coverPlatforms.set(id, platform);
+    }
+  } catch { /* corrupt cache is simply ignored */ }
+  // A cache written before the platform map existed can hold Sony's art with
+  // no console beside it, and the band needs one. Drop those entries so the
+  // band is resolved again on the next scroll; a title Sony genuinely states
+  // no console for costs one refetch per load, which beats a missing band.
+  for (const [id, url] of coversCache) {
+    if (url.includes("image.api.playstation.com") && !coverPlatforms.has(id)) {
+      coversCache.delete(id);
+    }
+  }
 }
 
 function persistCovers() {
   try {
     localStorage.setItem("covers_cache", JSON.stringify(Object.fromEntries(coversCache)));
+    localStorage.setItem("covers_platforms",
+      JSON.stringify(Object.fromEntries(coverPlatforms)));
   } catch { /* quota exceeded: the cache is an optimisation, never fatal */ }
 }
 
 /** Stamp every rendered placeholder whose url we already know. */
+/** Reveal the retail band on covers whose store named a console for them.
+ *  Sony's art arrives banner-less; SteamGridDB's uploads are usually the
+ *  retail cover already, band and all, so those never wear one of ours. */
+function stampBand(img) {
+  const cover = img.closest(".cover");
+  if (!cover) return;
+  const platform = coverPlatforms.get(img.dataset.coverId);
+  cover.classList.toggle("is-psn-art", Boolean(platform));
+  cover.classList.toggle("ps4", platform === "PS4");
+  cover.classList.toggle("ps5", platform === "PS5");
+}
+
 function applyCovers() {
   for (const img of document.querySelectorAll(".cover-img")) {
     if (img.dataset.loaded) continue;
@@ -306,6 +336,7 @@ function applyCovers() {
     if (url) {
       img.setAttribute("src", url);
       img.dataset.loaded = "1";
+      stampBand(img);
       // A memory-cache hit can be complete before any load event listener
       // has a say — reveal it either way.
       if (img.complete) img.classList.add("is-loaded");
@@ -394,6 +425,11 @@ async function flushCovers() {
         const data = await resp.json();
         for (const [id, url] of Object.entries(data.covers || {})) {
           if (url) coversCache.set(id, url);
+        }
+        // The console Sony named travels with the art: it picks which retail
+        // band the card wears, and only for art that came from her store.
+        for (const [id, platform] of Object.entries(data.psPlatforms || {})) {
+          coverPlatforms.set(id, platform);
         }
         persistCovers();
         applyCovers();
@@ -908,7 +944,10 @@ function dropStoreData(name) {
   state.prices = prices;
   // The cover art fetched for those titles is that library's too — otherwise a
   // forgotten store keeps a cache of its box art in the browser forever.
-  for (const id of dropped) coversCache.delete(id);
+  for (const id of dropped) {
+    coversCache.delete(id);
+    coverPlatforms.delete(id);
+  }
   if (dropped.size) persistCovers();
   // A manual figure is keyed by game id — and Steam ids are appids, so an edit
   // made for this account's Hades would silently apply to the next account's.
@@ -1275,6 +1314,7 @@ function forget() {
   invalidateScan();   // an in-flight scan must not write the forgotten data back
   store.forget();
   coversCache.clear();
+  coverPlatforms.clear();
   state.games = [];
   state.dupes = new Map();
   state.rows = [];

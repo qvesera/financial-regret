@@ -126,6 +126,33 @@ test("renderGrid gives every card a fallback, a badge and a tab stop", () => {
   assert.ok(sub.children[1].classList.contains("card-store"), "store sits bottom-right");
 });
 
+test("a cover carries the retail band, hidden until a console is named", () => {
+  installEnv();
+  view.currency = "INR";
+  localStorage.removeItem("sgdb_api_key");
+  const wrap = document.createElement("div");
+  const verdicts = new Map([["Steam:1", "worth"]]);
+
+  view.renderGrid(wrap,
+    [{ id: "Steam:1", name: "Hades", platform: "Steam", hours: 20, price: 1113 }],
+    { "Steam:1": 1113 }, false, verdicts);
+
+  const band = wrap.querySelector(".ps-band");
+  assert.ok(band, "the band ships with every card, ready to be revealed");
+  assert.equal(band.getAttribute("aria-hidden"), "true",
+    "the platform is already printed under the card, so the band adds no words");
+  assert.equal(band.textContent, "", "and carries no text of its own");
+  // The reveal is CSS-driven, so a cover whose console is unknown can never
+  // show one: display:none until app.js stamps a class.
+  const css = readFileSync(new URL("../../public/style.css", import.meta.url), "utf8");
+  assert.ok(css.includes(".ps-band { display: none; }"),
+    "the band is hidden by default");
+  assert.ok(css.includes(".is-psn-art .ps-band"),
+    "only .is-psn-art reveals it");
+  assert.ok(css.includes("/ps4-band.png") && css.includes("/ps5-band.png"),
+    "both stock templates are referenced from public/");
+});
+
 test("the unplayed dim follows the Untouched verdict, not the raw hours", () => {
   installEnv();
   view.currency = "INR";

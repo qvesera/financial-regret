@@ -72,7 +72,14 @@ rule, and `tests/test_logging.py` pins the consequence.
   `vercel.json` on Vercel. `connect-src` names one outbound host beyond
   `'self'` — `https://is.gd` — reachable only from the share drawer, which
   fetches a short link when it paints one; nothing else on the page can open
-  a connection at all.
+  a connection at all. `img-src` names three image hosts beyond `'self'`:
+  `https://image.api.playstation.com` (the store's own cover art — a plain
+  GET of a public image, no credentials and no cookies), and
+  `https://cdn2.steamgriddb.com` / `https://cdn.steamgriddb.com` for
+  SteamGridDB uploads. The retail band templates are same-origin, so they
+  need no host entry. `scripts/probe_psn_store.py` fetches a portrait on every
+  run, so Sony moving to another image domain fails the schedule instead of
+  silently blanking the grid under a stale `img-src`.
 * **Paths cannot escape `public/`.** Every dot segment is rejected up front and
   the resolved path is checked against the resolved root.
 * **Per-IP rate limiting** on every endpoint, including `OPTIONS` — enforced by
