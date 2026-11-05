@@ -1,5 +1,6 @@
 /** DOM builders. textContent only — never innerHTML with user data. */
 import { money, symbol, hours, perHour, pricePerHour, CURRENCIES } from "./format.js";
+import { estimatePlusSpend } from "./plus.js";
 import { TIER_LABEL, coverHue, headline as buildHeadline, sharedVerdict, whatIf, contentPct, lensOf } from "./verdict.js";
 import { renderVerdictToy, repaintVerdictToy } from "./arcade.js";
 import { CARD_W, CARD_H, exportKinds, kindLabel, rupeeSvg, pixelCapRatio } from "./export.js";
@@ -181,10 +182,17 @@ const METRIC_TIPS = {
     + "from Re-buy cost, because verdicts compare PlayStation and Steam rows "
     + "on one basis.",
   "kpi-paid": "Your own figure: what you have actually paid for PlayStation "
-    + "Plus since the year you entered. Nothing on this dashboard is "
-    + "calculated from it — it is shown beside the library's numbers rather "
-    + "than mixed into them, because it is a sunk cost and every other figure "
-    + "here is a replacement cost.",
+    + "Plus since the year you entered. When you have not entered one, the "
+    + "card shows an estimate instead — and it is an upper bound, labelled "
+    + "“at most”: it assumes you have subscribed since your account's first "
+    + "played title, billed monthly at today's Essential 1-month price for "
+    + "every month of it. Annual plans cost less and Sony's prices were lower "
+    + "for most of that period, so the real figure sits below this, never "
+    + "above; PS3/Vita-era play is invisible to the scan, which is the one "
+    + "thing that pushes it the other way for an older account. Nothing here "
+    + "is calculated from either number — both sit beside the library's "
+    + "numbers rather than mixed into them, because they are sunk costs and "
+    + "every other figure is a replacement cost.",
   "kpi-high": "The same library priced at each game's all-time high. Where "
     + "there is no price history, today's price stands in rather than leaving a gap.",
   "kpi-low": "The same library priced at each game's all-time low — the "
@@ -1141,7 +1149,16 @@ export const view = {
         // it without a DOM walk (the test stub has no .closest()).
         if (id === "kpi-dlc") dlcCard = card;
         if (id === "kpi-plus") plusCard = card;
-        if (id === "kpi-paid") paidCard = card;
+        if (id === "kpi-paid") {
+          paidCard = card;
+          // A second muted line under the figure: the assumption, when there
+          // is one to explain. Hidden by default, so a visitor who entered
+          // their own total sees one figure and no footnote.
+          const note = this.el("p", "kpi-sub", "");
+          note.id = "kpi-paid-note";
+          note.hidden = true;
+          card.appendChild(note);
+        }
         kpi.appendChild(card);
       }
     });
@@ -2243,9 +2260,41 @@ export const view = {
     // Both show a dash until they exist, and neither feeds the other.
     fmt("kpi-plus", metrics.plusCovered ? money(metrics.plusCovered, cur) : "—");
     const paid = paidPlusFigure();
-    fmt("kpi-paid", paid ? money(paid.amount, paid.currency) : "—");
+    // Without their own figure the card shows an assumption instead -- an upper
+    // bound, never a claim: months since the account's first played title,
+    // billed monthly at today's Essential price. Their total always wins,
+    // because it is a fact and this is not. The price is only quoted in the
+    // currency it was fetched in: a display-currency switch would put two
+    // currencies in one sentence, so the line hides until the new currency's
+    // own price lands rather than mislabeling what it has.
+    const plan = state && state.plusPrice && state.plusPrice.currency === cur
+      ? state.plusPrice : null;
+    const firstPlayed = (state && state.firstPlayed) || null;
+    const estimate = paid || !plan ? null : estimatePlusSpend({
+      firstPlayed, monthlyPrice: plan.price,
+    });
+    fmt("kpi-paid", paid
+      ? money(paid.amount, paid.currency)
+      : (estimate ? `≈ ${money(estimate.total, cur)}` : "—"));
     const since = container.querySelector("#kpi-paid-sub .since-year");
     if (since) since.textContent = paid && paid.since ? ` · since ${paid.since}` : "";
+    // The assumption, spelled out under the figure it produced: how many
+    // months, counted from what, and what today's price for that plan is.
+    // Hidden when there is nothing to explain -- a dash needs no footnote.
+    const note = container.querySelector("#kpi-paid-note");
+    if (note) {
+      if (estimate && firstPlayed) {
+        const price = plan.promo && plan.was
+          ? `${money(plan.price, cur)} today (usually ${money(plan.was, cur)})`
+          : `${money(plan.price, cur)} today`;
+        note.textContent = `at most · ${estimate.months} months since `
+          + `${String(firstPlayed).slice(0, 4)} · ${plan.label} ${price}`;
+        note.hidden = false;
+      } else {
+        note.textContent = "";
+        note.hidden = true;
+      }
+    }
     // Add-on spend is its own line (see computeRegret); the card only shows
     // when the library actually owns DLC, so a game-only shelf stays a clean
     // five-tile grid instead of a zeroed sixth.
