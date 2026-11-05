@@ -205,9 +205,6 @@ let state = {
   comparators: { worst: [], best: [] },
   simTarget: savedUi.simTarget || null,
   simHours: Number(savedUi.simHours) || 10,
-  // A preview, never a computation: toggling this changes one line in the
-  // what-if card and nothing else.
-  simPlus: Boolean(savedUi.simPlus),
   scanSteps: null,
   // PlayStation's account-inception signal: the earliest date anything on the
   // profile was played, which is what "since this account began" has to mean
@@ -1678,10 +1675,6 @@ function onChange(e) {
   } else if (t.dataset.action === "psconsole") {
     state.psConsole = t.value || "All";
     state.page = 1;
-    renderAll();
-  } else if (t.dataset.action === "sim-plus") {
-    state.simPlus = Boolean(t.checked);
-    saveUiState({ simPlus: state.simPlus });
     renderAll();
   } else if (t.dataset.action === "sim-target") {
     state.simTarget = t.value;

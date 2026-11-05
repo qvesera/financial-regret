@@ -131,7 +131,7 @@ export const TIER_LABEL = {
   // The store has stopped selling it: a fact about the catalogue, not a fetch
   // that went wrong. It sits outside the graded scale for the same reason free
   // does -- there is no price left to judge against.
-  notsold: "Not sold",
+  notsold: "Unlisted",
   // A PlayStation row with no concept at all: a streaming app, never a store
   // title, so no price will ever exist and none is missing.
   app: "Apps",

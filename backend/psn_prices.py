@@ -369,7 +369,7 @@ def _fetch_concept(args):
     # The delisted shape answers before the price is even read: nothing to sell
     # is a fact about the catalogue, and a different one from "this store has
     # no purchase button for it", which is what free and Plus-only titles look
-    # like. Collapsing the two is what would label a free game "Not sold".
+    # like. Collapsing the two is what would label a free game "Unlisted".
     if not _still_listed(payload):
         return _Fetch(_Fetch.NOT_SOLD, plus=plus)
     fields = _price_fields(payload, currency, console)

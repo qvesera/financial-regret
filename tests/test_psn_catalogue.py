@@ -9,7 +9,7 @@ already have this") is the one thing the card never says.
 
 The distinction that has to hold: a delisted concept answers with nothing for
 sale, while a free or Plus-only title answers with products and no purchase
-button. Collapsing them would label free games "Not sold".
+button. Collapsing them would label free games "Unlisted".
 """
 import io
 import json
@@ -61,7 +61,7 @@ def _priced_with_plus():
 
 def _plus_only():
     """Products, a Plus button and no purchase button: on the store, not
-    buyable. Not sold would be a lie about a game you can play today."""
+    buyable. Unlisted would be a lie about a game you can play today."""
     return {"data": {"conceptRetrieve": {"defaultProduct": {"mobilectas": [
         {"meta": {"upSellService": "PS_PLUS"},
          "price": {"basePriceValue": 5999, "discountedValue": 0,
@@ -91,7 +91,7 @@ class TestCatalogueFacts(unittest.TestCase):
 
     def test_a_free_or_plus_only_title_is_not_called_not_sold(self):
         # The trap: products exist and there is simply no purchase button.
-        # "Not sold" here would tell the visitor a game they can play is gone.
+        # "Unlisted" here would tell the visitor a game they can play is gone.
         result = _fetch(_plus_only())
         self.assertEqual(result.status, psn_prices._Fetch.NO_PRICE)
         self.assertTrue(result.plus, "and it is in the Plus catalogue")
