@@ -229,6 +229,27 @@ function anyLinked(acc = linkedAccounts()) {
   return Object.values(acc).some(Boolean);
 }
 
+/** Sony's console for a title, read off its own id shape: PPSA... is PS5,
+ *  CUSA... is PS4 -- the same rule psn_games.py applies when it builds a row.
+ *  Only rows that carry no console of their own are filled in, so a snapshot
+ *  written before the field existed lights up the console filter and the
+ *  retail band instead of both silently staying hidden until a rescan. */
+function consoleFromTitleId(titleId) {
+  const id = typeof titleId === "string" ? titleId.toUpperCase() : "";
+  if (id.startsWith("PPSA")) return "PS5";
+  if (id.startsWith("CUSA")) return "PS4";
+  return null;
+}
+
+/** Every row carries a console: the server's answer where it spoke, its own
+ *  title id where the row predates the field. */
+function withConsoles(games) {
+  return games.map((g) => {
+    const ps = g.console ?? consoleFromTitleId(g.titleId);
+    return ps === g.console ? g : { ...g, console: ps };
+  });
+}
+
 function computeRows({ skipPlayFilter = false } = {}) {
   let g = state.games;
   if (state.platform && state.platform !== "All") g = g.filter((x) => x.platform === state.platform);
@@ -305,18 +326,23 @@ function loadCoversCache() {
   } catch { /* corrupt cache is simply ignored */ }
   try {
     const raw = JSON.parse(localStorage.getItem("covers_platforms") || "{}");
+    // null is a real value here -- "asked, and Sony named no console" -- and it
+    // has to survive a reload or the title is refetched on every single load.
     for (const [id, platform] of Object.entries(raw)) {
-      if (platform) coverPlatforms.set(id, platform);
+      coverPlatforms.set(id, platform || null);
     }
   } catch { /* corrupt cache is simply ignored */ }
-  // A cache written before the platform map existed can hold Sony's art with
-  // no console beside it, and the band needs one. Drop those entries so the
-  // band is resolved again on the next scroll; a title Sony genuinely states
-  // no console for costs one refetch per load, which beats a missing band.
-  for (const [id, url] of coversCache) {
-    if (url.includes("image.api.playstation.com") && !coverPlatforms.has(id)) {
-      coversCache.delete(id);
-    }
+  // A cache written before the platform map existed holds art with no console
+  // beside it, and the band cannot be drawn without one. Drop those PlayStation
+  // entries so the console is resolved again on the next scroll. The art source
+  // must not matter here: a title Sony has no portrait for is served by
+  // SteamGridDB and wears a band just the same, so keying this on the url host
+  // left exactly those titles -- God Eater 3, the older Call of Duty entries --
+  // permanently band-less with their art already cached. A title Sony truly
+  // states no console for records null in flushCovers, so "asked and unknown"
+  // is never mistaken for "never asked" and this cannot loop.
+  for (const id of coversCache.keys()) {
+    if (id.startsWith("PSN:") && !coverPlatforms.has(id)) coversCache.delete(id);
   }
 }
 
@@ -329,26 +355,36 @@ function persistCovers() {
 }
 
 /** Stamp every rendered placeholder whose url we already know. */
-/** Reveal the retail band on covers whose store named a console for them.
- *  Sony's art arrives banner-less; SteamGridDB's uploads are usually the
- *  retail cover already, band and all, so those never wear one of ours. */
-function stampBand(img) {
+/** Reveal the retail band, in the console the row itself names.
+ *
+ *  The console comes from the title the visitor owns -- a row built from
+ *  Sony's own title id -- and only then from the store's answer. Reading the
+ *  store first is what wore a PS5 band on Death Stranding: its concept lists a
+ *  PS5 Director's Cut in front of the PS4 original that row is, and a delisted
+ *  concept has no products left to read a console from, so those titles lost
+ *  their band entirely. Apps (no concept) wear none: a retail band on a
+ *  streaming app would be a claim the card cannot keep. */
+function stampBand(img, byId) {
   const cover = img.closest(".cover");
   if (!cover) return;
-  const platform = coverPlatforms.get(img.dataset.coverId);
+  const id = img.dataset.coverId;
+  const game = byId.get(id);
+  const platform = (game && game.conceptId ? game.console : null)
+    || coverPlatforms.get(id) || null;
   cover.classList.toggle("is-psn-art", Boolean(platform));
   cover.classList.toggle("ps4", platform === "PS4");
   cover.classList.toggle("ps5", platform === "PS5");
 }
 
 function applyCovers() {
+  const byId = new Map(state.games.map((g) => [g.id, g]));
   for (const img of document.querySelectorAll(".cover-img")) {
     if (img.dataset.loaded) continue;
     const url = coversCache.get(img.dataset.coverId);
     if (url) {
       img.setAttribute("src", url);
       img.dataset.loaded = "1";
-      stampBand(img);
+      stampBand(img, byId);
       // A memory-cache hit can be complete before any load event listener
       // has a say — reveal it either way.
       if (img.complete) img.classList.add("is-loaded");
@@ -438,10 +474,17 @@ async function flushCovers() {
         for (const [id, url] of Object.entries(data.covers || {})) {
           if (url) coversCache.set(id, url);
         }
-        // The console Sony named travels with the art: it picks which retail
-        // band the card wears, and only for art that came from her store.
+        // The console Sony named travels with the art and picks the band. When
+        // she named none, record that as null: the answer is remembered so the
+        // heal in loadCoversCache stops asking, and stampBand treats it as "no
+        // band" because a band nobody can justify is worse than a plain cover.
         for (const [id, platform] of Object.entries(data.psPlatforms || {})) {
           coverPlatforms.set(id, platform);
+        }
+        for (const id of batch) {
+          if (id.startsWith("PSN:") && coversCache.has(id) && !coverPlatforms.has(id)) {
+            coverPlatforms.set(id, null);
+          }
         }
         persistCovers();
         applyCovers();
@@ -462,7 +505,7 @@ function renderAll() {
   // the benchmark, the KPIs, the pies and the export without any of them
   // knowing overrides exist.
   const eff = applyEdits(state.games, state.prices, state.edits, state.currency);
-  state.games = eff.games;
+  state.games = withConsoles(eff.games);
   state.pricesEff = eff.prices;
   // Verdicts are derived from the whole library, not the filtered rows: a
   // filter must not redefine the benchmark it filters against. That holds
