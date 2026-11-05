@@ -844,7 +844,7 @@ tr.game-row:hover { background: var(--surface-2); }
   padding-top: 1rem;
 }
 .disclaimer p { margin: 0.4rem 0; }
-/* Third-party data credit (PlatPrices). Kept visually quiet but present. */
+/* Third-party data credit (none is owed today, but the line stays styled). */
 .disclaimer-attribution {
   margin-top: 0.8rem;
   padding-left: 0.7rem;

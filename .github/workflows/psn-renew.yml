@@ -58,3 +58,10 @@ jobs:
           VERCEL_PROJECT: financial-regret
           VERCEL_PROD_URL: https://financial-regret.vercel.app
         run: python scripts/renew_psn_token.py
+
+      # Deliberately after the renewal: a rotated store hash must not cost the
+      # reader token its run, and a failed step still fails the job, so the
+      # owner still gets the email that says PlayStation prices have stopped
+      # resolving. Runs last so both facts are in one run's log.
+      - name: PlayStation store canary
+        run: python scripts/probe_psn_store.py

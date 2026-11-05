@@ -133,10 +133,10 @@ export function cardSpec(state, kind = "wrapped") {
   const cur = state.currency || "INR";
   const games = state.games || [];
   const rows = state.rows || [];
-  // PlatPrices' free/Indie plans require the credit wherever its data is shown.
-  // The dashboard footer carries it (view.setPricingAttribution); an exported
-  // card is data shown too, so the same string rides the footnote — and the
-  // share links, which carry the spec with it.
+  // Provider credit, when one is owed for the data shown. The dashboard footer
+  // carries it (view.setPricingAttribution); an exported card is data shown
+  // too, so the same string rides the footnote — and the share links, which
+  // carry the spec with it. No source owes one today, so it reads empty.
   const credit = state.pricingAttribution ? ` · ${state.pricingAttribution}` : "";
   // The library's own metrics, from the library itself — never the filtered
   // view. The regret score on a shared card describes the shelf, so the

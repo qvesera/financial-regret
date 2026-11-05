@@ -113,19 +113,20 @@ test("the wrapped card carries the add-on figure when the library owns DLC", () 
     "a game-only shelf never shows an empty add-on row");
 });
 
-test("cards carry the PlatPrices credit when their data did", () => {
-  // The free/Indie plans require the credit wherever the data is shown, and an
-  // exported card is data shown: the dashboard footer had the line while the
-  // PNG and the share link left the browser uncredited.
-  const s = makeState({ pricingAttribution: "Powered by PlatPrices" });
+test("cards carry a provider credit when their data required one", () => {
+  // No source owes one today, but the plumbing is provider-agnostic: if a
+  // future source demands credit it must reach the PNG and the share link too
+  // -- the dashboard footer having the line while they went uncredited was
+  // the original bug.
+  const s = makeState({ pricingAttribution: "Pricing by Example Data" });
   for (const kind of ["wrapped", "view", "verdict:regret"]) {
     const spec = cardSpec(s, kind);
-    assert.ok(spec.footnote.endsWith("· Powered by PlatPrices"),
+    assert.ok(spec.footnote.endsWith("· Pricing by Example Data"),
       `${kind}: ${spec.footnote}`);
   }
   // No PSN data reached the card: no credit, and no half-empty footer line.
   const plain = cardSpec(makeState(), "wrapped");
-  assert.ok(!plain.footnote.includes("Powered by PlatPrices"), plain.footnote);
+  assert.ok(!plain.footnote.includes("Pricing by Example Data"), plain.footnote);
 });
 
 test("the chip list offers only what the library can fill", () => {

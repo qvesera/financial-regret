@@ -254,7 +254,7 @@ const PLATFORMS = [
     key: "psn",
     name: "PlayStation",
     platform: "PlayStation",
-    blurb: "Played titles, with real playtime. Sony has no official library API, so this reads what your profile already shows publicly — no sign-in, no password, no token. Prices come from PlatPrices when a key is set.",
+    blurb: "Played titles, with real playtime. Sony has no official library API, so this reads what your profile already shows publicly — no sign-in, no password, no token. Prices come from the PlayStation Store itself, so no key is needed either.",
     cta: "Connect PlayStation",
     steps: [
       "Type your PSN online ID below — the name on your profile, not an email address and not an account id.",
@@ -279,6 +279,21 @@ const BRAND_PATHS = {
 
 /** Display name ("Epic", "GOG", "Amazon") → PLATFORMS key, or null. */
 const BRAND_KEY = new Map(PLATFORMS.map((p) => [p.platform.toLowerCase(), p.key]));
+
+/** Store names for the narrow columns.
+ *
+ *  `game.platform` stays "PlayStation" everywhere in state — it is the row key
+ *  that filtering, dupe detection, counts and the pie all group by — but the
+ *  table's platform column is narrower than a nine-letter name and printed it
+ *  as "PlayStati…" beside a glyph that already says which store this is. So the
+ *  data keeps the full name and only the printed label abbreviates it: the
+ *  value that reaches state, the filter and the aria-label never changes.
+ */
+const PLATFORM_SHORT = { PlayStation: "PS" };
+
+/** Printed label for one store in a narrow column; every other store is
+ *  returned untouched. */
+const platformLabel = (platform) => PLATFORM_SHORT[platform] || platform;
 
 function brandIcon(platform, size = 14) {
   const key = BRAND_KEY.get(String(platform || "").toLowerCase()) || platform;
@@ -489,15 +504,15 @@ export const view = {
     const footer = this.el("footer", "disclaimer");
     footer.appendChild(this.el("p", null, "Prices are today's cheapest price (IsThereAnyDeal) in your selected currency — a replacement-cost estimate, not what you actually paid. Games with unknown playtime are excluded from every ratio, never counted as zero."));
     footer.appendChild(this.el("p", null, "GOG and Epic use the unofficial credentials baked into their own launchers. Tokens stay in this browser's localStorage and are never logged or stored server-side."));
-    // PlatPrices' free and Indie plans require a credit wherever its data is
-    // shown. Left hidden until the server actually returns one, so a library
-    // with no PSN rows carries no dead credit line.
+    // A provider credit, wherever one is required by the data shown. None is
+    // owed today, but the line stays live and hidden rather than deleted, so a
+    // future provider that demands attribution appears without another change.
     const attribution = this.el("p", "disclaimer-attribution");
     attribution.hidden = true;
     footer.appendChild(attribution);
     // Why PlayStation pricing is empty, when that is knowable. Without it the
-    // four different reasons -- no key saved, region not on the key's plan,
-    // upstream down, store has no such title -- all look identical: a blank
+    // three different reasons -- this currency has no store, the store did not
+    // answer, the store carries no such title -- all look identical: a blank
     // column, and a user hunting for a bug that is really a setting.
     const psnNote = this.el("p", "disclaimer-psn-note");
     psnNote.hidden = true;
@@ -568,8 +583,8 @@ export const view = {
   },
 
 
-  /** Show the provider credit PlatPrices' free/Indie plans require, or hide
-   *  it entirely when no PSN prices came back. */
+  /** Show a provider credit, when a pricing source owes one, or hide the line
+   *  entirely when none is owed (which is what every source answers today). */
   setPricingAttribution(text) {
     if (!this.attribution) return;
     this.attribution.textContent = text || "";
@@ -881,9 +896,9 @@ export const view = {
     // could be read without one, which only holds while the server shares its
     // own — the hint says which world this instance is in. Only cover art is
     // genuinely optional.
-    // Four fields in a 2×2 grid. The card's own heading says what they are;
-    // the old KEYS/DISPLAY column split left with the currency picker, which
-    // now lives in the header on every screen.
+    // Three fields: prices, playtime and cover art. The card's own heading says
+    // what they are; the old KEYS/DISPLAY column split left with the currency
+    // picker, which now lives in the header on every screen.
     const fields = this.el("div", "api-keys-fields");
 
     fields.appendChild(this.keyField("itad", "IsThereAnyDeal API key",
@@ -892,12 +907,9 @@ export const view = {
     const steamField = this.keyField("steam", "Steam Web API key", copy.steamHint,
       "https://steamcommunity.com/dev/apikey");
     fields.appendChild(steamField);
-    // The backend already honours a user-supplied PlatPrices key (psn_prices
-    // reads X-Platprices-Key before the server's own), so its field sits with
-    // the other functional keys rather than only in the PlayStation copy.
-    fields.appendChild(this.keyField("platprices", "PlatPrices API key",
-      "PlayStation prices when the shared server key is missing",
-      "https://platprices.com/api-request"));
+    // No PlatPrices field: PlayStation now prices itself off Sony's public
+    // storefront (psn_prices.py), so there is no credential to paste, no quota
+    // to share and no third party to ask. Three fields remain.
     fields.appendChild(this.keyField("sgdb", "SteamGridDB API key",
       "cover art in the grid view — cosmetic, no number depends on it",
       "https://steamgriddb.com/profile/preferences/api"));
@@ -1422,8 +1434,9 @@ export const view = {
       if (this.platformSelect.dataset.sig !== sig) {
         this.platformSelect.textContent = "";
         for (const value of ["All", ...plats]) {
-          const opt = this.el("option", null, value === "All" ? "All platforms" : value);
-          opt.value = value;
+          const opt = this.el("option", null,
+            value === "All" ? "All platforms" : platformLabel(value));
+          opt.value = value;   // the filter still matches on the full name
           this.platformSelect.appendChild(opt);
         }
         this.platformSelect.dataset.sig = sig;
@@ -2120,11 +2133,13 @@ export const view = {
           return;
         }
         // Platform cell: the store's mark, then its name — the eye finds the
-        // column by glyph long before it reads the word.
+        // column by glyph long before it reads the word. The label is the
+        // narrow-column abbreviation (PlayStation → PS); the glyph still takes
+        // the full name so the brand lookup keeps working.
         const td = this.el("td", "cell-platform");
         const pmark = brandIcon(text, 13);
         if (pmark) { pmark.classList.add("platform-mark"); td.appendChild(pmark); }
-        td.appendChild(this.el("span", null, text || ""));
+        td.appendChild(this.el("span", null, platformLabel(text) || ""));
         tr.appendChild(td);
       });
       // Verdict is the last column: the money columns keep their positions.
@@ -2215,7 +2230,9 @@ export const view = {
       const store = this.el("span", "card-store");
       const cmark = brandIcon(game.platform, 12);
       if (cmark) { cmark.classList.add("card-mark"); store.appendChild(cmark); }
-      store.appendChild(this.el("span", null, game.platform || "—"));
+      // Same narrow-column rule as the table: abbreviated label, full name
+      // still what the glyph looks up and what the aria-label announces.
+      store.appendChild(this.el("span", null, platformLabel(game.platform) || "—"));
       sub.appendChild(store);
       meta.appendChild(sub);
       card.appendChild(meta);

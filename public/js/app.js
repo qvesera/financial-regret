@@ -21,26 +21,29 @@ const UI_STATE_KEY = "ui_state";
 
 /** Human wording for /api/psn_prices' `reason`. An unpriced PlayStation row is
  *  normal and needs no comment, but when every one of them is unpriced the user
- *  deserves to know which of four very different causes it is. */
+ *  deserves to know which cause it is. There is no `no_key` any more: the
+ *  store itself answers now, so nothing here depends on a saved key. */
 const PSN_PRICING_NOTE = {
-  no_key: "PlayStation prices need a PlatPrices key — add one under API keys. Playtime is unaffected.",
-  no_region: "PlatPrices has no PlayStation Store for this display currency, so PSN rows stay unpriced.",
-  upstream_failed: "PlatPrices did not answer, so PlayStation prices are unavailable right now.",
-  no_match: "PlatPrices carries no price for these PlayStation titles, so they stay unpriced.",
+  no_region: "There is no PlayStation Store for this display currency, so PSN rows stay unpriced.",
+  upstream_failed: "The PlayStation Store did not answer, so PlayStation prices are unavailable right now.",
+  rate_limited: "PlayStation prices are rate-limited right now — wait a minute, then rescan.",
+  no_match: "The PlayStation Store carries no price for these titles, so they stay unpriced.",
 };
 
 const psnNoteFor = (reason) => (reason ? PSN_PRICING_NOTE[reason] || null : null);
 
 /** Human wording for a rate-limited pricing source. Whose key is in play
  *  changes what to do next: a shared key means "bring your own", their own
- *  key means "wait". Providers are named one by one because pasting an ITAD
- *  key cannot fix a spent PlatPrices quota. */
+ *  key means "wait". Only IsThereAnyDeal can be named here — it is the one
+ *  pricing source that spends a key. PlayStation takes none, so a store
+ *  refusal there reaches the footer as its `reason` instead of as a key to
+ *  paste, and naming it here would send the visitor hunting for a key field
+ *  that does not exist. */
 const LIMIT_SHARED = {
   // Cause-neutral on purpose: a 429 reaches us from a provider's quota or from
   // this instance's own per-IP limiter, and both read the same way -- wait, and
   // bring a key if it keeps happening.
   itad: "Prices are rate-limited right now — wait a minute, then rescan. If it keeps happening, paste your own IsThereAnyDeal key under API keys.",
-  platprices: "PlayStation prices are rate-limited right now — wait a minute, then rescan. If it keeps happening, paste your own PlatPrices key under API keys.",
 };
 
 const limitNoteFor = (limited, hasOwnKey) => {
@@ -51,17 +54,16 @@ const limitNoteFor = (limited, hasOwnKey) => {
   return wording.length ? wording.join(" ") : null;
 };
 
-/** Whether the visitor brings a pricing key of their own. */
-const ownKeyPresent = () => Boolean(
-  localStorage.getItem("itad_api_key") || localStorage.getItem("platprices_api_key"),
-);
+/** Whether the visitor brings a pricing key of their own. PlayStation is
+ *  deliberately absent: it has no key to bring. */
+const ownKeyPresent = () => Boolean(localStorage.getItem("itad_api_key"));
 
 /** Attribution, the PlayStation explanation and the rate-limit note all travel
  *  on a pricing answer; one place applies them so a new call site cannot
  *  forget one. Limits accumulate -- a chunk that holds no PlayStation rows
- *  never asks PlatPrices, so its silence is not a clean bill of health. */
+ *  never asks the store, so its silence is not a clean bill of health. */
 function applyPricingNotes(priced) {
-  // A chunk that holds no PlayStation rows never asks PlatPrices, so its
+  // A chunk that holds no PlayStation rows never asks the store, so its
   // silence is not a retraction: a scan adopts stores one by one, and the
   // last chunk to land used to erase the credit (and the footer's copy with
   // it) with its own null. Keep the last credit until a fresh attempt begins
@@ -175,9 +177,10 @@ let state = {
   // derived: filled in by renderAll before anything reads them
   bench: { samples: 0, p25: null, p50: null, p75: null, p90: null, max: null },
   verdicts: new Map(),
-  // Which shared pricing key refused the last attempt: {itad: true} or
-  // {platprices: true}. Cleared when a new attempt starts, so the note it
-  // drives never outlives its own cause.
+  // Which shared pricing key refused the last attempt: {itad: true}. Cleared
+  // when a new attempt starts, so the note it drives never outlives its own
+  // cause. PlayStation never lands here -- it spends no key of its own, so its
+  // refusal arrives as a `reason` and speaks through the footer instead.
   limited: {},
   // Titles held on more than one store: {gameId: [other copies]}. Derived from
   // identity alone, so it is recomputed wherever the game list is rebuilt
@@ -772,8 +775,9 @@ function ensurePasteSurface(platform) {
 
 // ---------- bring-your-own-key gate ----------
 
-/** The four keys the keys card accepts, stored as `${kind}_api_key`. */
-const USER_KEY_KINDS = ["itad", "steam", "platprices", "sgdb"];
+/** The three keys the keys card accepts, stored as `${kind}_api_key`.
+ *  PlayStation is not one: it needs neither playtime key nor price key. */
+const USER_KEY_KINDS = ["itad", "steam", "sgdb"];
 
 /** Did this visitor bring at least one key of their own? This is a
  *  bring-your-own-key app: a store linked without one could not be priced
@@ -791,7 +795,7 @@ function hasUserKeys() {
 function serverCarriesKeys() {
   const s = state.server;
   if (!s || s.requireUserKeys) return false;
-  return Boolean(s.keys && (s.keys.steam || s.keys.itad || s.keys.platprices));
+  return Boolean(s.keys && (s.keys.steam || s.keys.itad));
 }
 
 /** No keys: refuse the store login and land on the keys card instead —
@@ -825,7 +829,12 @@ function linkPlatform(platform) {
   // server's keys do the work — so there is nothing left to bring first, and
   // asking for one before a Connect is exactly the friction that made the gate
   // wrong once keys stopped being mandatory.
-  if (!hasUserKeys() && !serverCarriesKeys()) {
+  // PlayStation is exempt from the gate: its playtime comes from a public
+  // profile read and its price from Sony's own storefront, so neither half
+  // spends a key. Gating it behind an IsThereAnyDeal key would refuse a link
+  // that was always going to work -- and on a keyless instance PlayStation
+  // would be the one store left unlinkable.
+  if (platform !== "psn" && !hasUserKeys() && !serverCarriesKeys()) {
     goToKeysCard();
     return;
   }
@@ -1275,7 +1284,7 @@ function forget() {
 /** Persist a bring-your-own API key to localStorage. It is forwarded with the
  *  user's own pricing/library requests (as a header) and never stored server-side.
  *
- *  The shared term fills all four fields at once — each provider reads only its
+ *  The shared term fills all three fields at once — each provider reads only its
  *  own header, so one entry opts every provider into the instance's default keys
  *  (recognised by the backend when the instance configures that term). Saving it
  *  replaces whatever was in the other fields; that is the point of the switch. */
@@ -1503,9 +1512,9 @@ function wire(root) {
 /** Cross-tab sync: a link/unlink in another tab re-renders and rescans. */
 function wireCrossWindow() {
   window.addEventListener("storage", (e) => {
-  // psn_ and platprices_ included: forgetting PlayStation's session in another
-  // tab has to clear the link there too — this regex predates PSN.
-  if (!e.key || !/^(gog_|steam_|epic_|amazon_|psn_|platprices_)/.test(e.key)) return;
+  // psn_ included: forgetting PlayStation's session in another tab has to clear
+  // the link there too — this regex predates PSN.
+  if (!e.key || !/^(gog_|steam_|epic_|amazon_|psn_)/.test(e.key)) return;
     state.accounts = linkedAccounts();
     renderAll();
     if (anyLinked(state.accounts) && state.phase !== "loading") scan();

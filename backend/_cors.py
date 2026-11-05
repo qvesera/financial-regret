@@ -18,7 +18,7 @@ import os
 ALLOW_HEADERS = (
     "Accept, Content-Type, X-Amazon-Serial, X-Amazon-Token, X-Epic-Account-Id, "
     "X-Epic-Refresh, X-Epic-Token, X-GOG-Refresh, X-GOG-Token, X-GOG-User-Id, "
-    "X-ITAD-Key, X-Platprices-Key, X-SGDB-Key, X-Steam-Key"
+    "X-ITAD-Key, X-SGDB-Key, X-Steam-Key"
 )
 
 ALLOW_METHODS = "GET, POST, OPTIONS"

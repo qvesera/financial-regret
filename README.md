@@ -7,7 +7,7 @@ A browser-based dashboard that shows how much you have spent on games versus how
 ## Features
 
 - **Steam, GOG, Epic Games, Amazon Luna** — Steam auto-redirects (OpenID); GOG, Epic and Amazon land you on the provider's own domain (none allow a custom redirect URI for their public/device client), so the code is collected by paste. Amazon has no public library API, so it registers a virtual Games-launcher device (undocumented / alpha) and, having no playtime API, its rows are priced but excluded from per-hour ratios
-- **PlayStation** — played titles with real playtime, read from your **public PSN profile**: type your online ID and nothing else. No sign-in, no password, no token ever reaches this site — the server reads the playtime your profile already shows anyone, with its own reader account (self-hosted operators mint one once with `scripts/psn_login.py`). Prices come from **PlatPrices**, joined on the PSN title id rather than the title text. They only appear when a `PLATPRICES_API_KEY` is set — without one the rows still count toward playtime, they simply render as Unpriced
+- **PlayStation** — played titles with real playtime, read from your **public PSN profile**: type your online ID and nothing else. No sign-in, no password, no token ever reaches this site — the server reads the playtime your profile already shows anyone, with its own reader account (self-hosted operators mint one once with `scripts/psn_login.py`). Prices come from the **PlayStation Store itself**, read from the same public endpoint the store's own web app calls — no API key, no account, no third party to be granted one — joined on Sony's *concept* id (the gamelist already carries it beside each title) rather than the title text. Titles the store does not price render as Unpriced; playtime counts either way
 - **Real regret metric** — library value, backlog value (unplayed), regret score, and coverage, all shown in your chosen currency
 - **Verdict engine** — every game is judged against *your own* library's quartiles through one of two lenses: **content** (playtime ÷ typical length, for games whose length you know — a finished 6-hour game is 100%, not a ₹166/h failure) or **rate** (price ÷ hours, for everything else). The thresholds follow how you spend and finish rather than a hardcoded number; once three lengths are known, every badge names the lens that judged it. It surfaces as box plots of both distributions, a badge on every row and card, and a plain-language explanation in the game inspector
 - **What-if slider** — replay any regrettable purchase at 1–60 hours and watch its rate, its consumption and its verdict change
@@ -42,7 +42,7 @@ docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
 | Variable | Required | Description |
 |---|---|---|
 | `ITAD_API_KEY` | No | IsThereAnyDeal API key for price lookups. Without it, prices fall back to Steam public API. |
-| `PLATPRICES_API_KEY` | No | PlatPrices key for PlayStation Store prices. Free and Indie plans cap at 2 regions and 1,000 requests/month. Without it PSN rows are unpriced (playtime is unaffected); a browser-supplied key takes precedence, sent per-request as `X-Platprices-Key`. The free plans require crediting PlatPrices wherever the data is shown. **A key may only query the store regions it has been configured for** — free allows 2, reconfigured at most once a day via `PUT /account/regions` — so a library priced in INR needs `in` on that list or it returns nothing at all. |
+| `PLATPRICES_API_KEY` | — | **Removed.** PlayStation pricing reads Sony's public storefront and needs no key; see `backend/psn_prices.py`. |
 | `SGDB_API_KEY` | No | SteamGridDB key used as the fallback for cover art. A browser-supplied key (dashboard → API keys → SteamGridDB) takes precedence and is sent per-request as `X-SGDB-Key`; without either, the covers endpoint returns no art. |
 | `GOG_CLIENT_ID` | No | GOG OAuth client ID. Defaults to public PKCE client. |
 | `EPIC_CLIENT_ID` | No | Epic OAuth client ID. Defaults to public PKCE client. |
@@ -50,7 +50,7 @@ docker run -p 8080:8080 -e ITAD_API_KEY=your_key financial-regret
 | `PORT` | No | Port to listen on (default 3000; `run.sh` passes 8089). |
 | `HOST` | No | Host to bind (default 0.0.0.0). |
 | `CORS_ALLOWED_ORIGINS` | No | Comma-separated origins allowed to call this API cross-origin, e.g. `https://your-app.vercel.app`. Empty — the default — means same-origin only. Wildcards are discarded rather than honoured. |
-| `REQUIRE_USER_KEYS` | No | `1` to ignore the server's `STEAM_API_KEY` / `ITAD_API_KEY` / `PLATPRICES_API_KEY` / `SGDB_API_KEY` and require every visitor to bring their own. Unset — the default — a visitor's own key always wins and the server key fills in when they have none, so the instance works without setup. Set `1` on a public deployment where you would rather refuse than spend your quota. |
+| `REQUIRE_USER_KEYS` | No | `1` to ignore the server's `STEAM_API_KEY` / `ITAD_API_KEY` / `SGDB_API_KEY` and require every visitor to bring their own. Unset — the default — a visitor's own key always wins and the server key fills in when they have none, so the instance works without setup. Set `1` on a public deployment where you would rather refuse than spend your quota. (PlayStation is unaffected: it spends no key of any kind.) |
 | `TRUST_PROXY` | No | `1` to read the client IP from `X-Forwarded-For`. Only behind a reverse proxy you control — otherwise the per-IP rate limit is trivially bypassed. |
 | `RATE_LIMIT_PER_MIN` | No | Per-IP requests per minute (default 120), enforced by `server.py` — local, Docker and Render. The Vercel function enforces no app-level limit; the equivalent there is a rate-limiting rule in the Vercel Firewall (one free rule per Hobby project, first 1,000,000 requests a month included). |
 | `PUBLIC_BASE_URL` | No | The URL the app is reached on. OAuth redirect URIs (GOG, Epic) must match what those providers have registered. |
@@ -144,8 +144,8 @@ depends on surviving a restart, the server keeps no state on disk. To point
 the frontend at it, set `API_BASE` in `public/js/env.js` to that
 `*.onrender.com` origin and name the same origin in `CORS_ALLOWED_ORIGINS`.
 
-Set `PLATPRICES_API_KEY` and friends as env vars to give visitors a shared
-server-side key. A visitor's own key always wins, so theirs is spent first and
+Set `STEAM_API_KEY`, `ITAD_API_KEY` and friends as env vars to give visitors a
+shared server-side key. A visitor's own key always wins, so theirs is spent first and
 the shared one only fills in; when the shared pool runs out the dashboard says
 so and points at API keys rather than leaving a blank price column. Set
 `REQUIRE_USER_KEYS=1` if you would rather refuse than share at all.
@@ -182,8 +182,10 @@ npm run shots                               # phone-width layout gate (needs Pla
 - **Shared keys are the default.** With `REQUIRE_USER_KEYS` unset, a visitor
   without their own key spends the operator's quota; a rate-limiting rule in
   the Vercel Firewall (one free rule per Hobby project) is the brake.
-- **PlayStation pricing needs `PLATPRICES_API_KEY`** and the store's region on
-  its configured list — the free tier allows two regions.
+- **PlayStation pricing needs no key at all** — it reads Sony's public
+  storefront. A display currency the store does not serve (or a store that
+  does not answer) leaves PSN rows Unpriced, and the footer says which of the
+  three causes it was.
 - **No purchase history exists anywhere.** No connected store reports what you
   paid, so every figure is "what this would cost today", never "what you lost".
 

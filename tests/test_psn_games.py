@@ -3,10 +3,10 @@ and no route here ever accepts a PSN credential.
 
 The endpoint is a two-part promise. Part one is functional: given a valid
 online ID it reads the profile's playtime and maps it to the row shape the
-rest of the app (and PlatPrices' title-id join) already expects. Part two is
-the reason a data provider approved this project: the exchange route that
-used to take a visitor's NPSSO is gone, and the module left behind cannot
-become a route by accident.
+rest of the app (and the store's concept-id price join) already expects. Part
+two is why a data provider declined to be connected to this project while it
+held a credential: the exchange route that used to take a visitor's NPSSO is
+gone, and the module left behind cannot become a route by accident.
 """
 import io
 import json
@@ -47,6 +47,14 @@ PROFILE = {"profile": {"onlineId": "SomePlayer_91", "accountId": "27367376511006
 PAGE = {"titles": [{"name": "Astro Bot", "titleId": "PPSA00142_00",
                     "playDuration": "PT5H12M"}],
         "totalItemCount": 1, "nextOffset": None}
+# The same entry with the store's concept object the gamelist documents beside
+# titleId -- the id psn_prices.py joins on, so it has to survive the round trip.
+PAGE_WITH_CONCEPT = {
+    "titles": [{"name": "Astro Bot", "titleId": "PPSA00142_00",
+                "playDuration": "PT5H12M",
+                "concept": {"id": 10010174, "titleIds": ["PPSA00142_00"],
+                            "name": "Astro Bot"}}],
+    "totalItemCount": 1, "nextOffset": None}
 
 
 class TestPsnGames(unittest.TestCase):
@@ -87,7 +95,8 @@ class TestPsnGames(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["games"], [{
             "id": "PSN:PPSA00142_00", "name": "Astro Bot",
-            "platform": "PlayStation", "titleId": "PPSA00142_00", "hours": 5.2,
+            "platform": "PlayStation", "titleId": "PPSA00142_00",
+            "conceptId": None, "hours": 5.2,
         }])
         self.assertNotIn("reason", body, "a non-empty answer needs no excuse")
 
@@ -145,7 +154,7 @@ class TestPsnGames(unittest.TestCase):
 
 
 class TestNoVisitorCredentialRoute(unittest.TestCase):
-    """The promise a PlatPrices key was approved on."""
+    """The promise the credential-free design rests on."""
 
     def test_the_npsso_exchange_route_is_gone(self):
         self.assertFalse(
@@ -165,6 +174,65 @@ class TestNoVisitorCredentialRoute(unittest.TestCase):
         is handing us something again."""
         source = (ROOT / "backend" / "psn_games.py").read_text()
         self.assertNotIn("X-PSN-", source)
+
+
+class TestConceptPassthrough(unittest.TestCase):
+    """psn_prices.py prices on the store's concept id, so the gamelist has to
+    carry it -- and has to carry nothing harmful when it does not arrive."""
+
+    @staticmethod
+    def _run_page(page):
+        handler = FakeHandler("/api/psn_games?onlineId=SomePlayer_91")
+        rq = mock.MagicMock()
+        rq.RequestException = Exception
+        rq.get.side_effect = [Resp(data=PROFILE), Resp(data=page)]
+        env = mock.patch.dict(os.environ, {"PSN_REFRESH_TOKEN": "refresh-1"})
+        env.start()
+        try:
+            with mock.patch.object(psn_games, "requests", rq), \
+                    mock.patch.object(psn_games, "send_json") as send, \
+                    mock.patch.object(psn_games, "refresh_tokens",
+                                      return_value={"access_token": "tok",
+                                                    "expires_in": 3600}):
+                send.side_effect = lambda h, status, data: setattr(
+                    h, "_out", (status, data))
+                psn_games.handler.do_GET(handler)
+        finally:
+            env.stop()
+        return handler._out
+
+    def test_the_concept_id_reaches_the_client(self):
+        status, body = self._run_page(PAGE_WITH_CONCEPT)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["games"][0]["conceptId"], 10010174,
+                         "the price join key must survive the gamelist round trip")
+
+    def test_a_row_without_a_concept_still_reads(self):
+        status, body = self._run_page(PAGE)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["games"][0]["conceptId"], None,
+                         "an absent concept stays Unpriced, not a failed scan")
+
+    def test_only_a_positive_integer_concept_counts(self):
+        self.assertEqual(psn_games._concept_id({"concept": {"id": 10009763}}),
+                         10009763)
+        # Sony ships ids as numbers, but every hop in between is JSON, so a
+        # numeric string is equally good -- padding included, since the value
+        # arrives from JSON headers and forms that tolerate whitespace.
+        self.assertEqual(psn_games._concept_id({"concept": {"id": "10009763"}}),
+                         10009763)
+        self.assertEqual(psn_games._concept_id({"concept": {"id": " 10009763 "}}),
+                         10009763)
+
+    def test_junk_never_becomes_a_concept_id(self):
+        for concept in (None, "", 0, -1, True, "0", "12abc", "concept-id",
+                        "string", [], {}, {"id": None}, {"id": True},
+                        {"id": []}, {"id": -5}, {"id": "10 00"}):
+            self.assertIsNone(psn_games._concept_id({"concept": concept}),
+                              f"junk accepted: {concept!r}")
+
+    def test_a_title_without_the_key_at_all_is_none(self):
+        self.assertIsNone(psn_games._concept_id({"titleId": "PPSA00142_00"}))
 
 
 if __name__ == "__main__":

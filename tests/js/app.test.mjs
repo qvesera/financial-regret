@@ -153,11 +153,11 @@ test("cold start shows onboarding, hides metrics chrome", async () => {
     assert.ok(lab && lab.textContent.length > 3, `${kind} key has a real <label for>`);
   }
   // No KEYS/DISPLAY column split any more: the currency picker moved to the
-  // header, so the four fields sit directly in the card's own 2×2 grid.
+  // header, so the three fields sit directly in the card's own grid.
   assert.equal(env.root.querySelectorAll(".key-group").length, 0,
     "the group wrappers are gone — the card heading carries the meaning");
-  assert.equal(env.root.querySelector(".api-keys-fields").children.length, 4,
-    "four key fields, direct children of the grid");
+  assert.equal(env.root.querySelector(".api-keys-fields").children.length, 3,
+    "three key fields, direct children of the grid");
 });
 
 test("Steam link navigates to OpenID checkid_setup with return_to", async () => {
@@ -219,7 +219,7 @@ test("Connect needs no key of your own when the instance carries shared keys", a
   const { env } = await boot({ seed: (e) => {
     e.fetchRoutes.push((url) => (url.includes("/api/config") ? { json: {
       requireUserKeys: false,
-      keys: { steam: true, itad: true, platprices: false },
+      keys: { steam: true, itad: true },
     } } : null));
   } });
   await settle();
@@ -241,7 +241,7 @@ test("a keyless instance still refuses Connect — nothing to finish the login w
   const { env } = await boot({ seed: (e) => {
     e.fetchRoutes.push((url) => (url.includes("/api/config") ? { json: {
       requireUserKeys: false,
-      keys: { steam: false, itad: false, platprices: false },
+      keys: { steam: false, itad: false, sgdb: false },
     } } : null));
   } });
   await settle();
@@ -287,7 +287,7 @@ const coverSeed = (sgdbShared) => (e) => {
   e.fetchRoutes.push((url) => {
     if (url.includes("/api/config")) return { json: {
       requireUserKeys: false,
-      keys: { steam: true, itad: true, platprices: false, sgdb: sgdbShared },
+      keys: { steam: true, itad: true, sgdb: sgdbShared },
     } };
     if (url.includes("/api/steam_games")) return { json: { games: [
       { id: "Steam:1", name: "Coverless", platform: "Steam", hours: 5, appid: 1 },
@@ -323,7 +323,7 @@ test("with no key anywhere, covers are not requested at all", async () => {
     "nothing to ask with: no visitor key and no shared one either — placeholders stay");
 });
 
-test("the shared term in one key field fills all four fields", async () => {
+test("the shared term in one key field fills all three fields", async () => {
   // Each provider only ever reads its own header, so the term has to land in
   // every field — one entry opts the whole browser into the instance defaults.
   const { env } = await boot();
@@ -332,7 +332,7 @@ test("the shared term in one key field fills all four fields", async () => {
   byAction(env, "save-key").dispatch("click");
   await settle();
 
-  for (const k of ["itad", "steam", "platprices", "sgdb"]) {
+  for (const k of ["itad", "steam", "sgdb"]) {
     assert.equal(env.localStorage.getItem(`${k}_api_key`), "superuser", `${k} field filled`);
   }
   // It satisfies the BYO gate like any other stored value.
@@ -350,7 +350,7 @@ test("an ordinary key saves only its own field", async () => {
   await settle();
 
   assert.equal(env.localStorage.getItem("itad_api_key"), "my-itad-key", "the real key saved");
-  for (const k of ["steam", "platprices", "sgdb"]) {
+  for (const k of ["steam", "sgdb"]) {
     assert.equal(env.localStorage.getItem(`${k}_api_key`), null, `${k} left untouched`);
   }
 });
@@ -1191,12 +1191,12 @@ test("the hero states the spend once, with the stats that back it", async () => 
   assert.ok(env.document.getElementById("hero-spend"), "the value lives once, in the hero");
 });
 
-test("the PlatPrices credit reaches the state the exports read", async () => {
+test("a provider credit reaches the state the exports read", async () => {
   // view.setPricingAttribution feeds the footer; the exported cards read
   // state.pricingAttribution. One hand-off in applyPricingNotes, asserted so
   // neither half can be dropped while the other keeps passing. The credit
-  // rides the PlayStation half of a pricing answer only — PlatPrices is its
-  // sole source and /api/prices never sets it. The fixture settles PSN first
+  // rides the PlayStation half of a pricing answer only — no other source sets
+  // it, and /api/prices never does. The fixture settles PSN first
   // and Steam after, so this also pins that the last chunk's silence cannot
   // erase the credit an earlier one earned.
   const seed = (env) => {
@@ -1212,7 +1212,7 @@ test("the PlatPrices credit reaches the state the exports read", async () => {
       }
       if (url.includes("/api/psn_prices")) {
         return { json: { prices: { "PSN:123": 400 }, highs: {}, lows: {},
-                          currency: "INR", attribution: "Powered by PlatPrices", reason: null } };
+                          currency: "INR", attribution: null, reason: null } };
       }
       if (url.includes("/api/prices")) {
         return { json: { prices: PRICE_MAP, highs: HIGH_MAP, lows: LOW_MAP } };
@@ -1222,8 +1222,8 @@ test("the PlatPrices credit reaches the state the exports read", async () => {
   };
   const { mod } = await boot({ seed });
   await settle();
-  assert.equal(mod.getState().pricingAttribution, "Powered by PlatPrices",
-    "the PlayStation half's credit is kept where cardSpec can find it");
+  assert.equal(mod.getState().pricingAttribution, null,
+    "no pricing source owes a credit, so none is claimed on the cards");
 });
 
 test("the header offers each control exactly once, in plain words", async () => {
@@ -1830,9 +1830,8 @@ test("forget clears every credential a single unlink clears", async () => {
   // The two lists drifted once: KEY_STORES grew PlayStation, CRED_KEYS did not,
   // so "Forget my data" left a linked PSN account behind — visible as a store
   // that reported itself linked with nothing behind it. Keys with no store
-  // entry (a pasted PlatPrices key) belong to Forget too.
+  // entry still belong to Forget too, so they are listed here by hand.
   const keys = new Set(Object.values(mod.KEY_STORES).flat());
-  keys.add("platprices_api_key");
   assert.ok(keys.has("psn_access_token"), "the fixture covers PlayStation");
   for (const k of keys) env.localStorage.setItem(k, "sentinel");
 
@@ -2205,25 +2204,25 @@ test("every API-key field links to where the key is issued", async () => {
 
   const card = env.root.querySelector(".api-keys");
   assert.ok(card, "the keys card renders on the landing page");
-  assert.equal(card.querySelectorAll(".key-field").length, 4,
-    "IsThereAnyDeal, Steam Web, SteamGridDB and PlatPrices");
+  assert.equal(card.querySelectorAll(".key-field").length, 3,
+    "IsThereAnyDeal, Steam Web and SteamGridDB");
 
   const links = card.querySelectorAll(".key-link");
-  assert.equal(links.length, 4, "each field says where to get its key");
+  assert.equal(links.length, 3, "each field says where to get its key");
   const hrefs = links.map((l) => l.href).join(" ");
   for (const url of ["https://isthereanydeal.com/apps/",
                      "https://steamcommunity.com/dev/apikey",
-                     "https://steamgriddb.com/profile/preferences/api",
-                     "https://platprices.com/api-request"]) {
+                     "https://steamgriddb.com/profile/preferences/api"]) {
     assert.ok(hrefs.includes(url), `${url} is linked`);
   }
   assert.ok(links.every((l) => l.target === "_blank"
     && (l.rel || "").includes("noopener")),
     "external links open a new tab without handing it the opener");
 
-  // Nothing is filed under "optional extras": with no shared key three of
-  // these four are load-bearing — Steam without its Web key cannot read a
-  // single game, PlatPrices without one prices nothing on PlayStation.
+  // Nothing is filed under "optional extras": with no shared key two of
+  // these three are load-bearing — Steam without its Web key cannot read a
+  // single game, IsThereAnyDeal without one prices nothing anywhere.
+  // PlayStation needs no key at all, so it is never gated either way.
   assert.ok(!card.textContent.includes("Optional extras"),
     "no optional-extras bin");
   assert.equal(card.querySelectorAll(".key-group-title").length, 0,
@@ -2244,7 +2243,7 @@ test("the keys card only says optional when the server really carries a key", as
     env.fetchRoutes.push((url) => (url.includes("/api/config") ? { json: {
       publicBaseUrl: "https://demo.test",
       requireUserKeys: false,
-      keys: { steam: true, itad: true, platprices: false },
+      keys: { steam: true, itad: true },
     } } : null));
   } });
   await settle();
@@ -2262,7 +2261,7 @@ test("BYO-key mode needs the visitor's key even when the server has one", async 
   const { env } = await boot({ seed: (e) => {
     e.fetchRoutes.push((url) => (url.includes("/api/config") ? { json: {
       requireUserKeys: true,
-      keys: { steam: false, itad: true, platprices: false },
+      keys: { steam: false, itad: true },
     } } : null));
   } });
   await settle();

@@ -38,7 +38,6 @@ and held in memory between refreshes.
 |---|---|---|---|
 | Steam | Web API key | `X-Steam-Key` header | response sent |
 | IsThereAnyDeal | ITAD key | `X-ITAD-Key` header | response sent |
-| PlatPrices | PlatPrices key | `X-Platprices-Key` header | response sent |
 | SteamGridDB | SGDB key | `X-SGDB-Key` header | response sent |
 | GOG | OAuth access + refresh | `X-GOG-Token`, `X-GOG-Refresh` | response sent |
 | Epic | OAuth access + refresh | `X-Epic-Token`, `X-Epic-Refresh` | response sent |
@@ -83,7 +82,7 @@ rule, and `tests/test_logging.py` pins the consequence.
   included), or set `REQUIRE_USER_KEYS=1` so there is no shared quota to burn.
 * **The operator's keys are shared by default — and visitors can spend them.**
   `user_key()` prefers the caller's own header key and falls back to the
-  server-side `STEAM_API_KEY`, `ITAD_API_KEY`, `PLATPRICES_API_KEY` and
+  server-side `STEAM_API_KEY`, `ITAD_API_KEY` and
   `SGDB_API_KEY`, so an instance works without setup. `REQUIRE_USER_KEYS=1`
   removes that fallback: a visitor with no key is refused instead of billed
   against your quota. A provider's 429 is reported to the browser as
@@ -143,7 +142,17 @@ The design is now the answer instead of the argument, and
   case is a banned reader. Delete the workflow (or the secret) to remove that
   holder; the local file and the manual path stay.
 
-What remains honest to say: reading profiles through an unofficial endpoint is
+* **Pricing takes a key from nobody.** `backend/psn_prices.py` reads the same
+  public storefront the PS Store web app itself calls — an operation name and a
+  persisted-query hash, no API key, no account, no visitor credential, and no
+  third-party provider to be granted one (which is what replaced PlatPrices,
+  after it declined to issue a key). Nothing crosses to the browser but a
+  price, and no key field exists to be phished. It is the same
+  unofficial-Sony category as the playtime read above: what is at stake is the
+  endpoint surviving, not anyone's credentials.
+
+What remains honest to say: reading profiles and storefront prices through
+unofficial endpoints is
 against Sony's wishes if not quite their letter; one reader account's quota is
 a real ceiling (mitigated by the 24-hour-style caching elsewhere and your
 per-IP limit); and a profile that answers 200 with nothing in it has either

@@ -1,10 +1,10 @@
 """BYO-key (REQUIRE_USER_KEYS) tests.
 
 A self-hosted install spends the owner's key when a visitor supplies none. A
-public install must not: that quota is a shared pool, and PlatPrices' free tier
-is 1,000 requests a month, so one large library scan would drain it for
-everyone. Reselling a provider's data on your own account is also what their
-paid tiers exist to prevent.
+public install must not: that quota is a shared pool and every provider's free
+tier is metered, so one large library scan could drain it for everyone.
+Reselling a provider's data on your own account is also what their paid tiers
+exist to prevent.
 """
 import os
 import sys
