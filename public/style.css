@@ -1695,6 +1695,16 @@ td.cell-platform { white-space: nowrap; }
    so both drop below the band on art that wears one. */
 .is-psn-art .card-badge,
 .is-psn-art .dup-ear { top: calc(var(--ps-band-h) + var(--space-1)); }
+/* The band sits ABOVE the art, never over it: the image starts where the
+   banner ends, so the artwork's own top edge -- where most covers put their
+   title treatment -- is visible instead of hidden under the banner. Anchor
+   to the top as well, because the shortened box is wider than a 2:3 image
+   and object-fit would otherwise shave the top off to centre the crop. */
+.is-psn-art .cover-img {
+  top: var(--ps-band-h);
+  height: calc(100% - var(--ps-band-h));
+  object-position: top;
+}
 
 .card-badge {
   position: absolute;

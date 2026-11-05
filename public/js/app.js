@@ -156,6 +156,9 @@ let state = {
   scanError: null,
   filter: "All",
   platform: "All",
+  // PlayStation console facet: "All" | "PS5" | "PS4" | "Other PS". Only ever
+  // applied when a PlayStation account is linked -- see computeRows.
+  psConsole: "All",
   tier: "All",
   verdictSlide: "games",
   viewMode: "list",
@@ -229,6 +232,15 @@ function anyLinked(acc = linkedAccounts()) {
 function computeRows({ skipPlayFilter = false } = {}) {
   let g = state.games;
   if (state.platform && state.platform !== "All") g = g.filter((x) => x.platform === state.platform);
+  // Console is a PlayStation-only facet: choosing one implies PlayStation
+  // rows, so everything else drops with it. Gated on the link too, so a
+  // selection made while linked goes inert (rather than filtering in secret)
+  // the moment the account is forgotten.
+  if (state.psConsole && state.psConsole !== "All"
+      && (state.accounts || {}).psn) {
+    g = g.filter((x) => x.platform === "PlayStation"
+      && (state.psConsole === "Other" ? !x.console : x.console === state.psConsole));
+  }
   // Tier is read from the verdict map, which is built against the whole
   // library — so narrowing by verdict never moves the goalposts.
   if (state.tier && state.tier !== "All") {
@@ -1315,6 +1327,7 @@ function forget() {
   store.forget();
   coversCache.clear();
   coverPlatforms.clear();
+  state.psConsole = "All";
   state.games = [];
   state.dupes = new Map();
   state.rows = [];
@@ -1518,6 +1531,15 @@ function onChange(e) {
     renderAll();
   } else if (t.dataset.action === "platform") {
     state.platform = t.value || "All";
+    // The console select hides on a store that has no consoles in it; a
+    // hidden control must not keep filtering, so the choice goes with it.
+    if (state.platform !== "All" && state.platform !== "PlayStation") {
+      state.psConsole = "All";
+    }
+    state.page = 1;
+    renderAll();
+  } else if (t.dataset.action === "psconsole") {
+    state.psConsole = t.value || "All";
     state.page = 1;
     renderAll();
   } else if (t.dataset.action === "sim-target") {

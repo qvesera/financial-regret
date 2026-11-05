@@ -1133,6 +1133,16 @@ export const view = {
     filterSub.appendChild(control("Sort", sort));
     const platformSelect = this.buildPlatformSelect();
     filterSub.appendChild(control("Store", platformSelect));
+    // Console is a PlayStation-only facet (PS4 vs PS5 vs the rest), so it is
+    // built here but only *shown* once a PlayStation account is linked and the
+    // store filter can still surface those rows -- see render(). For every
+    // other library it would be a choice between nothing.
+    const consoleSelect = this.el("select", "sort console-select");
+    consoleSelect.dataset.action = "psconsole";
+    consoleSelect.setAttribute("aria-label", "Console");
+    const consoleControl = control("Console", consoleSelect);
+    consoleControl.hidden = true;          // hidden until render() proves a reason
+    filterSub.appendChild(consoleControl);
     // No currency control here: it lives in the header now, once for every
     // screen. Two pickers for one value was two things to keep in sync.
     const viewToggle = this.el("div", "view-toggle");
@@ -1264,7 +1274,9 @@ export const view = {
 
     // `kpi` is the scope renderKpis queries: it must reach #kpi-regret now
     // that the regret card has moved out of the row.
-    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, verdictList, verdictTitle, verdictDots, filterBar, search, sort, platformSelect, headerCells, pagers: [topPager, bottomPager], panel };
+    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, verdictList, verdictTitle, verdictDots, filterBar, search, sort, platformSelect, consoleSelect, headerCells,
+      pagers: [topPager, bottomPager], panel };
+
   },
 
   /** Called on every state change. Rebuilds the phase only when it changes. */
@@ -1325,7 +1337,8 @@ export const view = {
         platformList: r.platformList, verdictList: r.verdictList,
         verdictTitle: r.verdictTitle, verdictDots: r.verdictDots,
         filterBar: r.filterBar, search: r.search, sort: r.sort,
-        platformSelect: r.platformSelect, headerCells: r.headerCells,
+        platformSelect: r.platformSelect, consoleSelect: r.consoleSelect,
+        headerCells: r.headerCells,
         pagers: r.pagers, panel: r.panel,
       });
       this.phaseEl.appendChild(r.wrap);
@@ -1442,6 +1455,36 @@ export const view = {
         this.platformSelect.dataset.sig = sig;
       }
       this.platformSelect.value = state.platform || "All";
+    }
+    if (this.consoleSelect) {
+      const psRows = (state.games || []).filter((x) => x.platform === "PlayStation");
+      const known = [...new Set(psRows.map((x) => x.console).filter(Boolean))].sort();
+      const unknown = psRows.some((x) => !x.console);
+      // Shown only when PlayStation is linked -- PS4 vs PS5 is a distinction
+      // Sony's scan can make and nothing else in the library has -- and only
+      // while the store filter can still reach those rows.
+      const show = Boolean((state.accounts || {}).psn)
+        && known.length > 0
+        && (state.platform === "All" || state.platform === "PlayStation");
+      const holder = this.consoleSelect.parentElement;
+      if (holder) holder.hidden = !show;
+      this.consoleSelect.hidden = !show;
+      if (show) {
+        const values = [...known, ...(unknown ? ["Other"] : [])];
+        const sig = values.join(" ");
+        if (this.consoleSelect.dataset.sig !== sig) {
+          this.consoleSelect.textContent = "";
+          for (const value of ["All", ...values]) {
+            const label = value === "All" ? "All consoles"
+              : value === "Other" ? "Other PS" : value;
+            const opt = this.el("option", null, label);
+            opt.value = value;
+            this.consoleSelect.appendChild(opt);
+          }
+          this.consoleSelect.dataset.sig = sig;
+        }
+        this.consoleSelect.value = state.psConsole || "All";
+      }
     }
 
     this.updateTierFacets(state);

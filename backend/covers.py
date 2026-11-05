@@ -225,6 +225,15 @@ def _psn_portrait(payload):
             if (isinstance(m, dict) and m.get("role") == PORTRAIT_ROLE
                     and m.get("url")):
                 return str(m["url"]), _console_of(product)
+    # No portrait -- older catalogue entries were never given one -- but the
+    # console is still stated on the products, and it decides which band the
+    # card wears when SteamGridDB's art stands in for Sony's. Returning it
+    # without art is what keeps a band-less fallback title dressed like the
+    # rest of the library instead of silently dropping the console on the floor.
+    for product in nodes:
+        console = _console_of(product)
+        if console:
+            return None, console
     return None, None
 
 
@@ -254,7 +263,10 @@ def _psn_art(concept_id, locale: str):
         url, console = _psn_portrait(resp.json())
     except (requests.RequestException, ValueError):
         return _PSN_FAIL
-    _cache_set(cache_key, (url, console) if url else _MISS,
+    # Cached either way as a pair: "no portrait, but PS4" is a real answer the
+    # next scroll must not lose, and it is still a clean miss -- unlike
+    # _PSN_FAIL, which spends nothing so a blip cannot buy a day of placeholders.
+    _cache_set(cache_key, (url, console),
                CACHE_TTL if url else NEGATIVE_TTL)
     return url, console
 
@@ -281,8 +293,10 @@ def resolve_cover(title, appid, concept_id, locale, key):
             url, console = art
     # The keyless leg answered -- or there was none to give -- before any of
     # this runs, so SteamGridDB only ever spends on what Sony could not serve.
-    # Its uploads are usually the retail cover already -- band and all -- so
-    # they wear no band of ours: console stays None for that half.
+    # When Sony named a console but carried no portrait, the console survives
+    # this fallback on purpose: the art changes hands, the band it wears does
+    # not. Steam games never pass through the concept leg, so they keep
+    # console=None and wear no band at all.
     if not url and key:
         if appid and str(appid).isdigit():
             url = _first_grid_url(_sgdb(f"/grids/steam/{appid}", key, GRID_PARAMS))

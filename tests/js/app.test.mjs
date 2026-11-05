@@ -310,7 +310,7 @@ const psnCoverSeed = (e) => {
     } };
     if (url.includes("/api/psn_games")) return { json: { games: [
       { id: "PSN:200520", name: "Bloodborne", platform: "PlayStation",
-        hours: 5, titleId: "CUSA00207", conceptId: "200520" },
+        hours: 5, titleId: "CUSA00207", console: "PS4", conceptId: "200520" },
     ] } };
     if (url.includes("/api/psn_prices")) return { json: {
       prices: { "PSN:200520": 1999 }, highs: {}, lows: {}, currency: "INR",
@@ -1031,6 +1031,50 @@ test("platform filter narrows the table to the chosen platform", async () => {
   sel.dispatch("change");
   await settle();
   assert.equal(mod.getState().rows.length, 3, "back to everything");
+});
+
+test("the console filter shows for a linked PlayStation library and filters", async () => {
+  // PS4 vs PS5 is a distinction Sony's scan can make (PPSA/CUSA title ids)
+  // and it only means anything for a linked PlayStation account -- so the
+  // control is gated on the link and narrows to PS rows once chosen.
+  const { env, mod } = await boot({ seed: psnCoverSeed });
+  await settle();
+
+  const sel = env.root.querySelector(".console-select");
+  assert.ok(sel, "the control is built with the rest of the filter bar");
+  assert.ok(!sel.parentElement.hidden,
+    "shown: PlayStation is linked and the scan named a console");
+  assert.equal(mod.getState().psConsole, "All", "starts on every console");
+
+  sel.value = "PS5";
+  sel.dispatch("change");
+  await settle();
+  assert.equal(mod.getState().psConsole, "PS5", "the choice is recorded");
+  assert.equal(mod.getState().rows.length, 0,
+    "no PS5 titles in a PS4-only library");
+
+  sel.value = "PS4";
+  sel.dispatch("change");
+  await settle();
+  assert.equal(mod.getState().rows.length, 1, "the PS4 title remains");
+  assert.equal(mod.getState().rows[0].name, "Bloodborne");
+
+  sel.value = "All";
+  sel.dispatch("change");
+  await settle();
+  assert.equal(mod.getState().rows.length, 1, "back to every console");
+});
+
+test("the console filter stays hidden for a library with no PlayStation", async () => {
+  // For a Steam-only library the control would be a choice between nothing,
+  // so it never appears rather than sitting there dead.
+  const { env } = await boot({ seed: withSteam });
+  await settle();
+
+  const sel = env.root.querySelector(".console-select");
+  assert.ok(sel, "built once, like every other select");
+  assert.ok(sel.parentElement.hidden,
+    "hidden: no PlayStation link, so there is no console to choose");
 });
 
 test("view toggle switches between list and grid and persists", async () => {

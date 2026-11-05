@@ -1169,6 +1169,12 @@ class TestCovers(unittest.TestCase):
             self.assertEqual(events[0], "sony", "Sony is asked first")
             self.assertTrue(any("/search/" in e for e in events[1:]),
                             "SteamGridDB only after Sony came up empty")
+            # The art changed hands, the band it wears did not: Sony carried no
+            # portrait for this (older) concept but did state PS4, so the card
+            # is still dressed like the rest of the library instead of dropping
+            # the console on the floor.
+            self.assertEqual(payload["psPlatforms"], {"PSN:200520": "PS4"},
+                             "the console survives the fallback")
 
     def test_sony_upstream_failure_falls_back_and_never_caches(self):
         """A store that refuses or times out is not a miss: the backup still
