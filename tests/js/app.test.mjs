@@ -1391,6 +1391,27 @@ test("the Plus what-if previews an alternative without touching the headline", a
   assert.equal(JSON.parse(env.localStorage.getItem("ui_state")).simPlus, true);
 });
 
+test("the PlayStation figures only show when PlayStation is linked", async () => {
+  // Both are facts about a PlayStation account. With no link there is no
+  // library for them to describe and no input to fill either, so they stay
+  // out of the row instead of sitting there as two dashes.
+  const kpiCard = (env, id) => env.document.getElementById(id).parentElement;
+
+  const { env: linked } = await boot({ seed: psnCoverSeed });
+  await settle();
+  assert.equal(kpiCard(linked, "kpi-plus").hidden, false,
+    "linked: the coverage figure is shown");
+  assert.equal(kpiCard(linked, "kpi-paid").hidden, false,
+    "linked: the figure it can ask for is shown");
+
+  const { env: solo } = await boot({ seed: withSteam });
+  await settle();
+  assert.equal(kpiCard(solo, "kpi-plus").hidden, true,
+    "no PlayStation link: nothing to say about Plus coverage");
+  assert.equal(kpiCard(solo, "kpi-paid").hidden, true,
+    "no PlayStation link: nowhere to record it either");
+});
+
 test("the console filter stays hidden for a library with no PlayStation", async () => {
   // For a Steam-only library the control would be a choice between nothing,
   // so it never appears rather than sitting there dead.
