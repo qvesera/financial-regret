@@ -41,6 +41,7 @@ forcing a second, fuzzy lookup by title text.
 import os
 import re
 import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
@@ -215,6 +216,38 @@ def fetch_titles(access_token: str, account_id: str) -> tuple:
     return titles, total, status
 
 
+def _first_played(titles: list) -> str | None:
+    """Earliest ISO-8601 ``firstPlayedDateTime`` across the titles, or None.
+
+    The only account-inception signal this endpoint carries: Sony publishes no
+    account-creation date a reader token can see, so "since this account began"
+    has to mean "since it was first seen playing anything".
+
+    Two honest limits, both stated on the card that uses it. The gamelist lists
+    PS4/PS5/PC titles only, so a PS3-era account's first date lands years late
+    and every estimate built on it understates. And a date is read, never
+    guessed: entries without a parseable stamp are skipped, because an invented
+    inception would be read as fact by every figure below it.
+    """
+    best = None
+    for title in titles:
+        if not isinstance(title, dict):
+            continue
+        raw = title.get("firstPlayedDateTime")
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        text = raw.strip()
+        try:
+            stamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)   # no offset: read as UTC
+        if best is None or stamp < best[0]:
+            best = (stamp, text)
+    return best[1] if best else None
+
+
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         handle_options(self)
@@ -285,7 +318,15 @@ class handler(BaseHTTPRequestHandler):
             }
             for t in titles
         ]
-        body = {"games": games}
+        body = {
+            "games": games,
+            # The earliest date this account is seen to have played anything:
+            # what "since this account began" has to mean here, because Sony
+            # publishes no account-creation date a reader token can see. It
+            # rides the scan rather than costing a second request, and it is
+            # what the KPI's "at most" estimate counts months from.
+            "firstPlayed": _first_played(titles),
+        }
         if not games:
             # 200 with nothing behind it: played nothing, or the profile hides
             # "Who can see your gaming history". The UI names both.

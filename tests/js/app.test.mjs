@@ -327,6 +327,32 @@ const psnCoverSeed = (e) => {
   });
 };
 
+// A PlayStation library carrying both facts the "at most" estimate needs: the
+// account's first played date, and today's Essential monthly price.
+const psnEstimateSeed = (e, { price = true } = {}) => {
+  e.localStorage.setItem("psn_online_id", "FakePlayer_91");
+  e.fetchRoutes.push((url) => {
+    if (url.includes("/api/psn_games")) return { json: {
+      games: [{ id: "PSN:200520", name: "Bloodborne", platform: "PlayStation",
+        hours: 5, titleId: "CUSA00207", console: "PS4", conceptId: "200520" }],
+      firstPlayed: "2016-07-10T09:00:00Z",
+    } };
+    if (price && url.includes("/api/ps_plus_price")) return { json: {
+      currency: "INR", region: "en-IN", price: 799, was: null, promo: false,
+      plan: { tier: "Essential", months: 1 },
+      label: "PlayStation Plus Essential · 1 month", reason: null,
+    } };
+    if (url.includes("/api/psn_prices")) return { json: {
+      prices: { "PSN:200520": 1999 }, highs: {}, lows: {}, currency: "INR",
+      attribution: null, reason: null,
+    } };
+    if (url.includes("/api/steam_games") || url.includes("/api/gog_games")
+        || url.includes("/api/epic_games")) return { json: { games: [] } };
+    if (url.includes("/api/prices")) return { json: { prices: {}, highs: {}, lows: {} } };
+    return null;
+  });
+};
+
 test("covers are fetched with the instance's key when the visitor has none", async () => {
   const { env } = await boot({ seed: coverSeed(true) });
   await settle();
@@ -1410,6 +1436,57 @@ test("the PlayStation figures only show when PlayStation is linked", async () =>
     "no PlayStation link: nothing to say about Plus coverage");
   assert.equal(kpiCard(solo, "kpi-paid").hidden, true,
     "no PlayStation link: nowhere to record it either");
+});
+
+test("the PS Plus paid card prices an upper bound until their own figure exists", async () => {
+  // With no total entered the card still has something honest to show -- but
+  // only as an assumption, labelled as one: months since the account's first
+  // played title, at today's Essential monthly price.
+  const { env } = await boot({ seed: psnEstimateSeed });
+  await settle();
+
+  const value = env.document.getElementById("kpi-paid");
+  const note = env.document.getElementById("kpi-paid-note");
+  assert.ok(note, "the card carries a line for the assumption");
+  assert.ok(value.textContent.startsWith("≈"),
+    `an estimate is marked, never bare: ${value.textContent}`);
+  assert.equal(note.hidden, false, "an estimate exists, so it is explained");
+  assert.ok(note.textContent.startsWith("at most"), note.textContent);
+  assert.ok(note.textContent.includes("123 months since 2016"),
+    `whole months from the first play date: ${note.textContent}`);
+  assert.ok(note.textContent.includes("Essential · 1 month"),
+    `the plan it priced, not a bare "PS Plus": ${note.textContent}`);
+  assert.ok(note.textContent.includes("today"),
+    `a live price, dated as such: ${note.textContent}`);
+});
+
+test("the visitor's own PS Plus total always beats the estimate", async () => {
+  const { env } = await boot({
+    seed: (e) => {
+      psnEstimateSeed(e);
+      e.localStorage.setItem("ps_plus_amount", "12345");
+      e.localStorage.setItem("ps_plus_currency", "INR");
+    },
+  });
+  await settle();
+
+  const value = env.document.getElementById("kpi-paid").textContent;
+  assert.equal(value.startsWith("≈"), false,
+    `their figure is a fact, not an estimate: ${value}`);
+  assert.ok(value.includes("12,345"), value);
+  assert.equal(env.document.getElementById("kpi-paid-note").hidden, true,
+    "a fact needs no footnote");
+});
+
+test("with no price from the store the card shows a dash, not a zero", async () => {
+  // A zero would be a claim the store never made; the estimate simply is not
+  // there to show, and every other figure keeps working.
+  const { env } = await boot({ seed: (e) => psnEstimateSeed(e, { price: false }) });
+  await settle();
+
+  assert.equal(env.document.getElementById("kpi-paid").textContent, "—");
+  assert.equal(env.document.getElementById("kpi-paid-note").hidden, true,
+    "nothing to explain when nothing was estimated");
 });
 
 test("the console filter stays hidden for a library with no PlayStation", async () => {

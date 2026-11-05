@@ -121,6 +121,49 @@ class TestPsnGames(unittest.TestCase):
                      "PLAYSTATION4", "unknown"):
             self.assertIsNone(psn_games._console(junk), f"{junk!r} must stay unknown")
 
+    def test_the_earliest_play_date_rides_the_scan(self):
+        """The account's first play date is the only inception signal this
+        endpoint has, and it must be the *earliest* one: adopting the last
+        page's date would start every estimate built on it years late."""
+        page = {"titles": [
+            {"titleId": "CUSA11111", "name": "Older", "playDuration": "PT10H",
+             "firstPlayedDateTime": "2016-03-04T11:00:00Z"},
+            {"titleId": "PPSA22222", "name": "Newer", "playDuration": "PT10H",
+             "firstPlayedDateTime": "2024-01-02T11:00:00Z"},
+            {"titleId": "CUSA33333", "name": "No date at all"},
+            {"titleId": "CUSA44444", "name": "Junk date",
+             "firstPlayedDateTime": "yesterday-ish"},
+        ], "totalItemCount": 4, "nextOffset": None}
+        rq = self._rq(Resp(data=PROFILE), Resp(data=page))
+        status, body = self._run(rq)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["firstPlayed"], "2016-03-04T11:00:00Z",
+                         "the earliest, not the last one seen")
+
+    def test_no_play_date_means_none_rather_than_a_guess(self):
+        """An unparseable or absent date must stay None: an invented inception
+        would be read as fact by every figure that counts months from it."""
+        rq = self._rq(Resp(data=PROFILE), Resp(data=PAGE))
+        status, body = self._run(rq)
+
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["firstPlayed"])
+
+    def test_dates_in_different_offsets_compare_as_instants(self):
+        """2016-03-05T01:00+02:00 is 04T23:00Z -- earlier than 04T23:30Z even
+        though it sorts later as text, so the read parses rather than sorts."""
+        titles = [
+            {"firstPlayedDateTime": "2016-03-05T01:00:00+02:00"},
+            {"firstPlayedDateTime": "2016-03-04T23:30:00Z"},
+            {"firstPlayedDateTime": "2016-03-04T08:00:00"},   # no offset at all
+            {"firstPlayedDateTime": None},
+            {"firstPlayedDateTime": 12},
+            "not even a dict",
+        ]
+        self.assertEqual(psn_games._first_played(titles), "2016-03-04T08:00:00")
+        self.assertIsNone(psn_games._first_played([]))
+
     def test_a_malformed_online_id_never_reaches_sony(self):
         # %20 decodes to a space before validation, which is legal -- the
         # values below are malformed after decoding: punctuation outside the

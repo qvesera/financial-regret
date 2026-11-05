@@ -441,7 +441,28 @@ export async function fetchPsnGames() {
       + "can see your gaming history” is set to No one (PS5: Settings → Users "
       + "and Accounts → Privacy → Gaming | Media): set it to Anyone and scan again.");
   }
-  return data.games || [];
+  // The rows plus the account's earliest play date, which is what the KPI's
+  // "at most" estimate counts months from.
+  return {
+    games: data.games || [],
+    firstPlayed: data.firstPlayed || null,
+  };
+}
+
+/**
+ * The store's own price for PlayStation Plus Essential, one month, in the
+ * display currency.
+ *
+ * Prices only -- no receipts, no billing history, and no annual figure exists
+ * to read (the 3- and 12-month plans have no concept page, so the store will
+ * not price them). Returns null rather than throwing: a missing price leaves
+ * the estimate off the card, it never fails a scan.
+ */
+export async function fetchPlusPrice(currency = "INR") {
+  const resp = await fetch(
+    apiUrl(`/api/ps_plus_price?currency=${encodeURIComponent(currency)}`));
+  if (!resp.ok) return null;
+  return resp.json().catch(() => null);
 }
 
 /**

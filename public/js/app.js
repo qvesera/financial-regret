@@ -209,6 +209,17 @@ let state = {
   // what-if card and nothing else.
   simPlus: Boolean(savedUi.simPlus),
   scanSteps: null,
+  // PlayStation's account-inception signal: the earliest date anything on the
+  // profile was played, which is what "since this account began" has to mean
+  // here (Sony publishes no account-creation date a reader can see). Rides the
+  // scan and survives a reload through the snapshot; the price below does not,
+  // because it is live and re-asked per session instead.
+  firstPlayed: null,
+  // The store's price for PlayStation Plus Essential, one month: {price, was,
+  // promo, label, currency, region}. Re-asked on every scan and on every
+  // currency change while PlayStation is linked; null until it lands and
+  // after any failure.
+  plusPrice: null,
   // /api/config, fetched at boot: whether this instance can price anything
   // without the visitor's own keys. null until it lands, and stays null if
   // the fetch fails.
@@ -750,7 +761,14 @@ async function scan() {
     acc.gog && ["GOG", () => api.fetchGogGames()],
     acc.epic && ["Epic", () => fetchAllEpicGames()],
     acc.amazon && ["Amazon Luna", () => api.fetchAmazonGames()],
-    acc.psn && ["PlayStation", () => api.fetchPsnGames()],
+    acc.psn && ["PlayStation", async () => {
+      // The rows plus the account's earliest play date, which is the only
+      // inception signal Sony hands a reader: it rides this response rather
+      // than costing a second request.
+      const { games, firstPlayed } = await api.fetchPsnGames();
+      state.firstPlayed = firstPlayed || null;
+      return games;
+    }],
   ].filter(Boolean);
   state.scanSteps = specs.map(([label]) => ({ label, status: "pending" }));
   renderAll();
@@ -826,9 +844,15 @@ async function scan() {
       .filter((r) => r.status === "rejected")
       .map((r) => (r.reason && r.reason.message) || String(r.reason));
     state.scanError = errors.length ? errors.join(" · ") : null;
+    // The store's Plus price exists only to put an "at most" figure under one
+    // KPI, so it never blocks the scan: asked after every scan (and again when
+    // the currency changes), kept across renders, and silently absent when the
+    // store will not quote it.
+    if (acc.psn) loadPlusPrice(epoch);
     store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts,
       currency: state.currency, persona: state.steamPersona,
-      notSold: state.notSold, plusIncluded: state.plusIncluded });
+      notSold: state.notSold, plusIncluded: state.plusIncluded,
+      firstPlayed: state.firstPlayed });
   } catch (e) {
     if (epoch !== scanEpoch) return;
     state.scanError = (e && e.message) || String(e);
@@ -849,6 +873,29 @@ function scrollToPanel() {
   const p = view.panel || document.querySelector(".panel");
   if (p && typeof p.scrollIntoView === "function") p.scrollIntoView({ block: "start" });
 }
+
+/** The store's PlayStation Plus price for the current display currency.
+ *
+ *  Asked outside reprice()'s awaited path on purpose: it only feeds one KPI's
+ *  "at most" line, so a slow or refused answer must never hold up a currency
+ *  switch or a scan. Failures leave state.plusPrice untouched -- and the view
+ *  already refuses to quote a price whose currency does not match the one on
+ *  screen, so a stale answer hides itself rather than mislabeling itself.
+ *
+ *  `epoch` is the scan/reprice generation that asked: an answer that lands
+ *  after a newer one started belongs to nobody. */
+function loadPlusPrice(epoch = scanEpoch) {
+  api.fetchPlusPrice(state.currency).then((data) => {
+    if (epoch !== scanEpoch) return;
+    if (data && typeof data.price === "number") {
+      state.plusPrice = data;
+      renderAll();
+    }
+  }).catch(() => {
+    // No price: the estimate stays off the card and nothing else moves.
+  });
+}
+
 
 /** Re-price the existing library after the display currency changes. The
  *  games are unchanged — only the price map (and the currency label) is
@@ -880,8 +927,13 @@ async function reprice(nextCurrency) {
     }));
     store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts,
       currency: state.currency, persona: state.steamPersona,
-      notSold: state.notSold, plusIncluded: state.plusIncluded });
+      notSold: state.notSold, plusIncluded: state.plusIncluded,
+      firstPlayed: state.firstPlayed });
     localStorage.setItem("currency", state.currency);
+    // The Plus price is quoted in the previous currency, and the view hides
+    // any price whose currency does not match the one on screen -- so ask for
+    // the new one here rather than leaving the estimate missing until a rescan.
+    if ((linkedAccounts() || {}).psn) loadPlusPrice(epoch);
   } catch {
     state.currency = prev;   // keep prior prices labelled correctly
   }
@@ -1741,6 +1793,9 @@ export async function boot() {
     state.prices = snap.prices || {};
     state.notSold = snap.notSold || {};
     state.plusIncluded = snap.plusIncluded || {};
+    // The account's earliest play date rides the snapshot so the estimate
+    // survives a reload; the Plus price does not -- it is re-asked per session.
+    state.firstPlayed = snap.firstPlayed || null;
     state.steamPersona = snap.persona || null;
   }
   // A shared card link (#card=…) renders the snapshot it carries, before the
