@@ -219,7 +219,7 @@ class TestRequestAll(unittest.TestCase):
     def test_failure_is_reported_not_swallowed(self):
         rq = self._rq()
         rq.post.side_effect = rq.RequestException("boom")
-        fields, failed, limited = self._request(rq)
+        fields, _not_sold, _plus, failed, limited = self._request(rq)
         self.assertEqual(fields, {})
         self.assertTrue(failed)
         self.assertFalse(limited, "a dead upstream is not a spent burst")
@@ -227,7 +227,7 @@ class TestRequestAll(unittest.TestCase):
     def test_a_clean_answer_is_not_a_failure(self):
         rq = self._rq()
         rq.post.side_effect = lambda *a, **k: _Resp(_priced())
-        fields, failed, limited = self._request(rq)
+        fields, _not_sold, _plus, failed, limited = self._request(rq)
         self.assertEqual(fields["10026204"], (4999.0, 5999.0, None))
         self.assertFalse(failed)
         self.assertFalse(limited)
@@ -235,7 +235,7 @@ class TestRequestAll(unittest.TestCase):
     def test_a_refusal_is_reported_on_its_own(self):
         rq = self._rq()
         rq.post.side_effect = lambda *a, **k: _Resp({}, status=429)
-        fields, failed, limited = self._request(rq)
+        fields, _not_sold, _plus, failed, limited = self._request(rq)
         self.assertEqual(fields, {})
         self.assertFalse(failed, "a refusal is not a dead upstream")
         self.assertTrue(limited)

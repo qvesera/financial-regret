@@ -159,6 +159,11 @@ let state = {
   // PlayStation console facet: "All" | "PS5" | "PS4" | "Other PS". Only ever
   // applied when a PlayStation account is linked -- see computeRows.
   psConsole: "All",
+  // Catalogue facts from the last price pass: the store stopped selling it,
+  // or it is in the Plus catalogue today. They ride with the prices because
+  // both are facts about the same answer, and both survive a reload.
+  notSold: {},
+  plusIncluded: {},
   tier: "All",
   verdictSlide: "games",
   viewMode: "list",
@@ -761,6 +766,8 @@ async function scan() {
       // re-fetch, and refreshed here — wherever raw prices land — never by
       // applyEdits, which would otherwise latch onto its own output.
       apiPrice: state.prices[g.id] ?? null,
+      notSold: Boolean(state.notSold[g.id]),
+      plusIncluded: Boolean(state.plusIncluded[g.id]),
       high: highs[g.id] ?? null,
       low: lows[g.id] ?? null,
     }));
@@ -780,6 +787,8 @@ async function scan() {
       const priced = await api.fetchPrices(chunk, state.currency);
       if (epoch !== scanEpoch) return;   // …and the pricing fetch outlived it too
       state.prices = { ...state.prices, ...priced.prices };
+      state.notSold = { ...state.notSold, ...(priced.notSold || {}) };
+      state.plusIncluded = { ...state.plusIncluded, ...(priced.plusIncluded || {}) };
       highs = { ...highs, ...(priced.highs || {}) };
       lows = { ...lows, ...(priced.lows || {}) };
       if (priced.currency) state.currency = priced.currency;
@@ -814,7 +823,9 @@ async function scan() {
       .filter((r) => r.status === "rejected")
       .map((r) => (r.reason && r.reason.message) || String(r.reason));
     state.scanError = errors.length ? errors.join(" · ") : null;
-    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency, persona: state.steamPersona });
+    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts,
+      currency: state.currency, persona: state.steamPersona,
+      notSold: state.notSold, plusIncluded: state.plusIncluded });
   } catch (e) {
     if (epoch !== scanEpoch) return;
     state.scanError = (e && e.message) || String(e);
@@ -850,6 +861,8 @@ async function reprice(nextCurrency) {
     const priced = await api.fetchPrices(state.games, state.currency);
     if (epoch !== scanEpoch) return;
     state.prices = priced.prices;
+    state.notSold = priced.notSold || {};
+    state.plusIncluded = priced.plusIncluded || {};
     if (priced.currency) state.currency = priced.currency;
     applyPricingNotes(priced);
     const highs = priced.highs || {}, lows = priced.lows || {};
@@ -857,10 +870,14 @@ async function reprice(nextCurrency) {
       ...g,
       price: state.prices[g.id] ?? null,
       apiPrice: state.prices[g.id] ?? null,   // see bake(): the raw copy Reset restores
+      notSold: Boolean(state.notSold[g.id]),
+      plusIncluded: Boolean(state.plusIncluded[g.id]),
       high: highs[g.id] ?? null,
       low: lows[g.id] ?? null,
     }));
-    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts, currency: state.currency, persona: state.steamPersona });
+    store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts,
+      currency: state.currency, persona: state.steamPersona,
+      notSold: state.notSold, plusIncluded: state.plusIncluded });
     localStorage.setItem("currency", state.currency);
   } catch {
     state.currency = prev;   // keep prior prices labelled correctly
@@ -1040,6 +1057,8 @@ function unlinkPlatform(platform, displayName) {
     state.dupes = new Map();
     state.rows = [];
     state.prices = {};
+    state.notSold = {};
+    state.plusIncluded = {};
     state.metrics = null;
     state.counts = {};
     state.epicScanned = 0;
@@ -1375,6 +1394,8 @@ function forget() {
   state.dupes = new Map();
   state.rows = [];
   state.prices = {};
+  state.notSold = {};
+  state.plusIncluded = {};
   state.counts = {};
   state.epicScanned = 0;
   state.epicFiltered = 0;
@@ -1693,6 +1714,8 @@ export async function boot() {
     // restored session must find its cross-store copies again.
     state.dupes = findDuplicates(state.games);
     state.prices = snap.prices || {};
+    state.notSold = snap.notSold || {};
+    state.plusIncluded = snap.plusIncluded || {};
     state.steamPersona = snap.persona || null;
   }
   // A shared card link (#card=…) renders the snapshot it carries, before the

@@ -1579,7 +1579,7 @@ td.cell-platform { white-space: nowrap; }
 
 /* Add-on marker. Deliberately muted and separate from the verdict badges —
    "DLC" is a kind of thing, not a grade, so it never borrows a tier colour. */
-.dlc-chip, .dupe-chip, .edited-chip {
+.dlc-chip, .dupe-chip, .edited-chip, .ps-plus-chip {
   display: inline-block;
   margin-left: var(--space-2);
   padding: 0 var(--space-1);

@@ -93,6 +93,8 @@ function tierNote(tier, lens) {
     if (tier === "fair") return "More than a quarter of a typical game played — in line with how you usually finish.";
     if (tier === "regret") return "Less of it consumed than your library's first quartile — a length you barely touched.";
   }
+  if (tier === "notsold") return "The store no longer sells it, so there is no price to read — and there never will be.";
+  if (tier === "app") return "Not a store title at all — a streaming app in your library, so no price exists to miss.";
   if (tier === "worth") return "Cheaper per hour than your library's first quartile.";
   if (tier === "fair") return "In line with what you usually pay per hour.";
   if (tier === "regret") return "Above your library's median cost per hour.";
@@ -100,6 +102,19 @@ function tierNote(tier, lens) {
   if (tier === "free") return "Cost nothing — no spend to weigh, so no bargain and no regret.";
   if (tier === "unknown") return "Not enough priced games yet to place this one.";
   return "No price recorded, so there is nothing to judge.";
+}
+
+/** What the price line says when there is no price. Three different facts
+ *  used to wear the same dash, and only one of them is a failure: the store
+ *  stopped selling it, it was never a store title, or we simply could not
+ *  find out. A Plus catalogue title says so even when it is unpriced --
+ *  "included" is the answer a subscriber is actually reading for. */
+function priceText(game, price, currency) {
+  if (typeof price === "number") return money(price, currency);
+  if (game && game.notSold) return "Not sold";
+  if (game && game.conceptId == null && game.platform === "PlayStation") return "App";
+  if (game && game.plusIncluded) return "PS Plus";
+  return "—";
 }
 
 /** What the keys card says, read from what /api/config reported. Pure, so
@@ -1167,7 +1182,8 @@ export const view = {
     const facetRow = this.el("div", "facet-row");
     facetRow.appendChild(this.el("span", "facet-label", "Verdict"));
     const tierFacets = this.el("div", "tier-facets");
-    for (const t of ["All", "regret", "untouched", "fair", "worth", "free", "nodata", "unknown"]) {
+    for (const t of ["All", "regret", "untouched", "fair", "worth", "free",
+      "notsold", "app", "nodata", "unknown"]) {
       const b = this.el("button", "tier-facet");
       b.type = "button";
       b.dataset.action = "tier";
@@ -2267,6 +2283,9 @@ export const view = {
       // And for a figure of the visitor's own: the card shows the number, so it
       // has to show whose number it is.
       if (game.edited) titleRow.appendChild(this.el("span", "edited-chip", "Edited"));
+      // A Plus catalogue title says so even when it is priced: "you already
+      // have this" is the line a subscriber is scanning for.
+      if (game.plusIncluded) titleRow.appendChild(this.el("span", "ps-plus-chip", "PS Plus"));
       meta.appendChild(titleRow);
       // The band reads today's price against its own history, so it sits
       // directly under the name — above the row it explains.
@@ -2276,7 +2295,7 @@ export const view = {
       // provenance after.
       const sub = this.el("p", "card-sub");
       sub.appendChild(this.el("span", "card-price",
-        typeof price === "number" ? money(price, this.currency) : "—"));
+        priceText(game, price, this.currency)));
       const store = this.el("span", "card-store");
       const cmark = brandIcon(game.platform, 12);
       if (cmark) { cmark.classList.add("card-mark"); store.appendChild(cmark); }
@@ -2349,7 +2368,9 @@ export const view = {
     head.appendChild(art);
 
     const titles = this.el("div", "drawer-titles");
-    titles.appendChild(this.el("h3", "drawer-game-title", game.name));
+    const drawerTitle = this.el("h3", "drawer-game-title", game.name);
+    if (game.plusIncluded) drawerTitle.appendChild(this.el("span", "ps-plus-chip", "PS Plus"));
+    titles.appendChild(drawerTitle);
     titles.appendChild(this.el("p", "muted", game.platform));
     head.appendChild(titles);
     drawerBody.appendChild(head);
@@ -2363,7 +2384,7 @@ export const view = {
 
     const priceRow = this.el("div", "drawer-row");
     priceRow.appendChild(this.el("span", null, "Current price"));
-    priceRow.appendChild(this.el("strong", null, typeof price === "number" ? money(price, cur) : "—"));
+    priceRow.appendChild(this.el("strong", null, priceText(game, price, cur)));
     drawerBody.appendChild(priceRow);
 
     const hoursRow = this.el("div", "drawer-row");

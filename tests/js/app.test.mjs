@@ -1123,7 +1123,7 @@ test("the store's silence about a console is remembered, not re-asked", async ()
 
 // One PlayStation row, one covers answer: the seed for every question about
 // which console a card should wear.
-const bandSeed = (game, covers, platforms = {}) => (e) => {
+const bandSeed = (game, covers, platforms = {}, priceExtra = {}) => (e) => {
   e.localStorage.setItem("psn_online_id", "FakePlayer_91");
   e.fetchRoutes.push((url) => {
     if (url.includes("/api/config")) return { json: {
@@ -1132,7 +1132,7 @@ const bandSeed = (game, covers, platforms = {}) => (e) => {
     if (url.includes("/api/psn_games")) return { json: { games: [game] } };
     if (url.includes("/api/psn_prices")) return { json: {
       prices: {}, highs: {}, lows: {}, currency: "INR", attribution: null,
-      reason: null,
+      reason: null, ...priceExtra,
     } };
     if (url.includes("/api/steam_games") || url.includes("/api/gog_games")
         || url.includes("/api/epic_games")) return { json: { games: [] } };
@@ -1140,6 +1140,12 @@ const bandSeed = (game, covers, platforms = {}) => (e) => {
     if (url.includes("/api/covers")) return { json: { covers, psPlatforms: platforms } };
     return null;
   });
+};
+
+const drawerPrice = (env) => {
+  const row = env.document.querySelectorAll(".drawer-row")
+    .find((r) => r.textContent.includes("Current price"));
+  return row ? row.querySelector("strong") : null;
 };
 
 const bandClasses = (env) => {
@@ -1218,6 +1224,69 @@ test("a snapshot from before consoles existed still lights both up", async () =>
   assert.ok(b.ps4, "the console was read off the title id");
   assert.ok(!env.root.querySelector(".console-select").parentElement.hidden,
     "and the console filter shows without a rescan");
+});
+
+test("a delisted row says Not sold and an app row says App", async () => {
+  // The two facts a price cannot carry: the store stopped selling it, and it
+  // was never a store title. Both used to wear the same dash as a fetch that
+  // simply failed, which is the confusion this replaces.
+  const delisted = bandSeed(
+    { id: "PSN:CUSA08809_00", name: "JUMP FORCE", platform: "PlayStation",
+      hours: 5, titleId: "CUSA08809_00", console: "PS4", conceptId: 10011645 },
+    { "PSN:CUSA08809_00": "https://img.example/jf.png" }, {},
+    { prices: { "PSN:CUSA08809_00": null },
+      notSold: { "PSN:CUSA08809_00": true } });
+  const { env, mod } = await boot({ seed: delisted });
+  await settle();
+  await openTitle(env, "JUMP FORCE");
+  await new Promise((r) => setTimeout(r, 400));
+
+  const pl = drawerPrice(env);
+  assert.ok(pl, "the drawer names the price row");
+  assert.equal(pl.textContent, "Not sold",
+    "the card says what is true instead of implying a failed fetch");
+  assert.equal(mod.getState().verdicts.get("PSN:CUSA08809_00"), "notsold",
+    "the verdict map agrees with the label");
+  const facet = env.root.querySelectorAll(".tier-facet")
+    .find((b) => b.dataset.tier === "notsold");
+  assert.ok(facet, "the verdict row has a Not sold facet");
+  assert.equal(facet.querySelector(".tier-count").textContent, "1");
+});
+
+test("an app row says App, and only on PlayStation", async () => {
+  const seed = bandSeed(
+    { id: "PSN:CUSA08526_00", name: "Spotify", platform: "PlayStation",
+      hours: 12, titleId: "CUSA08526_00", console: "PS4", conceptId: null },
+    { "PSN:CUSA08526_00": "https://img.example/spotify.png" }, {},
+    { prices: { "PSN:CUSA08526_00": null } });
+  const { env } = await boot({ seed });
+  await settle();
+  await openTitle(env, "Spotify");
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(drawerPrice(env).textContent, "App");
+});
+
+test("a priced Plus title wears the chip and keeps its price", async () => {
+  // Plus is a chip, not a verdict: the store still sells this title, so its
+  // real judgment stands and only the catalogue fact is added.
+  const seed = bandSeed(
+    { id: "PSN:PPSA20622_00", name: "ASTRO BOT", platform: "PlayStation",
+      hours: 5, titleId: "PPSA20622_00", console: "PS5", conceptId: 10026204 },
+    { "PSN:PPSA20622_00": "https://img.example/astro.png" }, {},
+    { prices: { "PSN:PPSA20622_00": 4999 },
+      plusIncluded: { "PSN:PPSA20622_00": true } });
+  const { env, mod } = await boot({ seed });
+  await settle();
+  await openTitle(env, "ASTRO BOT");
+  await new Promise((r) => setTimeout(r, 400));
+
+  const card = drawerPrice(env);
+  assert.ok(card.textContent.includes("4,999"),
+    "the price is still the price: Plus never zeroes it");
+  assert.ok(env.document.querySelector(".ps-plus-chip"),
+    "and the card says it is in the Plus catalogue");
+  assert.notEqual(mod.getState().verdicts.get("PSN:PPSA20622_00"), "notsold",
+    "a priced title keeps its real verdict");
 });
 
 test("the console filter stays hidden for a library with no PlayStation", async () => {

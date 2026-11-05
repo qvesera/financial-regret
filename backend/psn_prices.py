@@ -106,7 +106,8 @@ ZERO_DECIMAL_CURRENCIES = {"INR", "JPY", "KRW"}
 
 # {locale:conceptId: ({price, high, low} | _MISS, expiry)}
 _price_cache: dict[str, tuple] = {}
-_MISS = object()          # cached marker: the store has no purchasable offer here
+_MISS = object()          # cached marker: no purchase button for this concept
+_NOT_SOLD = object()      # cached marker: nothing left to sell (delisted)
 
 
 def _now() -> float:
@@ -213,6 +214,46 @@ def _price_fields(payload: dict, currency: str) -> tuple:
     return (price, high, None)
 
 
+def _still_listed(payload: dict) -> bool:
+    """Does the store still sell anything from this concept?
+
+    A delisted title answers with an empty product list AND no default product
+    -- the shape verified against FC 24 and CoD: MW III, in every locale
+    sampled. A concept that resolves to nothing at all is the same answer from
+    the visitor's side: there is no store listing to price.
+    """
+    concept = (payload.get("data") or {}).get("conceptRetrieve")
+    if not isinstance(concept, dict):
+        return False
+    if concept.get("defaultProduct"):
+        return True
+    sel = concept.get("selectableProducts")
+    products = (sel.get("purchasableProducts") or []) if isinstance(sel, dict) else (sel or [])
+    return any(isinstance(p, dict) for p in products)
+
+
+def _plus_cta(payload: dict) -> bool:
+    """Is this concept offered through PlayStation Plus today?
+
+    The Plus button is unmistakable: ``upSellService`` is exactly "PS_PLUS",
+    discounted to zero and reported as "Included". Any other non-NONE value is
+    a trial or a preorder, which are not the catalogue -- and the purchase
+    button itself is "NONE", so a game you can simply buy never counts here.
+    """
+    try:
+        product = payload["data"]["conceptRetrieve"]["defaultProduct"]
+    except (KeyError, TypeError):
+        return False
+    if not isinstance(product, dict):
+        return False
+    for cta in product.get("mobilectas") or []:
+        if not isinstance(cta, dict):
+            continue
+        if (cta.get("meta") or {}).get("upSellService") == "PS_PLUS":
+            return True
+    return False
+
+
 def _concept_payload(concept_id) -> dict:
     """The POST body for one concept. The id rides in variables, not the URL."""
     return {
@@ -238,13 +279,18 @@ class _Fetch:
     """Pricing one concept: a price, a miss, or one kind of failure."""
 
     OK = "ok"
-    NO_PRICE = "no_price"      # answered, but carries no purchasable offer
+    NO_PRICE = "no_price"      # answered with products, but no purchase button
+    NOT_SOLD = "not_sold"      # answered with nothing left to sell (delisted)
     FAILED = "failed"          # network / 5xx / rotated hash / unparsable
     LIMITED = "limited"        # 429
 
-    def __init__(self, status, fields=None):
+    def __init__(self, status, fields=None, plus=False):
         self.status = status
         self.fields = fields or (None, None, None)
+        # In the PlayStation Plus catalogue as the store answered today. Kept
+        # beside the price rather than folded into it: a Plus title is usually
+        # still purchasable, so the two facts travel independently.
+        self.plus = plus
 
 
 def _fetch_concept(args):
@@ -271,14 +317,21 @@ def _fetch_concept(args):
     # and no data -- which is why "did it answer" is checked by shape, not code.
     if not isinstance(payload, dict) or not payload.get("data"):
         return _Fetch(_Fetch.FAILED)
+    plus = _plus_cta(payload)
+    # The delisted shape answers before the price is even read: nothing to sell
+    # is a fact about the catalogue, and a different one from "this store has
+    # no purchase button for it", which is what free and Plus-only titles look
+    # like. Collapsing the two is what would label a free game "Not sold".
+    if not _still_listed(payload):
+        return _Fetch(_Fetch.NOT_SOLD, plus=plus)
     fields = _price_fields(payload, currency)
     if fields[0] is None:
-        return _Fetch(_Fetch.NO_PRICE)
-    return _Fetch(_Fetch.OK, fields)
+        return _Fetch(_Fetch.NO_PRICE, plus=plus)
+    return _Fetch(_Fetch.OK, fields, plus)
 
 
 def _request_all(concept_ids: list, locale: str, currency: str) -> tuple:
-    """({conceptId: (price, high, low)}, any failure, any rate limit).
+    """({conceptId: (price, high, low)}, not-sold ids, Plus ids, failed, limited).
 
     Cached per concept, so only titles not seen before cost a request.
 
@@ -289,20 +342,37 @@ def _request_all(concept_ids: list, locale: str, currency: str) -> tuple:
     Unpriced, and the response still returns with everything already priced.
     """
     fields_by_id: dict[str, tuple] = {}
+    not_sold: set[str] = set()
+    plus_ids: set[str] = set()
+
+    def _plus_cached(concept_id: str) -> bool:
+        # The Plus flag rides its own cache entry: the price entry is either a
+        # 3-tuple or one of two markers, and none of them has room for it.
+        return _cache_get(f"plus:{locale}:{concept_id}") is True
+
     work = []
     for concept_id in concept_ids:
         cached = _cache_get(f"{locale}:{concept_id}")
+        if cached is _NOT_SOLD:
+            not_sold.add(concept_id)        # already known: nothing left to sell
+            if _plus_cached(concept_id):
+                plus_ids.add(concept_id)
+            continue
         if cached is _MISS:
-            continue                      # already known: the store has no offer
+            if _plus_cached(concept_id):
+                plus_ids.add(concept_id)
+            continue                      # already known: no purchase button
         if cached is not None:
             fields_by_id[concept_id] = cached
+            if _plus_cached(concept_id):
+                plus_ids.add(concept_id)
             continue
         work.append(concept_id)
 
     failed = False
     limited = False
     if not work:
-        return fields_by_id, failed, limited
+        return fields_by_id, not_sold, plus_ids, failed, limited
 
     started = 0
     answered = 0
@@ -321,9 +391,17 @@ def _request_all(concept_ids: list, locale: str, currency: str) -> tuple:
                 failed = True
                 continue
             answered += 1
+            # The Plus flag is cached either way: it is about the catalogue,
+            # not about the price, so it has to survive a hit on either marker.
+            if result.plus:
+                plus_ids.add(concept_id)
+            _cache_set(f"plus:{locale}:{concept_id}", result.plus)
             if result.status == _Fetch.OK:
                 fields_by_id[concept_id] = result.fields
                 _cache_set(f"{locale}:{concept_id}", result.fields)
+            elif result.status == _Fetch.NOT_SOLD:
+                not_sold.add(concept_id)
+                _cache_set(f"{locale}:{concept_id}", _NOT_SOLD)
             elif result.status == _Fetch.NO_PRICE:
                 _cache_set(f"{locale}:{concept_id}", _MISS)
             elif result.status == _Fetch.LIMITED:
@@ -342,7 +420,7 @@ def _request_all(concept_ids: list, locale: str, currency: str) -> tuple:
         # it as a store miss would send the visitor hunting for a title problem
         # that is really "we ran out of time".
         failed = True
-    return fields_by_id, failed, limited
+    return fields_by_id, not_sold, plus_ids, failed, limited
 
 
 class handler(BaseHTTPRequestHandler):
@@ -383,6 +461,10 @@ class handler(BaseHTTPRequestHandler):
         def respond(**extra) -> None:
             body = {
                 "prices": {}, "highs": {}, "lows": {}, "resolved": {},
+                # Catalogue facts per row: the store stopped selling it, or it
+                # is in the Plus catalogue today. Both default empty so an
+                # early return (no locale, nothing to ask) keeps the shape.
+                "notSold": {}, "plusIncluded": {},
                 "currency": currency, "region": locale,
                 # Sony asks for no credit, so nothing is ever claimed. The field
                 # survives because the footer's credit line is provider-agnostic.
@@ -428,8 +510,10 @@ class handler(BaseHTTPRequestHandler):
         highs = {g["id"]: None for g in games}
         lows = {g["id"]: None for g in games}
         resolved: dict[str, str] = {}
+        notSold: dict[str, bool] = {}
+        plusIncluded: dict[str, bool] = {}
 
-        fields_by_id, failed, limited = _request_all(
+        fields_by_id, not_sold, plus_ids, failed, limited = _request_all(
             sorted(rows_by_concept, key=int), locale, currency)
 
         for concept_id, fields in fields_by_id.items():
@@ -439,6 +523,16 @@ class handler(BaseHTTPRequestHandler):
                 highs[gid] = high
                 lows[gid] = low
                 resolved[gid] = concept_id
+
+        # Two facts a price cannot carry: the store has stopped selling it, or
+        # it is offered through Plus today. Both are per concept and fan out to
+        # every row that shares one.
+        for concept_id in not_sold:
+            for gid in rows_by_concept.get(concept_id, []):
+                notSold[gid] = True
+        for concept_id in plus_ids:
+            for gid in rows_by_concept.get(concept_id, []):
+                plusIncluded[gid] = True
 
         priced = any(v is not None for v in prices.values())
         reason = None
@@ -452,6 +546,7 @@ class handler(BaseHTTPRequestHandler):
 
         respond(
             prices=prices, highs=highs, lows=lows, resolved=resolved,
+            notSold=notSold, plusIncluded=plusIncluded,
             reason=reason,
             # `limited` stays as the /api/prices shape answers it -- always empty
             # here. PlayStation spends no key, so there is no refusal that
