@@ -1254,7 +1254,7 @@ test("a snapshot from before consoles existed still lights both up", async () =>
     "and the console filter shows without a rescan");
 });
 
-test("a delisted row says Not sold and an app row says App", async () => {
+test("a delisted row says Unlisted and an app row says App", async () => {
   // The two facts a price cannot carry: the store stopped selling it, and it
   // was never a store title. Both used to wear the same dash as a fetch that
   // simply failed, which is the confusion this replaces.
@@ -1271,13 +1271,13 @@ test("a delisted row says Not sold and an app row says App", async () => {
 
   const pl = drawerPrice(env);
   assert.ok(pl, "the drawer names the price row");
-  assert.equal(pl.textContent, "Not sold",
+  assert.equal(pl.textContent, "Unlisted",
     "the card says what is true instead of implying a failed fetch");
   assert.equal(mod.getState().verdicts.get("PSN:CUSA08809_00"), "notsold",
     "the verdict map agrees with the label");
   const facet = env.root.querySelectorAll(".tier-facet")
     .find((b) => b.dataset.tier === "notsold");
-  assert.ok(facet, "the verdict row has a Not sold facet");
+  assert.ok(facet, "the verdict row has a Unlisted facet");
   assert.equal(facet.querySelector(".tier-count").textContent, "1");
 });
 
@@ -1367,54 +1367,6 @@ test("forgetting the library takes the PS Plus figure with it", async () => {
     "forgetting takes the figure with the rest");
   assert.equal(env.localStorage.getItem("ps_plus_since"), null);
   assert.equal(env.localStorage.getItem("ps_plus_currency"), null);
-});
-
-test("the Plus what-if previews an alternative without touching the headline", async () => {
-  // The whole point of putting it in What if: re-buy cost stays the "buy it
-  // all at retail" number that every verdict and benchmark is computed from,
-  // and the subscription scenario is one line the visitor asked for.
-  // Three rows, one untouched: without a populated "worst" list the regret
-  // panel — and the toggle inside it — is never built.
-  const seed = bandSeed([
-    { id: "PSN:PPSA20622_00", name: "ASTRO BOT", platform: "PlayStation",
-      hours: 5, titleId: "PPSA00142_00", console: "PS5", conceptId: 10026204 },
-    { id: "PSN:CUSA08809_00", name: "JUMP FORCE", platform: "PlayStation",
-      hours: 0, titleId: "CUSA08809_00", console: "PS4", conceptId: 10011645 },
-    { id: "PSN:CUSA12605_00", name: "DEATH STRANDING", platform: "PlayStation",
-      hours: 12, titleId: "CUSA12605_00", console: "PS4", conceptId: 234585 },
-  ], {
-    "PSN:PPSA20622_00": "https://img.example/astro.png",
-    "PSN:CUSA08809_00": "https://img.example/jf.png",
-    "PSN:CUSA12605_00": "https://img.example/ds.png",
-  }, {}, {
-    prices: { "PSN:PPSA20622_00": 4999, "PSN:CUSA08809_00": 1000,
-      "PSN:CUSA12605_00": 500 },
-    plusIncluded: { "PSN:PPSA20622_00": true },
-  });
-  const { env, mod } = await boot({ seed });
-  await settle();
-
-  const plusRow = env.document.querySelector(".sim-plus");
-  assert.ok(plusRow, "the toggle sits in the what-if card");
-  const box = plusRow.querySelector("input");
-  assert.ok(box, "the toggle is a checkbox");
-  assert.equal(env.document.getElementById("sim-plus-out").textContent, "",
-    "off by default: retail is the default basis");
-  assert.equal(mod.getState().metrics.plusCovered, 4999,
-    "the coverage figure the preview will subtract");
-
-  const headline = env.document.getElementById("hero-spend").textContent;
-  box.checked = true;
-  box.dispatch("change");
-  await settle();
-
-  const out = env.document.getElementById("sim-plus-out").textContent;
-  assert.ok(out.includes("Re-buy without those"), out);
-  assert.ok(out.includes("saved"), out);
-  assert.equal(env.document.getElementById("hero-spend").textContent, headline,
-    "the headline itself never moves — only the preview does");
-  assert.equal(mod.getState().simPlus, true, "and the choice is remembered");
-  assert.equal(JSON.parse(env.localStorage.getItem("ui_state")).simPlus, true);
 });
 
 test("the PlayStation figures only show when PlayStation is linked", async () => {
@@ -1803,6 +1755,15 @@ test("what-if slider recomputes the rate and persists the setting", async () => 
   assert.ok(range, "the what-if slider is rendered");
   assert.equal(range.getAttribute("aria-valuetext"), "10 hours");
   assert.ok(env.document.getElementById("sim-out").textContent.includes("today"));
+
+  // The subscription scenario is gone: the card is slider-only, and the
+  // retail basis stays the one basis every verdict is computed from. Kept as
+  // an assertion so the toggle cannot quietly reappear.
+  assert.equal(env.document.querySelector(".sim-plus"), null,
+    "no \"Assume I stay on PS Plus\" toggle");
+  assert.equal(env.document.getElementById("sim-plus-out"), null,
+    "and no line for a preview that no longer exists");
+  assert.equal(mod.getState().simPlus, undefined, "no state for it either");
 
   range.value = "40";
   range.dispatch("input");

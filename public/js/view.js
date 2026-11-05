@@ -129,7 +129,7 @@ function paidPlusFigure() {
 
 function priceText(game, price, currency) {
   if (typeof price === "number") return money(price, currency);
-  if (game && game.notSold) return "Not sold";
+  if (game && game.notSold) return "Unlisted";
   if (game && game.conceptId == null && game.platform === "PlayStation") return "App";
   if (game && game.plusIncluded) return "PS Plus";
   return "—";
@@ -1876,30 +1876,12 @@ export const view = {
     const out = this.el("p", "sim-out", "");
     out.id = "sim-out";
 
-    // A second scenario, kept apart from the slider: this one previews what
-    // re-buy cost would be if the subscription already covered part of the
-    // library. It changes only its own line — the headline, the verdicts and
-    // every other number keep the "buy it all at retail" basis, which is what
-    // lets PlayStation and Steam rows be compared at all.
-    const plusLabel = this.el("label", "sim-plus");
-    const plusBox = this.el("input", null);
-    plusBox.type = "checkbox";
-    plusBox.dataset.action = "sim-plus";
-    plusLabel.appendChild(plusBox);
-    plusLabel.appendChild(this.el("span", null, "Assume I stay on PS Plus"));
-    const plusOut = this.el("p", "sim-out sim-plus-out", "");
-    plusOut.id = "sim-plus-out";
-
     sim.appendChild(sel);
     sim.appendChild(range);
     sim.appendChild(out);
-    sim.appendChild(plusLabel);
-    sim.appendChild(plusOut);
     this.simSelect = sel;
     this.simRange = range;
     this.simOut = out;
-    this.simPlus = plusBox;
-    this.simPlusOut = plusOut;
     return sim;
   },
 
@@ -1909,23 +1891,6 @@ export const view = {
   updateSim(state) {
     const sel = this.simSelect;
     if (!sel || !this.simRange) return;
-    // The Plus scenario does not depend on the slider's target, so it is
-    // written before every early return below — otherwise picking a target
-    // with no game behind it would silently blank it.
-    if (this.simPlus) this.simPlus.checked = Boolean(state.simPlus);
-    if (this.simPlusOut) {
-      const covered = (state.metrics && state.metrics.plusCovered) || 0;
-      const rebuy = (state.metrics && state.metrics.libraryValue) || 0;
-      if (!state.simPlus) {
-        this.simPlusOut.textContent = "";
-      } else if (covered > 0) {
-        const after = Math.max(0, rebuy - covered);
-        this.simPlusOut.textContent =
-          `Re-buy without those: ${money(after, state.currency)} · saved ${money(covered, state.currency)}`;
-      } else {
-        this.simPlusOut.textContent = "No Plus-covered titles priced yet.";
-      }
-    }
     const targets = (state.comparators && state.comparators.worst) || [];
     const sig = targets.map((t) => t.id).join(" ");
     if (sel.dataset.sig !== sig) {
