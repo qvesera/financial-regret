@@ -47,6 +47,9 @@ export function computeRegret(games) {
   // are. Null-ish sum renders as 0 when a library simply has no DLC.
   const dlcValue = dlc.reduce((sum, g) => sum + (g.price || 0), 0);
 
+  const plusCovered = (games || []).reduce((sum, g) =>
+    sum + (g.plusIncluded && typeof g.price === "number" ? g.price : 0), 0);
+
   return {
     libraryValue,
     highestEver,
@@ -60,6 +63,12 @@ export function computeRegret(games) {
     unknownCount: unknown.length,
     dlcValue,
     dlcCount: dlc.length,
+    // Today's prices for the owned titles PlayStation Plus already includes:
+    // a snapshot of the catalogue, not of the visitor's subscription. It sits
+    // beside re-buy cost rather than inside it, because subtracting it would
+    // move every verdict in a cross-platform library for a reason no Steam
+    // game caused.
+    plusCovered,
   };
 }
 

@@ -205,6 +205,9 @@ let state = {
   comparators: { worst: [], best: [] },
   simTarget: savedUi.simTarget || null,
   simHours: Number(savedUi.simHours) || 10,
+  // A preview, never a computation: toggling this changes one line in the
+  // what-if card and nothing else.
+  simPlus: Boolean(savedUi.simPlus),
   scanSteps: null,
   // /api/config, fetched at boot: whether this instance can price anything
   // without the visitor's own keys. null until it lands, and stays null if
@@ -1445,6 +1448,23 @@ function closestAction(el) {
   return null;
 }
 
+/** Persist the visitor's own PlayStation Plus figure. A number only they know:
+ *  validated, stored with the currency it was typed in (there is no FX in the
+ *  app, so a figure in another currency is labelled rather than relabelled),
+ *  and read back by one KPI alone — nothing else is calculated from it. */
+function saveFigure() {
+  const amountEl = document.getElementById("ps-plus-amount");
+  const sinceEl = document.getElementById("ps-plus-since");
+  const amount = Number(String((amountEl && amountEl.value) || "").replace(/[^\d.]/g, ""));
+  if (Number.isFinite(amount) && amount > 0) {
+    localStorage.setItem("ps_plus_amount", String(amount));
+    localStorage.setItem("ps_plus_currency", state.currency);
+    const since = String((sinceEl && sinceEl.value) || "").trim();
+    if (/^\d{4}$/.test(since)) localStorage.setItem("ps_plus_since", since);
+  }
+  renderAll();
+}
+
 function onClick(e) {
   const t = closestAction(e.target);
   if (!t) {
@@ -1538,6 +1558,7 @@ function onClick(e) {
     // submits the field (and Enter does too), so there is no "submit-psn"
     // action to dispatch to. See view.pasteBlock(..., withButton = false).
     case "save-key": saveApiKey(t.dataset.kind); break;
+    case "save-figure": saveFigure(); break;
     case "save-edit": saveEdit(t.dataset.id, t.dataset.field); break;
     case "reset-edit": saveEdit(t.dataset.id, t.dataset.field, ""); break;
     case "show-keys":
@@ -1605,6 +1626,10 @@ function onChange(e) {
   } else if (t.dataset.action === "psconsole") {
     state.psConsole = t.value || "All";
     state.page = 1;
+    renderAll();
+  } else if (t.dataset.action === "sim-plus") {
+    state.simPlus = Boolean(t.checked);
+    saveUiState({ simPlus: state.simPlus });
     renderAll();
   } else if (t.dataset.action === "sim-target") {
     state.simTarget = t.value;

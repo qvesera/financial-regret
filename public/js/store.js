@@ -48,6 +48,9 @@ export const store = {
     localStorage.removeItem("game_edits");       // the visitor's own figures
     localStorage.removeItem("covers_cache");     // derived cover-art urls
     localStorage.removeItem("covers_platforms"); // derived console per title
+    localStorage.removeItem("ps_plus_amount");   // the visitor's own figure
+    localStorage.removeItem("ps_plus_currency");
+    localStorage.removeItem("ps_plus_since");
     this.clearSnapshot();
   },
 };

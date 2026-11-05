@@ -109,6 +109,23 @@ function tierNote(tier, lens) {
  *  stopped selling it, it was never a store title, or we simply could not
  *  find out. A Plus catalogue title says so even when it is unpriced --
  *  "included" is the answer a subscriber is actually reading for. */
+/** The visitor's own PlayStation Plus total: an amount, the currency they
+ *  typed it in (kept, so the number never changes meaning when the display
+ *  currency does) and the year it started. Nothing derives from it. */
+function paidPlusFigure() {
+  try {
+    const amount = Number(localStorage.getItem("ps_plus_amount"));
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    return {
+      amount,
+      currency: localStorage.getItem("ps_plus_currency") || "ZAR",
+      since: localStorage.getItem("ps_plus_since") || "",
+    };
+  } catch {
+    return null;
+  }
+}
+
 function priceText(game, price, currency) {
   if (typeof price === "number") return money(price, currency);
   if (game && game.notSold) return "Not sold";
@@ -157,6 +174,17 @@ const METRIC_TIPS = {
     + "touched. 'Worst buy' is your least-consumed game where a typical length "
     + "is known, otherwise the most expensive hour: highest price per hour "
     + "among games with at least an hour of play.",
+  "kpi-plus": "What your library would cost if PlayStation Plus did not cover "
+    + "it — the sum of today's prices for the owned titles the store lists as "
+    + "included. A snapshot of Sony's catalogue, not of your subscription: it "
+    + "moves when the catalogue does, and it is deliberately NOT subtracted "
+    + "from Re-buy cost, because verdicts compare PlayStation and Steam rows "
+    + "on one basis.",
+  "kpi-paid": "Your own figure: what you have actually paid for PlayStation "
+    + "Plus since the year you entered. Nothing on this dashboard is "
+    + "calculated from it — it is shown beside the library's numbers rather "
+    + "than mixed into them, because it is a sunk cost and every other figure "
+    + "here is a replacement cost.",
   "kpi-high": "The same library priced at each game's all-time high. Where "
     + "there is no price history, today's price stands in rather than leaving a gap.",
   "kpi-low": "The same library priced at each game's all-time low — the "
@@ -706,6 +734,46 @@ export const view = {
   /** One bring-your-own-API-key row: visible label + masked input + Save.
    *  The label used to live only in the placeholder, which left the input
    *  unlabelled for screen readers and vanished the moment you typed. */
+  /** The one number this app cannot read from any store: what the visitor has
+   *  paid for PlayStation Plus. Two fields and a Save, filed beside the keys
+   *  because that is where everything the visitor supplies already lives. */
+  figureField() {
+    const field = this.el("div", "figure-field");
+    const lab = this.el("label", "key-label", "PS Plus spend");
+    lab.htmlFor = "ps-plus-amount";
+    field.appendChild(lab);
+    const row = this.el("div", "key-row");
+
+    const amount = this.el("input", null);
+    amount.type = "number";
+    amount.min = "0";
+    amount.step = "1";
+    amount.id = "ps-plus-amount";
+    amount.dataset.action = "figure-input";
+    amount.placeholder = localStorage.getItem("ps_plus_amount") || "Total paid";
+    amount.setAttribute("aria-label", "Total paid for PlayStation Plus");
+
+    const since = this.el("input", null);
+    since.type = "number";
+    since.min = "1990";
+    since.max = "2100";
+    since.id = "ps-plus-since";
+    since.dataset.action = "figure-input";
+    since.placeholder = localStorage.getItem("ps_plus_since") || "Since year";
+    since.setAttribute("aria-label", "Year the spending started");
+
+    const btn = this.el("button", "button small ghost", "Save");
+    btn.dataset.action = "save-figure";
+    row.appendChild(amount);
+    row.appendChild(since);
+    row.appendChild(btn);
+    field.appendChild(row);
+    field.appendChild(this.el("p", "key-hint",
+      "Your figure — what you actually paid. It is shown beside the "
+      + "library's numbers, never added to them."));
+    return field;
+  },
+
   keyField(kind, label, hint, href) {
     const field = this.el("div", "key-field");
     const lab = this.el("label", "key-label", label);
@@ -911,9 +979,10 @@ export const view = {
     // could be read without one, which only holds while the server shares its
     // own — the hint says which world this instance is in. Only cover art is
     // genuinely optional.
-    // Three fields: prices, playtime and cover art. The card's own heading says
-    // what they are; the old KEYS/DISPLAY column split left with the currency
-    // picker, which now lives in the header on every screen.
+    // Three key fields — prices, playtime and cover art — plus one figure that
+    // is not a key at all (PS Plus spend). The card's own heading says what the
+    // keys are; the old KEYS/DISPLAY column split left with the currency picker,
+    // which now lives in the header on every screen.
     const fields = this.el("div", "api-keys-fields");
 
     fields.appendChild(this.keyField("itad", "IsThereAnyDeal API key",
@@ -930,6 +999,12 @@ export const view = {
       "https://steamgriddb.com/profile/preferences/api"));
 
     keysCard.appendChild(fields);
+    // The one figure that is not a key gets its own group: the grid above keeps
+    // the contract its heading — and its tests — promise: three key fields,
+    // each saying where its key is issued.
+    const figures = this.el("div", "figure-group");
+    figures.appendChild(this.figureField());
+    keysCard.appendChild(figures);
     // Live refs: /api/config arrives after this build and repaints in place.
     // A rebuild instead would discard whatever the visitor is halfway through
     // typing into the paste fields on this page.
@@ -1022,6 +1097,8 @@ export const view = {
       ["kpi-vph", "₹ / hour", "played games only"],
       ["kpi-hours", "Total hours", "on record"],
       ["kpi-dlc", "Add-on value", "DLC, not counted above"],
+      ["kpi-plus", "Plus-covered value", "playable on PS Plus today"],
+      ["kpi-paid", "PS Plus paid", "your figure"],
     ].forEach(([id, label, sub]) => {
       const card = this.el("article", "kpi-card");
       const lab = this.el("p", "kpi-label",
@@ -1029,6 +1106,11 @@ export const view = {
       lab.id = `${id}-label`;
       card.appendChild(lab);
       const subEl = this.el("p", "kpi-sub", sub);
+      subEl.id = `${id}-sub`;
+      // The "since" year lives in its own span: rewriting the sub with
+      // textContent would take the explanation chip with it — the exact bug
+      // the ₹/hour label's note in this file already warns about.
+      if (id === "kpi-paid") subEl.appendChild(this.el("span", "since-year", ""));
       // The chip rides on the sub-line rather than inside the label, because
       // updateKpis rewrites the ₹/hour label with textContent — which destroys
       // every child node. A chip inside the label would vanish after the first
@@ -1771,12 +1853,30 @@ export const view = {
     const out = this.el("p", "sim-out", "");
     out.id = "sim-out";
 
+    // A second scenario, kept apart from the slider: this one previews what
+    // re-buy cost would be if the subscription already covered part of the
+    // library. It changes only its own line — the headline, the verdicts and
+    // every other number keep the "buy it all at retail" basis, which is what
+    // lets PlayStation and Steam rows be compared at all.
+    const plusLabel = this.el("label", "sim-plus");
+    const plusBox = this.el("input", null);
+    plusBox.type = "checkbox";
+    plusBox.dataset.action = "sim-plus";
+    plusLabel.appendChild(plusBox);
+    plusLabel.appendChild(this.el("span", null, "Assume I stay on PS Plus"));
+    const plusOut = this.el("p", "sim-out sim-plus-out", "");
+    plusOut.id = "sim-plus-out";
+
     sim.appendChild(sel);
     sim.appendChild(range);
     sim.appendChild(out);
+    sim.appendChild(plusLabel);
+    sim.appendChild(plusOut);
     this.simSelect = sel;
     this.simRange = range;
     this.simOut = out;
+    this.simPlus = plusBox;
+    this.simPlusOut = plusOut;
     return sim;
   },
 
@@ -1786,6 +1886,23 @@ export const view = {
   updateSim(state) {
     const sel = this.simSelect;
     if (!sel || !this.simRange) return;
+    // The Plus scenario does not depend on the slider's target, so it is
+    // written before every early return below — otherwise picking a target
+    // with no game behind it would silently blank it.
+    if (this.simPlus) this.simPlus.checked = Boolean(state.simPlus);
+    if (this.simPlusOut) {
+      const covered = (state.metrics && state.metrics.plusCovered) || 0;
+      const rebuy = (state.metrics && state.metrics.libraryValue) || 0;
+      if (!state.simPlus) {
+        this.simPlusOut.textContent = "";
+      } else if (covered > 0) {
+        const after = Math.max(0, rebuy - covered);
+        this.simPlusOut.textContent =
+          `Re-buy without those: ${money(after, state.currency)} · saved ${money(covered, state.currency)}`;
+      } else {
+        this.simPlusOut.textContent = "No Plus-covered titles priced yet.";
+      }
+    }
     const targets = (state.comparators && state.comparators.worst) || [];
     const sig = targets.map((t) => t.id).join(" ");
     if (sel.dataset.sig !== sig) {
@@ -2116,6 +2233,13 @@ export const view = {
     fmt("kpi-regret", metrics.regretScore == null ? "—" : `${(metrics.regretScore * 100).toFixed(1)} %`);
     fmt("kpi-vph", metrics.valuePerHour == null ? "—" : perHour(metrics.valuePerHour, cur));
     fmt("kpi-hours", hours(metrics.totalHours ?? 0));
+    // The coverage figure is the library's; the paid figure is the visitor's.
+    // Both show a dash until they exist, and neither feeds the other.
+    fmt("kpi-plus", metrics.plusCovered ? money(metrics.plusCovered, cur) : "—");
+    const paid = paidPlusFigure();
+    fmt("kpi-paid", paid ? money(paid.amount, paid.currency) : "—");
+    const since = container.querySelector("#kpi-paid-sub .since-year");
+    if (since) since.textContent = paid && paid.since ? ` · since ${paid.since}` : "";
     // Add-on spend is its own line (see computeRegret); the card only shows
     // when the library actually owns DLC, so a game-only shelf stays a clean
     // five-tile grid instead of a zeroed sixth.
