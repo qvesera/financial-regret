@@ -1089,6 +1089,8 @@ export const view = {
     let ringSvg = null;
     let regretCard = null;
     let dlcCard = null;
+    let plusCard = null;
+    let paidCard = null;
     [
       ["kpi-high", "Highest ever value", "all-time high"],
       ["kpi-low", "Lowest ever value", "all-time low"],
@@ -1138,11 +1140,15 @@ export const view = {
         // The add-on card is captured by reference so renderKpis can show/hide
         // it without a DOM walk (the test stub has no .closest()).
         if (id === "kpi-dlc") dlcCard = card;
+        if (id === "kpi-plus") plusCard = card;
+        if (id === "kpi-paid") paidCard = card;
         kpi.appendChild(card);
       }
     });
     hero.appendChild(kpi);
     this.dlcCard = dlcCard;
+    this.plusCard = plusCard;
+    this.paidCard = paidCard;
 
     const summary = this.el("div", "dash-grid");
     summary.appendChild(hero);
@@ -1457,7 +1463,7 @@ export const view = {
     // Prices with the visitor's own figures layered in: the table, the pies and
     // the cards must show the same numbers the metrics were computed from.
     const prices = state.pricesEff || state.prices;
-    this.renderKpis(this.kpi, metrics);
+    this.renderKpis(this.kpi, metrics, state);
     this.renderRegretRing(this.ringSvg, metrics.regretScore);
     this.renderPlatforms(this.platformList, state.games, prices, state.platform);
     this.renderVerdicts(this.verdictList, state);
@@ -2220,7 +2226,7 @@ export const view = {
   },
 
 
-  renderKpis(container, metrics) {
+  renderKpis(container, metrics, state) {
     if (!container) return;
     const cur = this.currency;
     const fmt = (id, val) => {
@@ -2247,6 +2253,13 @@ export const view = {
       this.dlcCard.hidden = !metrics.dlcCount;
       fmt("kpi-dlc", money(metrics.dlcValue ?? 0, cur));
     }
+    // Both PlayStation figures are facts about a PlayStation account: with no
+    // link there is no library for them to describe and no input on the keys
+    // card to fill either, so they are not shown at all rather than sitting
+    // there as two dashes.
+    const psLinked = Boolean(state && state.accounts && state.accounts.psn);
+    if (this.plusCard) this.plusCard.hidden = !psLinked;
+    if (this.paidCard) this.paidCard.hidden = !psLinked;
     const vlab = container.querySelector("#kpi-vph-label");
     if (vlab) vlab.textContent = `${symbol(cur)} / hour`;
   },
