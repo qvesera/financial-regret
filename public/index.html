@@ -3,14 +3,62 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>regret · your game library</title>
+  <meta name="description" content="The games you bought, the hours you didn't, the ownership you never had. Connect Steam, GOG, Epic, Amazon Luna and PlayStation to compare spend vs playtime — regret score, backlog value and price-per-hour in any currency. Free, no setup.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://financial-regret.vercel.app/">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://financial-regret.vercel.app/">
+  <meta property="og:title" content="Game Library Regret Calculator — What Your Unplayed Games Cost">
+  <meta property="og:description" content="The games you bought, the hours you didn't, the ownership you never had. See spend vs playtime, regret score, backlog value and price-per-hour. Free, no setup.">
+  <meta property="og:site_name" content="financial-regret">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="https://financial-regret.vercel.app/favicon.svg">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Game Library Regret Calculator — What Your Unplayed Games Cost">
+  <meta name="twitter:description" content="The games you bought, the hours you didn't, the ownership you never had.">
+
+  <!-- JSON-LD structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "financial-regret",
+    "alternateName": "Game Library Regret Calculator",
+    "url": "https://financial-regret.vercel.app/",
+    "description": "The games you bought, the hours you didn't, the ownership you never had. A browser-based dashboard that compares game library spend vs playtime across Steam, GOG, Epic, Amazon Luna and PlayStation.",
+    "applicationCategory": "FinanceApplication",
+    "operatingSystem": "Web Browser",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "qvesera" }
+  }
+  </script>
+
+  <title>Game Library Regret Calculator — What Your Unplayed Games Cost</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- First tab stop: jump straight past the chrome to the dashboard. -->
   <a class="skip" href="#main">Skip to library</a>
+
+  <header id="site-header">
+    <h1>financial-regret — game library spend vs playtime</h1>
+    <p><strong>The games you bought, the hours you didn't, the ownership you never had.</strong></p>
+    <p>Connect Steam, GOG, Epic, Amazon Luna and PlayStation. See what your unplayed games cost per hour, your regret score and backlog value — in any currency. Free, no setup, nothing stored.</p>
+  </header>
+
   <div id="app"></div>
+
+  <noscript>
+    <div class="noscript">
+      <h2>JavaScript is required</h2>
+      <p>financial-regret is a browser-based dashboard that compares what you've spent on games against what you've actually played them. Connect your Steam, GOG, Epic Games, Amazon Luna and PlayStation accounts to see your library value, backlog value, regret score and price-per-hour in any currency. No account data is stored — everything runs in your browser.</p>
+    </div>
+  </noscript>
+
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
