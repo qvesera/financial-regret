@@ -29,7 +29,8 @@ export async function fetchSteamGames(steamId) {
   const data = await resp.json();
   if (data.error) throw new Error(data.error);
   // persona: the account's display name, for signing shared cards.
-  return { games: data.games || [], persona: data.persona || null };
+  // privacy_note is provided by the server when the profile is private.
+  return { games: data.games || [], persona: data.persona || null, privacyNote: data.privacyNote || null };
 }
 
 export async function fetchGogGames() {
