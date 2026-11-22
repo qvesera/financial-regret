@@ -2958,6 +2958,30 @@ test("the Share button waits for a library", async () => {
   assert.ok(btn && btn.hidden === true, "nothing to share before a scan");
 });
 
+test("the hero Share button sits bottom-right of the card and opens the deck", async () => {
+  const { env, mod } = await boot({ seed: withSteam });
+  await settle();
+
+  assert.equal(mod.getState().phase, "ready", "the seed reaches the ready phase");
+  const hero = env.document.getElementById("hero");
+  assert.ok(hero, "the hero card rendered");
+
+  const heroBtn = hero.querySelectorAll("button")
+    .find((b) => b.dataset.action === "share");
+  assert.ok(heroBtn, "the hero card carries a Share button");
+  assert.equal(heroBtn.hidden, false, "the hero Share button is visible");
+  assert.ok(heroBtn.classList.contains("hero-share"), "the hero button is parked bottom-right of the section");
+  assert.ok(heroBtn.classList.contains("share-ready"), "the hero button is filled accent");
+  assert.ok(!heroBtn.classList.contains("share-pulse"), "the hero button is not animated");
+
+  // Clicking it opens the share drawer.
+  heroBtn.dispatch("click");
+  await settle();
+
+  assert.equal(env.document.getElementById("drawer-title").textContent, "Share your card",
+    "clicking the hero Share button opens the share drawer");
+});
+
 test("a shared card link shows the snapshot, not a signup wall", async () => {
   const payload = {
     v: 1, kind: "wrapped", title: "WRAPPED", src: "friend.example", at: Date.now(),

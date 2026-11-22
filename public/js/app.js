@@ -1584,7 +1584,7 @@ function onClick(e) {
       break;
     case "open": openDrawer(t.dataset.id); break;
     case "close-drawer": closeDrawer(); break;
-    case "share": openExporter(); break;
+    case "share": view.clearShareHighlight(); openExporter(); break;
     case "export-kind":
       state.exportKind = t.dataset.kind || "wrapped";
       view.renderExporter(state);
