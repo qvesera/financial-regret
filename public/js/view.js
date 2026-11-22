@@ -1163,6 +1163,14 @@ export const view = {
       }
     });
     hero.appendChild(kpi);
+
+    // A second Share button parked at the bottom-right of the hero section,
+    // beside the total-hours / PS Plus paid cards where the eye lands after the
+    // headline. Base `.button` (filled accent) so it pops on the surface card.
+    this.heroShareBtn = this.el("button", "button hero-share", "Share");
+    this.heroShareBtn.type = "button";
+    this.heroShareBtn.dataset.action = "share";
+    hero.appendChild(this.heroShareBtn);
     this.dlcCard = dlcCard;
     this.plusCard = plusCard;
     this.paidCard = paidCard;
@@ -1411,9 +1419,11 @@ export const view = {
     // Shared-card links are a landing of their own: the visitor came for one
     // picture, so none of the app chrome (or its buttons) comes along.
     const showChrome = state.phase === "ready" || state.phase === "loading";
+    const shareable = state.phase === "ready" && Boolean(state.games && state.games.length);
     this.sources.hidden = !showChrome;
     this.scanBtn.hidden = !showChrome;
-    if (this.exportBtn) this.exportBtn.hidden = !showChrome;
+    if (this.exportBtn) this.exportBtn.hidden = !shareable;
+    if (this.heroShareBtn) this.heroShareBtn.hidden = !shareable;
     // On onboarding the keys card is already on screen — a second shortcut
     // to it in the header would just be noise. Forget is hidden too: there is
     // nothing to forget before anything is linked.
@@ -1465,8 +1475,23 @@ export const view = {
       this.phaseEl.appendChild(r.wrap);
       this._builtPhase = "ready";
     }
+    this.highlightShareButtons(shareable);
     this.updateReady(state);
   },
+
+  /** Show/hide both Share buttons once a library exists: `share-ready`
+   *  (filled accent) whenever shareable, hidden otherwise. No animation. */
+  highlightShareButtons(shareable) {
+    for (const btn of [this.heroShareBtn, this.exportBtn].filter(Boolean)) {
+      btn.hidden = !shareable;
+      if (shareable) btn.classList.add("share-ready");
+      else btn.classList.remove("share-ready");
+    }
+  },
+
+  /** No-op kept for the share action caller: there is no pulse to stop any
+   *  more. `share-ready` stays on while the library exists. */
+  clearShareHighlight() {},
 
   updateReady(state) {
     const { rows, scanning, metrics } = state;

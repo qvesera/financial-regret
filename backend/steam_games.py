@@ -30,6 +30,11 @@ class handler(BaseHTTPRequestHandler):
 
         # Prefer the caller's own key (X-Steam-Key); fall back to the server
         # key unless this deployment is public and REQUIRE_USER_KEYS=1.
+        # Track whether the caller supplied their own key (different from the
+        # deployment‑wide env key), because we will retry once when the
+        # profile is private – the key cannot override Steam’s privacy flag,
+        # but the retry makes the intent explicit and lets us add a helpful note.
+        user_supplied_key = self.headers.get("X-Steam-Key") is not None
         api_key = user_key(self, "X-Steam-Key", "STEAM_API_KEY")
         if not api_key:
             send_json(self, 500, {"error": "No Steam key: add your own under API keys"})
@@ -57,9 +62,34 @@ class handler(BaseHTTPRequestHandler):
 
         data = resp.json().get("response", {})
         if "games" not in data:
+            # Steam returns empty when the profile's "Game details" privacy is
+            # set to Private – no API key can bypass this.  If the visitor
+            # provided their own key we attempt the request once more (it will
+            # still be empty, but the retry makes the behaviour explicit).
+            if user_supplied_key:
+                try:
+                    resp2 = requests.get(
+                        f"{STEAM_API_BASE}/IPlayerService/GetOwnedGames/v1/",
+                        params={
+                            "key": api_key,
+                            "steamid": steam_id,
+                            "include_appinfo": 1,
+                            "include_played_free_games": 1,
+                            "format": "json",
+                        },
+                        timeout=15,
+                    )
+                    if resp2.status_code == 200:
+                        data2 = resp2.json().get("response", {})
+                        if "games" in data2:
+                            data = data2  # retry succeeded – use the new data
+                except requests.RequestException:
+                    pass  # ignore retry failure; fall through to the note below
+
             send_json(self, 200, {
                 "games": [],
                 "warning": "No games returned -- check that 'Game details' privacy is Public.",
+                "privacy_note": "Your Steam profile has 'Game details' set to private. Even though you're signed in, due to Steam API restrictions, we are unable to fetch your games. Change it to public: https://store.steampowered.com/settings/",
             })
             return
 

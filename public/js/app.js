@@ -182,6 +182,7 @@ let state = {
   // The visitor's Steam display name — signs shared cards. Filled by the
   // scan, kept across reloads via the snapshot.
   steamPersona: null,
+  steamPrivacyNote: null,
   // derived: filled in by renderAll before anything reads them
   bench: { samples: 0, p25: null, p50: null, p75: null, p90: null, max: null },
   verdicts: new Map(),
@@ -749,10 +750,11 @@ async function scan() {
   // settles, so the list is honest about which store is slow or broken.
   const specs = [
     acc.steam && ["Steam", async () => {
-      const { games, persona } = await api.fetchSteamGames(localStorage.getItem("steam_id"));
+      const { games, persona, privacyNote } = await api.fetchSteamGames(localStorage.getItem("steam_id"));
       // Signs shared cards with the visitor's Steam name rather than a
       // hostname. Snapshot-restored sessions keep it from the last scan.
       if (persona) state.steamPersona = persona;
+      state.steamPrivacyNote = privacyNote;
       return games;
     }],
     acc.gog && ["GOG", () => api.fetchGogGames()],
@@ -848,6 +850,7 @@ async function scan() {
     if (acc.psn) loadPlusPrice(epoch);
     store.setSnapshot({ games: state.games, prices: state.prices, counts: state.counts,
       currency: state.currency, persona: state.steamPersona,
+      privacyNote: state.steamPrivacyNote,
       notSold: state.notSold, plusIncluded: state.plusIncluded,
       firstPlayed: state.firstPlayed });
   } catch (e) {
@@ -1581,7 +1584,7 @@ function onClick(e) {
       break;
     case "open": openDrawer(t.dataset.id); break;
     case "close-drawer": closeDrawer(); break;
-    case "share": openExporter(); break;
+    case "share": view.clearShareHighlight(); openExporter(); break;
     case "export-kind":
       state.exportKind = t.dataset.kind || "wrapped";
       view.renderExporter(state);

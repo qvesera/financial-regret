@@ -181,8 +181,30 @@ def _product_nodes(payload: dict) -> list:
         nodes.append(default)
     sel = concept.get("selectableProducts")
     products = (sel.get("purchasableProducts") or []) if isinstance(sel, dict) else (sel or [])
+    # Filter out demo/trial products so they don't get priced as real games
+    products = [p for p in products if not _is_demo_product(p)]
     nodes.extend(p for p in products if isinstance(p, dict))
     return nodes
+
+
+def _is_demo_product(product: dict) -> bool:
+    """
+    Return True when the product node represents a PlayStation demo/trial.
+
+    The function checks the most common indicators that Sony's storefront uses:
+      • product.get("type") == "DEMO"
+      • "demo" in product.get("name", "").lower()
+      • product.get("entity") == "TRIAL"
+    If none of these are present we return False (treat as a real game)
+    so we never silently drop a legitimately priced title.
+    """
+    if product.get("type") == "DEMO":
+        return True
+    if "demo" in product.get("name", "").lower():
+        return True
+    if product.get("entity") == "TRIAL":
+        return True
+    return False
 
 
 def _console_of(title_id) -> str | None:
@@ -584,6 +606,12 @@ class handler(BaseHTTPRequestHandler):
         fields_by_id, not_sold, plus_ids, failed, limited = _request_all(
             sorted(rows_by_concept, key=int), locale, currency, concept_console)
 
+        # Concepts that had only demo products (all products filtered out) will
+        # not appear in fields_by_id; collect them so the UI can show a "demo" badge.
+        demoConcepts = sorted(
+            [cid for cid in rows_by_concept if cid not in fields_by_id]
+        )
+
         for concept_id, fields in fields_by_id.items():
             price, high, low = fields
             for gid in rows_by_concept.get(concept_id, []):
@@ -616,6 +644,7 @@ class handler(BaseHTTPRequestHandler):
             prices=prices, highs=highs, lows=lows, resolved=resolved,
             notSold=notSold, plusIncluded=plusIncluded,
             reason=reason,
+            demoConcepts=demoConcepts,
             # `limited` stays as the /api/prices shape answers it -- always empty
             # here. PlayStation spends no key, so there is no refusal that
             # pasting one could fix, and inventing an entry would only send the
