@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 
-from _common import send_json, handle_options
+from _common import send_json, handle_options, is_demo_title
 
 EPIC_OAUTH_HOST = "account-public-service-prod03.ol.epicgames.com"
 EPIC_LIBRARY_HOST = "library-service.live.use1a.on.epicgames.com"
@@ -463,6 +463,8 @@ class handler(BaseHTTPRequestHandler):
                 # The base game's appName, so the client can group the add-on
                 # under the title it extends.
                 game["baseAppId"] = r.get("mainGameAppName") or None
+            elif is_demo_title(title):
+                game["kind"] = "demo"
             games.append(game)
 
         result = {"games": games, "filtered_count": filtered_count, "next_cursor": next_cursor}

@@ -11,7 +11,7 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 
-from _common import send_json, handle_options, user_key
+from _common import send_json, handle_options, user_key, is_demo_title
 
 STEAM_API_BASE = "https://api.steampowered.com"
 
@@ -94,13 +94,19 @@ class handler(BaseHTTPRequestHandler):
             return
 
         # Canonical game row consumed by the client: {id, name, platform, hours, appid}
-        games = [{
-            "id": f"Steam:{g.get('appid')}",
-            "name": g.get("name", f"Unknown (App {g.get('appid')})"),
-            "appid": g.get("appid"),
-            "hours": round(g.get("playtime_forever", 0) / 60, 1),
-            "platform": "Steam",
-        } for g in data["games"]]
+        games = []
+        for g in data["games"]:
+            name = g.get("name", f"Unknown (App {g.get('appid')})")
+            game = {
+                "id": f"Steam:{g.get('appid')}",
+                "name": name,
+                "appid": g.get("appid"),
+                "hours": round(g.get("playtime_forever", 0) / 60, 1),
+                "platform": "Steam",
+            }
+            if is_demo_title(name):
+                game["kind"] = "demo"
+            games.append(game)
 
         # The account's display name rides along: the shared-card caption
         # signs the sharer's persona rather than a hostname. Best-effort —

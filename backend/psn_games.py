@@ -47,7 +47,7 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 
-from _common import send_json, handle_options
+from _common import send_json, handle_options, is_demo_title
 from _psn_auth import refresh_tokens
 
 GAMES_URL = "https://m.np.playstation.com/api/gamelist/v2/users/{}/titles"
@@ -301,10 +301,12 @@ class handler(BaseHTTPRequestHandler):
             })
             return
 
-        games = [
-            {
+        games = []
+        for t in titles:
+            name = t.get("name") or t.get("localizedName") or "PlayStation game"
+            game = {
                 "id": f"PSN:{t.get('titleId') or t.get('name') or 'unknown'}",
-                "name": t.get("name") or t.get("localizedName") or "PlayStation game",
+                "name": name,
                 "platform": "PlayStation",
                 "titleId": t.get("titleId") or None,
                 # PS4 vs PS5 for the console filter: free, because it is the
@@ -316,8 +318,9 @@ class handler(BaseHTTPRequestHandler):
                 "conceptId": _concept_id(t),
                 "hours": iso8601_to_hours(t.get("playDuration")),
             }
-            for t in titles
-        ]
+            if is_demo_title(name):
+                game["kind"] = "demo"
+            games.append(game)
         body = {
             "games": games,
             # The earliest date this account is seen to have played anything:

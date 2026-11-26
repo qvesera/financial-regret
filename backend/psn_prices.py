@@ -606,12 +606,6 @@ class handler(BaseHTTPRequestHandler):
         fields_by_id, not_sold, plus_ids, failed, limited = _request_all(
             sorted(rows_by_concept, key=int), locale, currency, concept_console)
 
-        # Concepts that had only demo products (all products filtered out) will
-        # not appear in fields_by_id; collect them so the UI can show a "demo" badge.
-        demoConcepts = sorted(
-            [cid for cid in rows_by_concept if cid not in fields_by_id]
-        )
-
         for concept_id, fields in fields_by_id.items():
             price, high, low = fields
             for gid in rows_by_concept.get(concept_id, []):
@@ -644,7 +638,6 @@ class handler(BaseHTTPRequestHandler):
             prices=prices, highs=highs, lows=lows, resolved=resolved,
             notSold=notSold, plusIncluded=plusIncluded,
             reason=reason,
-            demoConcepts=demoConcepts,
             # `limited` stays as the /api/prices shape answers it -- always empty
             # here. PlayStation spends no key, so there is no refusal that
             # pasting one could fix, and inventing an entry would only send the
