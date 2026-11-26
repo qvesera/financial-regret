@@ -296,3 +296,52 @@ test("the shell builds the rate-limit note, and setLimitNote keeps its button", 
   view.limitNote = null;   // do not leak into the next test
   view.limitText = null;
 });
+
+test("renders DEMO chip for demo games in table, grid cards, and drawer", () => {
+  installEnv();
+  view.currency = "INR";
+
+  // Table
+  const tbody = document.createElement("tbody");
+  const demoGame = { id: "PSN:123", name: "Stellar Blade Demo", platform: "PlayStation", hours: 2, kind: "demo" };
+  view.renderTable(tbody, [demoGame], { "PSN:123": 0 }, false, new Map([["PSN:123", "free"]]));
+  const chip = tbody.querySelector(".demo-chip");
+  assert.ok(chip, "demo-chip rendered in table row");
+  assert.equal(chip.textContent, "DEMO");
+
+  // Grid
+  const grid = document.createElement("div");
+  view.renderGrid(grid, [demoGame], { "PSN:123": 0 }, false, new Map([["PSN:123", "free"]]));
+  const gridChip = grid.querySelector(".demo-chip");
+  assert.ok(gridChip, "demo-chip rendered in grid card");
+  assert.equal(gridChip.textContent, "DEMO");
+
+  // Drawer
+  const drawerBody = document.createElement("div");
+  view.renderDrawer(drawerBody, demoGame, 0, { currency: "INR", verdicts: new Map([["PSN:123", "free"]]) });
+  const drawerChip = drawerBody.querySelector(".demo-chip");
+  assert.ok(drawerChip, "demo-chip rendered in drawer title");
+  assert.equal(drawerChip.textContent, "DEMO");
+});
+
+test("renders PS+ logo badge on cover art for PS Plus games in grid and drawer", () => {
+  installEnv();
+  view.currency = "INR";
+
+  const plusGame = { id: "PSN:456", name: "Dying Light", platform: "PlayStation", hours: 35.2, plusIncluded: true };
+
+  const grid = document.createElement("div");
+  view.renderGrid(grid, [plusGame], { "PSN:456": 374 }, false, new Map([["PSN:456", "worth"]]));
+  const gridChip = grid.querySelector(".card-plus-chip");
+  const gridLogo = gridChip && gridChip.querySelector(".ps-plus-logo");
+  assert.ok(gridLogo, "ps-plus-logo rendered inside card-plus-chip on grid card");
+  assert.equal(gridLogo.src, "/ps+.png");
+
+  const drawerBody = document.createElement("div");
+  view.renderDrawer(drawerBody, plusGame, 374, { currency: "INR", verdicts: new Map([["PSN:456", "worth"]]) });
+  const drawerChip = drawerBody.querySelector(".card-plus-chip");
+  const drawerLogo = drawerChip && drawerChip.querySelector(".ps-plus-logo");
+  assert.ok(drawerLogo, "ps-plus-logo rendered inside card-plus-chip in drawer");
+  assert.equal(drawerLogo.src, "/ps+.png");
+});
+

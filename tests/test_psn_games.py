@@ -290,6 +290,20 @@ class TestConceptPassthrough(unittest.TestCase):
     def test_a_title_without_the_key_at_all_is_none(self):
         self.assertIsNone(psn_games._concept_id({"titleId": "PPSA00142_00"}))
 
+    def test_demo_title_is_tagged_with_kind_demo(self):
+        page = {"titles": [
+            {"titleId": "CUSA99999", "name": "Resident Evil 4 Chainsaw Demo", "playDuration": "PT1H"},
+            {"titleId": "PPSA11111", "name": "Final Fantasy XVI Demo", "playDuration": "PT2H"},
+            {"titleId": "CUSA22222", "name": "Elden Ring", "playDuration": "PT100H"},
+        ], "totalItemCount": 3, "nextOffset": None}
+        status, body = self._run_page(page)
+        self.assertEqual(status, 200)
+        games = body["games"]
+        self.assertEqual(len(games), 3)
+        self.assertEqual(games[0].get("kind"), "demo")
+        self.assertEqual(games[1].get("kind"), "demo")
+        self.assertIsNone(games[2].get("kind"))
+
 
 if __name__ == "__main__":
     unittest.main()

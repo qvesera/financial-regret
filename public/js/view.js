@@ -705,6 +705,17 @@ export const view = {
     return chip;
   },
 
+  plusBadge() {
+    const badge = this.el("span", "ps-plus-chip card-plus-chip");
+    badge.title = "PS Plus";
+    badge.setAttribute("aria-label", "PS Plus");
+    const img = this.el("img", "ps-plus-logo");
+    img.src = "/ps+.png";
+    img.alt = "PS Plus";
+    badge.appendChild(img);
+    return badge;
+  },
+
   /** Compact per-platform strip in the topbar (ready/loading phases). */
   renderSources(state) {
     const box = this.sources;
@@ -1271,6 +1282,13 @@ export const view = {
     const consoleControl = control("Console", consoleSelect);
     consoleControl.hidden = true;          // hidden until render() proves a reason
     filterSub.appendChild(consoleControl);
+    const excludePlusBtn = this.el("button", "exclude-plus-btn", "Exclude PS Plus");
+    excludePlusBtn.type = "button";
+    excludePlusBtn.dataset.action = "exclude-plus";
+    excludePlusBtn.setAttribute("aria-pressed", "false");
+    excludePlusBtn.title = "Exclude PS Plus games from library totals";
+    excludePlusBtn.hidden = true;
+    filterSub.appendChild(excludePlusBtn);
     // No currency control here: it lives in the header now, once for every
     // screen. Two pickers for one value was two things to keep in sync.
     const viewToggle = this.el("div", "view-toggle");
@@ -1403,7 +1421,7 @@ export const view = {
 
     // `kpi` is the scope renderKpis queries: it must reach #kpi-regret now
     // that the regret card has moved out of the row.
-    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, verdictList, verdictTitle, verdictDots, filterBar, search, sort, platformSelect, consoleSelect, headerCells,
+    return { wrap, kpi: wrap, tabs, tbody, tableWrap, gridWrap, viewToggle, empty, coverage, ringSvg, platformList, verdictList, verdictTitle, verdictDots, filterBar, search, sort, platformSelect, consoleSelect, excludePlusBtn, headerCells,
       pagers: [topPager, bottomPager], panel };
 
   },
@@ -1469,6 +1487,7 @@ export const view = {
         verdictTitle: r.verdictTitle, verdictDots: r.verdictDots,
         filterBar: r.filterBar, search: r.search, sort: r.sort,
         platformSelect: r.platformSelect, consoleSelect: r.consoleSelect,
+        excludePlusBtn: r.excludePlusBtn,
         headerCells: r.headerCells,
         pagers: r.pagers, panel: r.panel,
       });
@@ -1507,7 +1526,10 @@ export const view = {
     const prices = state.pricesEff || state.prices;
     this.renderKpis(this.kpi, metrics, state);
     this.renderRegretRing(this.ringSvg, metrics.regretScore);
-    this.renderPlatforms(this.platformList, state.games, prices, state.platform);
+    const platformGames = state.excludePlus
+      ? (state.games || []).filter((g) => !g.plusIncluded)
+      : (state.games || []);
+    this.renderPlatforms(this.platformList, platformGames, prices, state.platform);
     this.renderVerdicts(this.verdictList, state);
     this.updateHero(state);
     if (this.distBox) this.renderDistribution(state);
@@ -1631,6 +1653,14 @@ export const view = {
         }
         this.consoleSelect.value = state.psConsole || "All";
       }
+    }
+
+    if (this.excludePlusBtn) {
+      const hasPlus = Boolean((state.accounts || {}).psn)
+        && ((state.games || []).some((g) => g.plusIncluded)
+          || Object.keys(state.plusIncluded || {}).length > 0);
+      this.excludePlusBtn.hidden = !hasPlus;
+      this.excludePlusBtn.setAttribute("aria-pressed", String(Boolean(state.excludePlus)));
     }
 
     this.updateTierFacets(state);
@@ -2353,6 +2383,7 @@ export const view = {
             inner.appendChild(this.el("span", null, text));
             // Add-on rows carry a small chip so DLC is legible in the list.
             if (game.kind === "dlc") inner.appendChild(this.el("span", "dlc-chip", "DLC"));
+            if (game.kind === "demo") inner.appendChild(this.el("span", "demo-chip", "DEMO"));
             // And one when the title is owned on another store, so buying a game
             // twice shows in the list instead of only behind a click.
             if (this.dupes.get(game.id)) inner.appendChild(this.dupeChip(this.dupes.get(game.id)));
@@ -2440,6 +2471,12 @@ export const view = {
       if (game.hours != null && game.hours >= 1) {
         art.appendChild(this.el("span", "card-hours", hours(game.hours)));
       }
+      if (game.kind === "demo") {
+        art.appendChild(this.el("span", "demo-chip card-demo-chip", "DEMO"));
+      }
+      if (game.plusIncluded) {
+        art.appendChild(this.plusBadge());
+      }
       // The ear: a title owned on another store wears its marker at the cover's
       // top-right, mirroring the verdict badge at top-left. The platform is
       // already printed on the card, so the marker claims the fact rather than
@@ -2459,9 +2496,6 @@ export const view = {
       // And for a figure of the visitor's own: the card shows the number, so it
       // has to show whose number it is.
       if (game.edited) titleRow.appendChild(this.el("span", "edited-chip", "Edited"));
-      // A Plus catalogue title says so even when it is priced: "you already
-      // have this" is the line a subscriber is scanning for.
-      if (game.plusIncluded) titleRow.appendChild(this.el("span", "ps-plus-chip", "PS Plus"));
       meta.appendChild(titleRow);
       // The band reads today's price against its own history, so it sits
       // directly under the name — above the row it explains.
@@ -2541,11 +2575,17 @@ export const view = {
     const psBand = this.el("span", "ps-band");
     psBand.setAttribute("aria-hidden", "true");
     art.appendChild(psBand);
+    if (game.kind === "demo") {
+      art.appendChild(this.el("span", "demo-chip card-demo-chip", "DEMO"));
+    }
+    if (game.plusIncluded) {
+      art.appendChild(this.plusBadge());
+    }
     head.appendChild(art);
 
     const titles = this.el("div", "drawer-titles");
     const drawerTitle = this.el("h3", "drawer-game-title", game.name);
-    if (game.plusIncluded) drawerTitle.appendChild(this.el("span", "ps-plus-chip", "PS Plus"));
+    if (game.kind === "demo") drawerTitle.appendChild(this.el("span", "demo-chip", "DEMO"));
     titles.appendChild(drawerTitle);
     titles.appendChild(this.el("p", "muted", game.platform));
     head.appendChild(titles);
@@ -2831,6 +2871,7 @@ export const view = {
     const sums = {};
     for (const t of tiers) sums[t] = 0;
     for (const g of state.games || []) {
+      if (state.excludePlus && g.plusIncluded) continue;
       const t = verdicts ? verdicts.get(g.id) : null;
       const p = (state.pricesEff || state.prices || {})[g.id];
       if (t in sums && typeof p === "number") sums[t] += p;

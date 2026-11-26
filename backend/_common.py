@@ -7,6 +7,7 @@ _cors.py). A wildcard is neither needed nor safe for a public host.
 import hmac
 import json
 import os
+import re
 
 from _cors import send_cors
 
@@ -58,6 +59,18 @@ def handle_options(handler) -> None:
 
 def require_user_keys() -> bool:
     return os.environ.get("REQUIRE_USER_KEYS", "0").lower() in ("1", "true", "yes")
+
+
+# Demo/trial detection across all platforms
+_DEMO_RE = re.compile(r"\b(demo|trial|teaser|playtest)\b", re.IGNORECASE)
+
+
+def is_demo_title(name: str | None) -> bool:
+    """Return True if title name matches standalone demo/trial indicators."""
+    if not name or not isinstance(name, str):
+        return False
+    return bool(_DEMO_RE.search(name))
+
 
 
 def user_key(handler, header: str, env_var: str) -> str | None:

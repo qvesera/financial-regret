@@ -75,6 +75,20 @@ describe("computeRegret", () => {
     assert.strictEqual(r.valuePerHour, null);
     assert.strictEqual(r.coverage, null);
   });
+
+  it("excludePlus omits PS Plus games from totals while keeping plusCovered and totalHours", () => {
+    const games = [
+      baseGame({ id: "Steam:1", price: 1000, high: 1200, low: 500, hours: 10 }),
+      baseGame({ id: "PSN:2", platform: "PlayStation", price: 2000, high: 2500, low: 1000, hours: 0, plusIncluded: true }),
+    ];
+    const r = computeRegret(games, { excludePlus: true });
+    assert.strictEqual(r.libraryValue, 1000);
+    assert.strictEqual(r.highestEver, 1200);
+    assert.strictEqual(r.lowestEver, 500);
+    assert.strictEqual(r.backlogValue, 0);
+    assert.strictEqual(r.plusCovered, 2000);
+    assert.strictEqual(r.totalHours, 10);
+  });
 });
 
 describe("sortByPriceDesc", () => {

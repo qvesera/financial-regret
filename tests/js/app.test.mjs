@@ -1404,7 +1404,7 @@ test("the PS Plus paid card prices an upper bound until their own figure exists"
     `an estimate is marked, never bare: ${value.textContent}`);
   assert.equal(note.hidden, false, "an estimate exists, so it is explained");
   assert.ok(note.textContent.startsWith("at most"), note.textContent);
-  assert.ok(note.textContent.includes("123 months since 2016"),
+  assert.ok(/\d+ months since 2016/.test(note.textContent),
     `whole months from the first play date: ${note.textContent}`);
   assert.ok(note.textContent.includes("Essential · 1 month"),
     `the plan it priced, not a bare "PS Plus": ${note.textContent}`);

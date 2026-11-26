@@ -164,6 +164,7 @@ let state = {
   // both are facts about the same answer, and both survive a reload.
   notSold: {},
   plusIncluded: {},
+  excludePlus: Boolean(savedUi.excludePlus),
   tier: "All",
   verdictSlide: "games",
   viewMode: "list",
@@ -561,7 +562,7 @@ function renderAll() {
   // Library-wide too, for the same reason as the cards above — and `state.games`
   // rather than `scored`, because computeRegret pulls add-ons out of the game
   // metrics itself to report them as their own KPI.
-  state.metrics = computeRegret(state.games);
+  state.metrics = computeRegret(state.games, { excludePlus: state.excludePlus });
   state.coverageText = coverageLine();
   // The footer's "not what you actually paid" line is a half-truth once the
   // visitor has entered prices of their own, so say so — only while it is true.
@@ -1543,6 +1544,11 @@ function onClick(e) {
       saveUiState({ tier: state.tier });
       renderAll();
       break;
+    case "exclude-plus":
+      state.excludePlus = !state.excludePlus;
+      saveUiState({ excludePlus: state.excludePlus });
+      renderAll();
+      break;
     case "verdict-slide":
       state.verdictSlide = t.dataset.slide === "value" ? "value" : "games";
       renderAll();
@@ -1778,6 +1784,7 @@ export async function boot() {
   state.viewMode = savedView === "grid" || (savedView == null && window.innerWidth < 700)
     ? "grid" : "list";
   state.tier = savedUi.tier || "All";
+  state.excludePlus = Boolean(savedUi.excludePlus);
   state.edits = store.getEdits();
   loadCoversCache();
   const snap = store.getSnapshot();

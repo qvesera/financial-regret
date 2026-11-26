@@ -1591,9 +1591,9 @@ td.cell-platform { white-space: nowrap; }
 
 .verdict-cell { width: 1%; white-space: nowrap; }
 
-/* Add-on marker. Deliberately muted and separate from the verdict badges —
-   "DLC" is a kind of thing, not a grade, so it never borrows a tier colour. */
-.dlc-chip, .dupe-chip, .edited-chip, .ps-plus-chip {
+/* Add-on and demo markers. Deliberately muted and separate from the verdict badges —
+   "DLC" and "DEMO" are kinds of things, not grades, so they never borrow a tier colour. */
+.dlc-chip, .demo-chip, .dupe-chip, .edited-chip, .ps-plus-chip {
   display: inline-block;
   margin-left: var(--space-2);
   padding: 0 var(--space-1);
@@ -1607,6 +1607,74 @@ td.cell-platform { white-space: nowrap; }
   text-transform: uppercase;
   vertical-align: middle;
   white-space: nowrap;
+}
+
+.demo-chip {
+  border-color: var(--border);
+  color: var(--muted);
+  background: var(--surface-2);
+}
+
+/* Demo badge pinned to bottom-left of cover art on cards and drawer */
+.card-demo-chip {
+  position: absolute;
+  left: var(--space-1);
+  bottom: var(--space-1);
+  z-index: 1;
+  margin-left: 0;
+  padding: 0 var(--space-1);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(2px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: var(--radius-sm);
+}
+
+/* PS Plus badge pinned to top-right of cover art, sitting on top of the PS4/PS5 banner */
+.card-plus-chip {
+  position: absolute;
+  top: 2px;
+  right: var(--space-1);
+  z-index: 2;
+  margin-left: 0;
+  padding: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-sm);
+}
+.ps-plus-logo {
+  display: block;
+  height: 15px;
+  width: auto;
+}
+
+.exclude-plus-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: var(--space-1) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.exclude-plus-btn:hover { background: var(--surface-2); color: var(--text); }
+.exclude-plus-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--surface-2);
+  font-weight: 600;
 }
 
 /* Owned on another store too: the tersest marker available, in the warning red

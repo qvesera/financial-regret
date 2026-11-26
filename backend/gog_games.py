@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler
 
 import requests
 
-from _common import send_json, handle_options
+from _common import send_json, handle_options, is_demo_title
 
 GOG_EMBED_BASE = "https://embed.gog.com"
 GOG_AUTH_BASE = "https://auth.gog.com"
@@ -175,6 +175,8 @@ class handler(BaseHTTPRequestHandler):
             # so a field-name drift can never mislabel a whole library as DLC.
             if _is_dlc(p):
                 game["kind"] = "dlc"
+            elif is_demo_title(title):
+                game["kind"] = "demo"
             games.append(game)
 
         # best-effort playtime probes (concurrent, capped)

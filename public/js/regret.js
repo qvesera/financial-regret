@@ -12,19 +12,20 @@
  * @param {Array<{id:string, name:string, platform:string, price:number|null, high:number|null, low:number|null, hours:number|null, kind?:string}>} games
  * @returns {{libraryValue:number, highestEver:number, lowestEver:number, backlogValue:number, regretScore:number|null, valuePerHour:number|null, totalHours:number, coverage:number|null, knownCount:number, unknownCount:number, dlcValue:number, dlcCount:number}}
  */
-export function computeRegret(games) {
+export function computeRegret(games, { excludePlus = false } = {}) {
   // Add-ons are excluded from every game metric below and tallied on their own.
-  const dlc = games.filter((g) => g.kind === "dlc");
-  games = games.filter((g) => g.kind !== "dlc");
+  const dlc = games.filter((g) => g.kind === "dlc" && !(excludePlus && g.plusIncluded));
+  const baseGames = games.filter((g) => g.kind !== "dlc");
+  const pool = excludePlus ? baseGames.filter((g) => !g.plusIncluded) : baseGames;
 
-  const known = games.filter((g) => g.hours != null);
-  const unknown = games.filter((g) => g.hours == null);
+  const known = pool.filter((g) => g.hours != null);
+  const unknown = pool.filter((g) => g.hours == null);
 
-  const libraryValue = games.reduce((sum, g) => sum + (g.price || 0), 0);
+  const libraryValue = pool.reduce((sum, g) => sum + (g.price || 0), 0);
   // Bounded by each game's all-time high/low; fall back to today's price when
   // ITAD has no historical figure so the band never understates the library.
-  const highestEver = games.reduce((sum, g) => sum + (g.high ?? g.price ?? 0), 0);
-  const lowestEver = games.reduce((sum, g) => sum + (g.low ?? g.price ?? 0), 0);
+  const highestEver = pool.reduce((sum, g) => sum + (g.high ?? g.price ?? 0), 0);
+  const lowestEver = pool.reduce((sum, g) => sum + (g.low ?? g.price ?? 0), 0);
   const knownValue = known.reduce((sum, g) => sum + (g.price || 0), 0);
   const backlogValue = known
     .filter((g) => g.hours < 1)
@@ -36,7 +37,7 @@ export function computeRegret(games) {
 
   // Every hour actually on record — unknown playtime counts as nothing
   // (never as zero-played), so this is the sum of the known hours.
-  const totalHours = games.reduce((sum, g) => sum + (g.hours || 0), 0);
+  const totalHours = baseGames.reduce((sum, g) => sum + (g.hours || 0), 0);
 
   const regretScore = knownValue ? backlogValue / knownValue : null;
   const valuePerHour = playedHours ? playedCost / playedHours : null;
@@ -47,7 +48,7 @@ export function computeRegret(games) {
   // are. Null-ish sum renders as 0 when a library simply has no DLC.
   const dlcValue = dlc.reduce((sum, g) => sum + (g.price || 0), 0);
 
-  const plusCovered = (games || []).reduce((sum, g) =>
+  const plusCovered = (baseGames || []).reduce((sum, g) =>
     sum + (g.plusIncluded && typeof g.price === "number" ? g.price : 0), 0);
 
   return {

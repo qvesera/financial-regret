@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler
 
 import requests
 
-from _common import send_json, handle_options
+from _common import send_json, handle_options, is_demo_title
 
 AMAZON_ENTITLEMENTS_URL = "https://gaming.amazon.com/api/distribution/entitlements"
 GET_ENTITLEMENTS_TARGET = (
@@ -122,6 +122,8 @@ class handler(BaseHTTPRequestHandler):
                     # pointer exists here, so baseAppId stays unset.
                     if _DLC_RE.search(title):
                         game["kind"] = "dlc"
+                    elif is_demo_title(title):
+                        game["kind"] = "demo"
                     games_by_id[pid] = game
                 next_token = data.get("nextToken") if isinstance(data, dict) else None
                 pages += 1
