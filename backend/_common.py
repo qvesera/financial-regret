@@ -18,9 +18,11 @@ from _cors import send_cors
 # the retail band templates served from 'self'. SECURITY.md records each.
 # the cover-art CDNs too: SteamGridDB's uploads, Sony's store portraits,
 # and the band templates from 'self'. SECURITY.md records each of them.
+# Vercel Analytics: vitals.vercel-insights.com (connect-src) and va.vercel-scripts.com (script-src).
 CSP = (
     "default-src 'self'; "
-    "connect-src 'self' https://is.gd; "
+    "connect-src 'self' https://is.gd https://vitals.vercel-insights.com; "
+    "script-src 'self' https://va.vercel-scripts.com; "
     "img-src 'self' data: https://image.api.playstation.com https://cdn2.steamgriddb.com https://cdn.steamgriddb.com; "
     "style-src 'self'; "
     "frame-ancestors 'none'; "

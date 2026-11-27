@@ -5,6 +5,7 @@
  *  #app routes them. Elements are rebuilt whenever the phase changes, so
  *  per-node listeners would silently die — delegation does not.
  */
+import { inject } from '@vercel/analytics';
 import { store } from "./store.js";
 import * as api from "./api.js";
 import { view } from "./view.js";
@@ -14,6 +15,11 @@ import { paintVerdictToy, repaintVerdictToy, setToyAnchor, TOY_GAME } from "./ar
 import { cardSpec, cardBlob, renderCardTo, shareUrl, sharePayload, decodeCard, exportKinds } from "./export.js";
 import { benchmark, contentBench, verdictMap, comparators as rankGames, shareNudge } from "./verdict.js";
 import { applyEdits, parseEdit } from "./edits.js";
+
+// Initialize Vercel Web Analytics (only in real browser environment)
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && window.document === document) {
+  inject();
+}
 
 /** UI state worth keeping across reloads — filters and the what-if setting.
  *  `view_mode` stays in its own key: several tests assert it by name. */
